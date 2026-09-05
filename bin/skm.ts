@@ -10,6 +10,7 @@ import { runBackup, runBackups, runRestore } from "../src/cli/backup";
 import { runPull } from "../src/cli/pull";
 import { runDoctor } from "../src/cli/doctor";
 import { runEval } from "../src/cli/eval";
+import { runRulesInfer } from "../src/cli/rules";
 
 const program = new Command();
 program
@@ -62,6 +63,12 @@ program.command("backup [hosts...]").description("snapshot store + agent dirs on
 program.command("backups [host]").description("list backups").action(runBackups);
 program.command("restore <host> <ts>").description("one-shot restore of a backup on a host").option("-y, --yes", "no confirmation", false).action((host: string, ts: string, o: { yes: boolean }) => runRestore(host, ts, o.yes));
 program.command("doctor").description("spec violations, lint, and startup-context budget per host × agent").action(runDoctor);
+const rules = program.command("rules").description("scope rules helpers");
+rules
+  .command("infer")
+  .description("derive host-level rules from what each reachable host holds today (dry run unless --write)")
+  .option("--write", "replace rules in config.yaml", false)
+  .action((o: { write: boolean }) => runRulesInfer(o.write));
 program
   .command("eval [skills...]")
   .description("ask claude -p / codex exec to rate usefulness, description quality, overlap")

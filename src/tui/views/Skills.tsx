@@ -1,0 +1,98 @@
+import React from "react";
+import { Box, Text } from "ink";
+import { isDesired } from "../../core/scope";
+import { descriptionOf } from "../../core/skill";
+import { agentsOn } from "../../shell/hosts";
+import { type State, cellGlyph, selectedSkill, visibleSkills } from "../state";
+
+const fmtK = (n: number): string => (n >= 10_000 ? `${(n / 1000).toFixed(0)}k` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+
+export const SkillsView = ({ s, width, height }: { s: State; width: number; height: number }): React.ReactElement => {
+  const list = visibleSkills(s);
+  const sel = selectedSkill(s);
+  const listWidth = Math.max(34, Math.floor(width * 0.42));
+  const visibleRows = Math.max(3, height - 3);
+  const start = Math.max(0, Math.min(s.selected - Math.floor(visibleRows / 2), list.length - visibleRows));
+  const window = list.slice(start, start + visibleRows);
+  const nameWidth = Math.min(28, Math.max(10, ...list.map((k) => k.name.length)));
+
+  return (
+    <Box flexDirection="row" flexGrow={1}>
+      <Box flexDirection="column" width={listWidth} borderStyle="single" borderColor={s.focus === "list" ? "cyan" : "gray"} paddingX={1}>
+        <Text color="gray">{`${list.length} skills · sort ${s.sortBy}${s.filter ? ` · filter "${s.filter}"` : ""}`}</Text>
+        {window.map((k, i) => {
+          const idx = start + i;
+          const active = idx === s.selected;
+          const warn = k.violations.length > 0;
+          return (
+            <Text key={k.name} inverse={active}>
+              {`${active ? "▸" : " "} `}
+              <Text color={warn ? "red" : undefined}>{k.name.padEnd(nameWidth).slice(0, nameWidth)}</Text>
+              <Text color="gray">{` ${String(k.cost.descChars).padStart(5)}c ${fmtK(k.cost.bodyTokens).padStart(5)}t`}</Text>
+            </Text>
+          );
+        })}
+      </Box>
+      <Box flexDirection="column" flexGrow={1} borderStyle="single" borderColor={s.focus === "grid" ? "cyan" : "gray"} paddingX={1}>
+        {sel ? <Detail s={s} skill={sel} /> : <Text color="gray">no skill matches</Text>}
+      </Box>
+    </Box>
+  );
+};
+
+const Detail = ({ s, skill }: { s: State; skill: NonNullable<ReturnType<typeof selectedSkill>> }): React.ReactElement => {
+  const agents = s.config.agents;
+  const insights = s.insights.filter((i) => i.skill === skill.name);
+  const ev = s.evals[skill.name];
+  const stale = ev !== undefined && ev.hash !== skill.contentHash;
+  return (
+    <Box flexDirection="column">
+      <Text bold>{skill.name} <Text color="gray">{skill.dir}</Text></Text>
+      <Text wrap="wrap">{descriptionOf(skill) || <Text color="red">(no description)</Text>}</Text>
+      <Text> </Text>
+      <Text>
+        <Text color="gray">listing </Text>{`${skill.cost.descChars}c ≈ ${skill.cost.descTokens}t`}
+        <Text color="gray">  body </Text>{`${fmtK(skill.cost.bodyTokens)}t / ${skill.cost.bodyLines}L`}
+        <Text color="gray">  files </Text>{`${skill.cost.fileCount}`}
+        <Text color="gray">  size </Text>{`${(skill.cost.totalBytes / 1024).toFixed(0)}K`}
+        {skill.cost.descChars > 1536 ? <Text color="yellow">{"  ⚠ over Claude's 1536c cap"}</Text> : null}
+        {skill.cost.bodyTokens > 5000 ? <Text color="yellow">{"  ⚠ body >5k tokens"}</Text> : null}
+      </Text>
+      {skill.violations.length > 0 ? <Text color="red">{`spec: ${skill.violations.map((v) => `${v.field} ${v.kind}`).join(", ")}`}</Text> : null}
+      <Text> </Text>
+      <Text bold>targets <Text color="gray">{s.focus === "grid" ? "(space toggles the highlighted cell)" : "(m to edit)"}</Text></Text>
+      <Text>{"".padEnd(11)}{agents.map((a) => a.padEnd(9)).join("")}</Text>
+      {s.config.hosts.map((h, hi) => (
+        <Text key={h.id}>
+          {h.id.padEnd(11)}
+          {agents.map((a, ai) => {
+            const enabled = agentsOn(s.config, h).some((x) => x.id === a);
+            const desired = enabled && isDesired(s.config, skill.name, h.id, a);
+            const g = enabled ? cellGlyph(s, skill.name, h.id, a, desired) : { glyph: "–", color: "gray" as const };
+            const cursor = s.focus === "grid" && hi === s.grid.host && ai === s.grid.agent;
+            return (
+              <Text key={a} inverse={cursor} color={g.color}>{`${g.glyph}${desired ? "" : ""}`.padEnd(9)}</Text>
+            );
+          })}
+        </Text>
+      ))}
+      <Text color="gray">● linked  ◌ wanted, not linked  ○ not wanted  ▣ real dir  ↗ foreign link  ✗ broken  ? unreachable</Text>
+      {insights.length > 0 ? (
+        <Box flexDirection="column" marginTop={1}>
+          <Text bold>insights</Text>
+          {insights.map((i, n) => (
+            <Text key={n} wrap="truncate-end"><Text color={i.kind === "spec-violation" ? "red" : i.kind === "duplicate" ? "magenta" : "yellow"}>{i.kind}</Text>{` ${i.detail}`}</Text>
+          ))}
+        </Box>
+      ) : null}
+      {ev ? (
+        <Box flexDirection="column" marginTop={1}>
+          <Text bold>eval <Text color="gray">{`${ev.evaluator} ${ev.at.slice(0, 10)}${stale ? " (stale — skill changed)" : ""}`}</Text></Text>
+          <Text>{`useful ${"★".repeat(ev.item.usefulness)}${"☆".repeat(5 - ev.item.usefulness)}  description ${ev.item.description_quality}/5  verdict `}<Text color={ev.item.verdict === "keep" ? "green" : ev.item.verdict === "drop" ? "red" : "yellow"}>{ev.item.verdict}</Text>{ev.item.overlaps.length > 0 ? `  overlaps ${ev.item.overlaps.join(", ")}` : ""}</Text>
+          <Text wrap="wrap" color="gray">{ev.item.reason}</Text>
+          {ev.item.trim_suggestion ? <Text wrap="wrap"><Text color="cyan">suggested: </Text>{ev.item.trim_suggestion}</Text> : null}
+        </Box>
+      ) : null}
+    </Box>
+  );
+};
