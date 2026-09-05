@@ -61,7 +61,7 @@ export const simulateListing = (
   });
   const used = entries.reduce((n, e) => n + e.cappedChars, 0);
   // drop largest first until under budget
-  const dropOrder = [...entries].sort((a, b) => b.cappedChars - a.cappedChars);
+  const dropOrder = [...entries].sort((a, b) => b.cappedChars - a.cappedChars || b.name.localeCompare(a.name));
   const dropped = dropOrder.reduce<{ remaining: number; names: Set<string> }>(
     (acc, e) => (acc.remaining > budget ? { remaining: acc.remaining - e.cappedChars, names: new Set([...acc.names, e.name]) } : acc),
     { remaining: used, names: new Set() },
