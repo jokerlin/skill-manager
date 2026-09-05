@@ -3,7 +3,9 @@
 set -eu
 cd "$(dirname "$0")"
 CONF="${1:-release}"
-swift build -c "$CONF" 2>&1 | tail -3
+LOG="$(mktemp)"
+if ! swift build -c "$CONF" >"$LOG" 2>&1; then grep -E "error:|warning:" "$LOG" | head -20; echo "swift build failed"; rm -f "$LOG"; exit 1; fi
+grep -E "error:" "$LOG" | head -5; rm -f "$LOG"
 BIN=".build/$CONF/Skm"
 APP="dist/Skm.app"
 rm -rf "$APP"

@@ -7,7 +7,7 @@ struct SkmApp: App {
     var body: some Scene {
         WindowGroup("skm") {
             RootView().environmentObject(model)
-                .frame(minWidth: 1000, minHeight: 640)
+                .frame(minWidth: 1120, minHeight: 700)
                 .task { await model.refreshAll() }
         }
         .commands {
@@ -50,10 +50,20 @@ final class AppModel: ObservableObject {
 
     private let engine = Engine.shared
 
+    init() { Snapshot.scheduleIfRequested(self) }
+
     func refreshAll() async {
         await load("loading skills") { self.config = try await self.engine.config(); self.skills = try await self.engine.skills() }
-        await load("checking hosts") { self.hosts = try await self.engine.status(); self.plans = try await self.engine.plan() }
-        await load("doctor") { self.doctor = try await self.engine.doctor(); self.evals = (try? await self.engine.evals()) ?? [] }
+        await load("checking hosts") {
+            // status / plan / doctor each probe the hosts; run them concurrently so startup costs one probe, not three
+            async let status = self.engine.status()
+            async let plans = self.engine.plan()
+            async let doctor = self.engine.doctor()
+            self.hosts = try await status
+            self.plans = try await plans
+            self.doctor = try await doctor
+            self.evals = (try? await self.engine.evals()) ?? []
+        }
     }
 
     func refreshHosts() async {

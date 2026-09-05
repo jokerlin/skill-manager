@@ -33,11 +33,11 @@ struct SkillsView: View {
                 Text("\(visible.count) skills · listing = description chars/tokens, paid every turn · body = SKILL.md tokens/lines, paid on activation")
                     .font(.caption).foregroundStyle(.secondary).padding(6)
             }
-            .frame(minWidth: 480)
+            .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
             Group {
                 if let s = model.skills.first(where: { $0.name == selected }) { SkillDetail(skill: s) } else { ContentUnavailableView("Select a skill", systemImage: "square.stack.3d.up") }
             }
-            .frame(minWidth: 380)
+            .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }
