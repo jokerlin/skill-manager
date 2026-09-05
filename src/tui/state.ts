@@ -83,7 +83,7 @@ export const reduce = (s: State, a: Action): State =>
     .with({ type: "focus" }, ({ focus }) => ({ ...s, focus }))
     .with({ type: "filter" }, ({ text }) => ({ ...s, filter: text, selected: 0 }))
     .with({ type: "editFilter" }, ({ on }) => ({ ...s, editingFilter: on }))
-    .with({ type: "toggleSort" }, () => ({ ...s, sortBy: s.sortBy === "name" ? "cost" : "name", selected: 0 }))
+    .with({ type: "toggleSort" }, (): State => ({ ...s, sortBy: s.sortBy === "name" ? "cost" : "name", selected: 0 }))
     .with({ type: "config" }, ({ config }) => ({ ...s, config }))
     .with({ type: "host" }, ({ id, status }) => ({ ...s, hosts: { ...s.hosts, [id]: status } }))
     .with({ type: "evals" }, ({ evals }) => ({ ...s, evals }))

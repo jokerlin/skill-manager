@@ -21,7 +21,7 @@ export const SyncView = ({ s, height }: { s: State; height: number }): React.Rea
         plan {s.confirmSync ? <Text color="yellow">{`— apply now? y = yes (backup first: ${s.config.backupBeforeApply ? "on" : "off"}), c = toggle replace-conflicts (${s.replaceConflicts ? "ON: real dirs are moved into the backup and replaced by links" : "off: conflicts are left alone"}), any other key = cancel`}</Text> : <Text color="gray">{`(s to apply · replace-conflicts ${s.replaceConflicts ? "ON" : "off"})`}</Text>}
       </Text>
       {lines.slice(0, planRows).map((l, i) => (
-        <Text key={i} color={l.color as "yellow" | "green" | "red" | undefined} bold={l.bold} wrap="truncate-end">{l.text}</Text>
+        <Text key={i} {...(l.color ? { color: l.color } : {})} bold={l.bold} wrap="truncate-end">{l.text}</Text>
       ))}
       {lines.length > planRows ? <Text color="gray">{`… ${lines.length - planRows} more (see skm plan)`}</Text> : null}
       <Text> </Text>

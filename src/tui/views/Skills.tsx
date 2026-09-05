@@ -27,7 +27,7 @@ export const SkillsView = ({ s, width, height }: { s: State; width: number; heig
           return (
             <Text key={k.name} inverse={active}>
               {`${active ? "▸" : " "} `}
-              <Text color={warn ? "red" : undefined}>{k.name.padEnd(nameWidth).slice(0, nameWidth)}</Text>
+              <Text {...(warn ? { color: "red" } : {})}>{k.name.padEnd(nameWidth).slice(0, nameWidth)}</Text>
               <Text color="gray">{` ${String(k.cost.descChars).padStart(5)}c ${fmtK(k.cost.bodyTokens).padStart(5)}t`}</Text>
             </Text>
           );
