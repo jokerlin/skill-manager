@@ -37,7 +37,7 @@ describe("parseProbeOutput", () => {
 
 describe("planHost", () => {
   const inv = (() => { const r = parseProbeOutput(probe, "/home/u/.skm/skills"); if (!r.ok) throw new Error(); return r.value; })();
-  const hub = [{ name: "alpha", hash: "AAA" }, { name: "beta", hash: "NEW" }, { name: "delta", hash: "DDD" }];
+  const hub = [{ name: "alpha", hash: "AAA" }, { name: "beta", hash: "NEW" }, { name: "delta", hash: "DDD" }, { name: "gamma", hash: "GGG" }];
   const agentDirs = { claude: "/home/u/.claude/skills", codex: "/home/u/.agents/skills" };
   const ops = planHost({
     hostId: "devbox", isLocal: false,
@@ -60,6 +60,11 @@ describe("planHost", () => {
   });
   test("remote-only store skills reported", () => {
     expect(of("remote-only")).toEqual([{ op: "remote-only", host: "devbox", skill: "remote-only" }]);
+  });
+  test("a managed link to a skill the hub does not know is left alone", () => {
+    const inv2 = { ...inv, agentDirs: { ...inv.agentDirs, claude: { exists: true, entries: [{ kind: "managed" as const, name: "remote-only", direct: true }] } } };
+    const ops2 = planHost({ hostId: "devbox", isLocal: false, desired: { claude: [] }, inventory: inv2, hubSkills: hub, agentDirs });
+    expect(ops2.filter((o) => o.op === "unlink")).toEqual([]);
   });
   test("ordering: mkdir → rsync → unlink → link", () => {
     const seq = ops.map((o) => o.op).filter((k) => ["mkdir", "rsync-skill", "unlink", "link"].includes(k));

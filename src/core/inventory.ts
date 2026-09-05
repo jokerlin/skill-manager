@@ -40,7 +40,8 @@ const classify = (name: string, kind: string, target: string, raw: string, store
 type Acc = { home: string; stores: string[]; store: { name: string; hash: string }[]; dirs: Record<string, { exists: boolean; entries: Entry[] }>; also: Record<string, Entry[]>; bad: string[] };
 
 /** Parse the TSV emitted by `probeScript`. Pure. */
-export const parseProbeOutput = (text: string, storePath: string): Result<Inventory, ProbeParseError> => {
+export const parseProbeOutput = (text: string, storePath: string | ((home: string) => string)): Result<Inventory, ProbeParseError> => {
+  const storeFor = typeof storePath === "string" ? () => storePath : storePath;
   const acc = text
     .split("\n")
     .filter((l) => l.length > 0)
@@ -49,7 +50,7 @@ export const parseProbeOutput = (text: string, storePath: string): Result<Invent
         const [tag, ...f] = line.split("\t");
         switch (tag) {
           case "meta":
-            if (f[0] === "home" && f[1]) return { ...a, home: f[1] };
+            if (f[0] === "home" && f[1]) return { ...a, home: f[1], stores: [...a.stores, storeFor(f[1])] };
             if (f[0] === "store" && f[1]) return { ...a, stores: [...a.stores, f[1]] };
             return { ...a, bad: [...a.bad, line] };
           case "store":
@@ -73,7 +74,7 @@ export const parseProbeOutput = (text: string, storePath: string): Result<Invent
             return { ...a, bad: [...a.bad, line] };
         }
       },
-      { home: "", stores: [storePath], store: [], dirs: {}, also: {}, bad: [] },
+      { home: "", stores: [], store: [], dirs: {}, also: {}, bad: [] },
     );
   const firstBad = acc.bad[0];
   if (firstBad !== undefined) return err({ kind: "bad-probe", line: firstBad });

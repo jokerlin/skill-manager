@@ -41,9 +41,10 @@ const linkOps = (host: string, agent: string, wanted: readonly string[], inv: In
       }
     });
 
-const unlinkOps = (host: string, agent: string, wanted: ReadonlySet<string>, inv: Inventory): Op[] =>
+/** Only links to skills the hub knows are ours to remove; links to remote-only store skills stay. */
+const unlinkOps = (host: string, agent: string, wanted: ReadonlySet<string>, inv: Inventory, hubNames: ReadonlySet<string>): Op[] =>
   (inv.agentDirs[agent]?.entries ?? [])
-    .filter((e) => e.kind === "managed" && !wanted.has(e.name))
+    .filter((e) => e.kind === "managed" && !wanted.has(e.name) && hubNames.has(e.name))
     .map((e): Op => ({ op: "unlink", host, agent, skill: e.name }));
 
 /** Diff desired state against a host inventory. Pure; deterministic order. */
@@ -69,7 +70,7 @@ export const planHost = (input: PlanInput): Op[] => {
 
   const perAgent: Op[] = agents.flatMap((a) => {
     const wanted = desired[a] ?? [];
-    return [...unlinkOps(hostId, a, new Set(wanted), inventory), ...linkOps(hostId, a, wanted, inventory)];
+    return [...unlinkOps(hostId, a, new Set(wanted), inventory, hubNames), ...linkOps(hostId, a, wanted, inventory)];
   });
 
   const remoteOnly: Op[] = isLocal
