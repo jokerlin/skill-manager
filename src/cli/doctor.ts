@@ -5,9 +5,19 @@ import { isDesired } from "../core/scope";
 import { agentsOn } from "../shell/hosts";
 import { fmtK, out, table, withApp } from "./common";
 
-export const runDoctor = async (): Promise<void> =>
+export const runDoctor = async (o: { json?: boolean } = {}): Promise<void> =>
   withApp(async (app) => {
     const insights = allInsights(app.skills);
+    if (o.json) {
+      const budget = app.config.hosts.flatMap((h) =>
+        agentsOn(app.config, h).map((a) => {
+          const linked = app.skills.filter((s) => isDesired(app.config, s.name, h.id, a.id));
+          const r = simulateListing(a, linked, app.config.contextTokens, a.id === "claude" ? app.claudeOverrides : {});
+          return { host: h.id, agent: a.id, skills: linked.length, usedChars: r.usedChars, tokens: linked.reduce((n, s) => n + s.cost.descTokens, 0), budgetChars: Number.isFinite(r.budgetChars) ? r.budgetChars : null, droppedCount: r.droppedCount, overBy: r.overBy };
+        }),
+      );
+      return out(JSON.stringify({ store: app.storeDir, skillCount: app.skills.length, contextTokens: app.config.contextTokens, budget, insights }, null, 2));
+    }
     out(pc.bold(`store: ${app.storeDir}  ·  ${app.skills.length} skills${app.ignoredDirs.length > 0 ? pc.dim(`  ·  ignored (no SKILL.md): ${app.ignoredDirs.join(" ")}`) : ""}`));
     out("");
     out(pc.bold("startup context per host × agent (listing = name + description of every linked skill)"));

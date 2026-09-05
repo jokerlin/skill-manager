@@ -11,6 +11,7 @@ import { runPull } from "../src/cli/pull";
 import { runDoctor } from "../src/cli/doctor";
 import { runEval } from "../src/cli/eval";
 import { runRulesInfer } from "../src/cli/rules";
+import { runConfigShow, runScope } from "../src/cli/scope";
 
 const program = new Command();
 program
@@ -46,7 +47,7 @@ program
   .option("--host <id>")
   .option("--json", "machine-readable", false)
   .action((o: { host?: string; json: boolean }) => runStatus({ json: o.json, ...(o.host !== undefined ? { host: o.host } : {}) }));
-program.command("plan").description("show the operations sync would perform").option("--host <id>").action((o: { host?: string }) => runPlan(o.host !== undefined ? { host: o.host } : {}));
+program.command("plan").description("show the operations sync would perform").option("--host <id>").option("--json", "machine-readable", false).action((o: { host?: string; json: boolean }) => runPlan({ json: o.json, ...(o.host !== undefined ? { host: o.host } : {}) }));
 program
   .command("sync")
   .description("backup → rsync store → apply symlinks on every host")
@@ -62,7 +63,9 @@ program.command("pull <host> [skills...]").description("copy remote-only skills 
 program.command("backup [hosts...]").description("snapshot store + agent dirs on hosts; writes restore.sh").action(runBackup);
 program.command("backups [host]").description("list backups").action(runBackups);
 program.command("restore <host> <ts>").description("one-shot restore of a backup on a host").option("-y, --yes", "no confirmation", false).action((host: string, ts: string, o: { yes: boolean }) => runRestore(host, ts, o.yes));
-program.command("doctor").description("spec violations, lint, and startup-context budget per host × agent").action(runDoctor);
+program.command("doctor").description("spec violations, lint, and startup-context budget per host × agent").option("--json", "machine-readable", false).action((o: { json: boolean }) => runDoctor({ json: o.json }));
+program.command("scope <skill> <cell> <state>").description("toggle one host/agent cell for a skill: skm scope kb-doc mini/claude off").action(runScope);
+program.command("config").description("print config.yaml").option("--json", "hosts/agents/store summary", false).action((o: { json: boolean }) => runConfigShow(o.json));
 const rules = program.command("rules").description("scope rules helpers");
 rules
   .command("infer")
@@ -77,9 +80,10 @@ program
   .option("--fresh", "ignore cache", false)
   .option("--json", "machine-readable", false)
   .option("--batch <n>", "skills per request", "12")
-  .action((skills: string[], o: { agent?: string; model?: string; fresh: boolean; json: boolean; batch: string }) =>
+  .option("--cached", "only print cached results, never call an LLM", false)
+  .action((skills: string[], o: { agent?: string; model?: string; fresh: boolean; json: boolean; batch: string; cached: boolean }) =>
     runEval(skills, {
-      fresh: o.fresh, json: o.json, batch: Math.max(1, Number(o.batch) || 12),
+      fresh: o.fresh, json: o.json, batch: Math.max(1, Number(o.batch) || 12), cached: o.cached,
       ...(o.agent === "claude" || o.agent === "codex" ? { agent: o.agent } : {}),
       ...(o.model !== undefined ? { model: o.model } : {}),
     }),

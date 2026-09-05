@@ -1,5 +1,5 @@
 import pc from "picocolors";
-import { type Config, type Rule, serializeConfig } from "../core/config";
+import { type Config, type Rule, defaultConfig, serializeConfig } from "../core/config";
 import { none, some } from "../lib/result";
 import { out, saveConfig, withApp } from "./common";
 import { snapshotHosts } from "./status";
@@ -35,6 +35,13 @@ export const compressGlobs = (names: readonly string[], all: readonly string[]):
   return [...globbed.map((p) => `${p}-*`), ...names.filter((n) => !covered.has(n))].sort();
 };
 
+const rulesYaml = (rules: readonly Rule[]): string => {
+  const text = serializeConfig({ ...defaultConfig(), rules });
+  const start = text.indexOf("rules:");
+  const end = text.indexOf("\neval:", start);
+  return text.slice(start, end === -1 ? undefined : end);
+};
+
 export const runRulesInfer = async (write: boolean): Promise<void> =>
   withApp(async (app) => {
     const snaps = await snapshotHosts(app);
@@ -43,8 +50,9 @@ export const runRulesInfer = async (write: boolean): Promise<void> =>
     snaps.forEach((s) => {
       if (!s.result.ok) return;
       const inv = s.result.inventory;
+      // the hub's own store holds the union by definition, so on the local host only agent dirs count
       const names = [
-        ...inv.storeSkills.map((x) => x.name),
+        ...(s.host.ssh.some ? inv.storeSkills.map((x) => x.name) : []),
         ...Object.values(inv.agentDirs).flatMap((d) => d.entries.filter((e) => e.kind !== "file").map((e) => e.name)),
       ];
       names.forEach((n) => presence.set(n, new Set([...(presence.get(n) ?? []), s.host.id])));
@@ -53,7 +61,7 @@ export const runRulesInfer = async (write: boolean): Promise<void> =>
     const next: Config = { ...app.config, rules };
     out(pc.bold(`reachable: ${reachable.join(", ")}${snaps.length > reachable.length ? pc.dim(`  (unreachable: ${snaps.filter((s) => !s.result.ok).map((s) => s.host.id).join(", ")} — they will receive the common core)`) : ""}`));
     out(pc.bold(`${rules.length} rules inferred; ${app.skills.length - rules.reduce((n, r) => n + r.skills.length, 0)} skills go everywhere`));
-    out(serializeConfig({ ...next, hosts: [] }).split("\n").filter((l) => !/^(store|agents|hosts|defaults|eval|contextTokens|backupBeforeApply):/.test(l) && l.trim() !== "hosts: {}").join("\n"));
+    out(rulesYaml(rules));
     if (!write) return out(pc.dim("\n(dry run — pass --write to replace rules in config.yaml)"));
     await saveConfig(app.configPath, next);
     out(pc.green(`\nwrote ${app.configPath}`));

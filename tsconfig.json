@@ -11,7 +11,9 @@
     "skipLibCheck": true,
     "types": ["bun-types"],
     "allowImportingTsExtensions": true,
-    "noEmit": true
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": { "react-devtools-core": ["./src/lib/empty.ts"] }
   },
   "include": ["src", "bin", "tests"]
 }

@@ -10,9 +10,10 @@ import { snapshotHosts } from "./status";
 
 export type SyncOpts = { host?: string; dryRun: boolean; replaceConflicts: boolean; yes: boolean; backup: boolean };
 
-export const runPlan = async (o: { host?: string }): Promise<void> =>
+export const runPlan = async (o: { host?: string; json?: boolean }): Promise<void> =>
   withApp(async (app) => {
     const snaps = await snapshotHosts(app, o.host);
+    if (o.json) return out(JSON.stringify(snaps.map((s) => (s.result.ok ? { host: s.host.id, reachable: true, ops: s.result.ops.map((op) => ({ op: op.op, text: opText(op) })) } : { host: s.host.id, reachable: false, error: hostErrorText(s.result.error), ops: [] })), null, 2));
     snaps.forEach((s) => {
       if (!s.result.ok) return out(`${pc.bold(s.host.id)}: ${pc.red(hostErrorText(s.result.error))}`);
       out(pc.bold(`${s.host.id}: ${s.result.ops.filter(isMutation).length} mutations`));

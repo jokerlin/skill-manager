@@ -4,7 +4,7 @@ import { readEvalCache, writeEvalCache } from "../shell/cache";
 import { evaluators, type EvaluatorId } from "../shell/evaluators";
 import { die, out, table, withApp } from "./common";
 
-export type EvalOpts = { agent?: EvaluatorId; model?: string; fresh: boolean; json: boolean; batch: number };
+export type EvalOpts = { agent?: EvaluatorId; model?: string; fresh: boolean; json: boolean; batch: number; cached?: boolean };
 
 const verdictColor = (v: EvalItem["verdict"]): string =>
   v === "keep" ? pc.green(v) : v === "trim" ? pc.yellow(v) : v === "merge" ? pc.magenta(v) : pc.red(v);
@@ -17,7 +17,7 @@ export const runEval = async (names: string[], o: EvalOpts): Promise<void> =>
     const missing = names.filter((n) => !app.skills.some((s) => s.name === n));
     if (missing.length > 0) return die(`unknown skills: ${missing.join(", ")}`);
     const cache = await readEvalCache(app.skmHome);
-    const stale = targets.filter((s) => o.fresh || cache[s.name]?.hash !== s.contentHash || cache[s.name]?.evaluator !== evaluatorId);
+    const stale = o.cached ? [] : targets.filter((s) => o.fresh || cache[s.name]?.hash !== s.contentHash || cache[s.name]?.evaluator !== evaluatorId);
     if (stale.length > 0) {
       out(pc.dim(`evaluating ${stale.length} skills with ${evaluatorId}${model ? ` (${model})` : ""} in batches of ${o.batch}; ${targets.length - stale.length} cached`));
       const batches = Array.from({ length: Math.ceil(stale.length / o.batch) }, (_, i) => stale.slice(i * o.batch, (i + 1) * o.batch));
