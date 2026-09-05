@@ -74,7 +74,7 @@ backupBeforeApply: true
 | `skm rules infer [--write]` | 从各主机现状推导主机级规则 |
 | `skm backup [hosts…]` / `skm backups [host]` / `skm restore <host> <ts>` | 快照与一键还原 |
 | `skm doctor` | 规范校验、启发式、每个 主机×agent 的 listing 预算模拟 |
-| `skm eval [skills…] [--agent claude\|codex] [--fresh] [--json]` | LLM 评估：有用度、描述质量、重复、建议 |
+| `skm eval [skills…] [--agent claude\|codex] [--fresh] [--cached] [--json] [--batch n]` | LLM 评估：有用度、描述质量、重复、建议；按内容 hash 缓存。claude 先试 `-p --bare`（最省上下文，需要 API key），登录态是订阅时自动回退到普通 `-p`（关掉工具/MCP/skills） |
 
 ## 上下文占用怎么算
 
@@ -101,6 +101,21 @@ backupBeforeApply: true
 - 只删除"指向 store 且 hub 认识该 skill"的软链；真实目录、指向别处的软链、远端独有的 store skill 一律不动（除非 `--replace-conflicts`，且先移入备份）。
 - 主机不可达不影响其他主机。
 - 所有 IO 返回 `Result`，错误为标签联合并穷尽渲染。
+
+## Mac App
+
+`macos/` 是一层 SwiftUI 外壳（macOS 14+），所有逻辑仍在 CLI 里：App 只调用 `skm ... --json`，同步/备份/评估则流式读取 `skm sync -y` 等命令的输出。
+
+```sh
+sh macos/build.sh            # 产出 macos/dist/Skm.app（需要 Xcode 命令行工具；先安装 skm 到 ~/.local/bin）
+open macos/dist/Skm.app
+```
+
+- 左侧 Skills / Hosts / Sync / Insights 与 TUI 的四个视图一一对应；底部是各机器的连通/待同步状态。
+- 选中一个 skill 后，点击右侧 host × agent 格子即可开关作用域（等价于 `skm scope`）。
+- 找不到 CLI 时在 设置（⌘,）里填 `skm` 路径，或 `bun run <repo>/bin/skm.ts`。
+- 无头截图（文档/CI 用，不需要"屏幕录制"权限）：`SKM_SNAPSHOT=/tmp/skm ./macos/dist/Skm.app/Contents/MacOS/Skm` 会写出 `/tmp/skm-{skills,hosts,sync,insights}.png` 后自动退出。
+- TUI 同样可以无头出图：`bun scripts/tui-snapshot.tsx out.txt`。
 
 ## 开发
 
