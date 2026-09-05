@@ -1,0 +1,31 @@
+{
+  "name": "skm",
+  "version": "0.1.0",
+  "description": "Multi-host, multi-agent skill manager: one store, symlinks everywhere, rsync across machines.",
+  "type": "module",
+  "bin": {
+    "skm": "bin/skm.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "dev": "bun run bin/skm.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "bun build --compile bin/skm.ts --outfile dist/skm"
+  },
+  "dependencies": {
+    "commander": "^15.0.0",
+    "gpt-tokenizer": "^4.0.0",
+    "ink": "^7.1.1",
+    "ink-text-input": "^6.0.0",
+    "picocolors": "^1.1.1",
+    "react": "^19.2.8",
+    "ts-pattern": "^5.9.0",
+    "yaml": "^2.9.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.1",
+    "@types/react": "^19.2.18",
+    "ink-testing-library": "^4.0.0",
+    "typescript": "^7.0.2"
+  }
+}
