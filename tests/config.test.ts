@@ -99,7 +99,7 @@ plugins:
   off: { marketplace: claude-extras, enabled: false }
 owned:
   acme: { tool: acme }
-  other: { tool: foo, ensure: "foo install", fallback: none }
+  other: { tool: foo, ensure: "foo install", fallback: none, agents: [claude] }
 `;
   test("parses and round-trips", () => {
     const r = parseConfig(text);
@@ -112,8 +112,8 @@ owned:
     expect(r.value.plugins[2]).toEqual({ name: "bare", marketplace: {}, hosts: { kind: "all" }, agents: { kind: "all" }, enabled: true });
     expect(r.value.plugins[3]?.enabled).toBe(false);
     expect(r.value.owned).toEqual([
-      { skill: "acme", tool: "acme", ensure: { some: false }, fallback: "store" },
-      { skill: "other", tool: "foo", ensure: { some: true, value: "foo install" }, fallback: "none" },
+      { skill: "acme", tool: "acme", ensure: { some: false }, fallback: "store", agents: { some: false } },
+      { skill: "other", tool: "foo", ensure: { some: true, value: "foo install" }, fallback: "none", agents: { some: true, value: ["claude"] } },
     ]);
     expect(parseConfig(serializeConfig(r.value))).toEqual({ ok: true, value: r.value });
     expect(serializeConfig(r.value)).toContain("marketplace: claude-plugins-official");
@@ -124,6 +124,7 @@ owned:
     expect(parseConfig("hosts: { local: {} }\nplugins: [a]").ok).toBe(false);
     expect(parseConfig("hosts: { local: {} }\nowned: { x: { ensure: 1 } }").ok).toBe(false);
     expect(parseConfig("hosts: { local: {} }\nowned: { x: { tool: t, fallback: maybe } }").ok).toBe(false);
+    expect(parseConfig("hosts: { local: {} }\nowned: { x: { tool: t, agents: claude } }").ok).toBe(false);
     expect(parseConfig("hosts: { local: {} }\nplugins: { p: { marketplace: [1] } }").ok).toBe(false);
     expect(parseConfig("hosts: { local: {} }\nplugins: { p: { enabled: maybe } }").ok).toBe(false);
   });

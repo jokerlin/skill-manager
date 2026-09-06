@@ -127,7 +127,7 @@ describe("planHost v2: plugins and owned skills", () => {
     expect(kinds(ops)).toEqual(["plugin-disable:codex:p@mk", "blocked:claude"]);
   });
   test("owned skill with tool present: no link/conflict, ensure when a wanted agent lacks the real dir", () => {
-    const owned = [{ skill: "acme", tool: "acme", command: some("acme self skill install -g -s acme"), fallback: "store" as const }];
+    const owned = [{ skill: "acme", tool: "acme", command: some("acme self skill install -g -s acme"), fallback: "store" as const, agents: none }];
     const present = inv({ claude: { exists: true, entries: [{ kind: "dir", name: "acme" }] }, codex: { exists: true, entries: [{ kind: "dir", name: "acme" }] } }, { acme: "/bin/acme" });
     expect(planHost({ ...base, desired: { claude: ["acme"], codex: ["acme"] }, inventory: present, owned })).toEqual([]);
     const half = inv({ claude: { exists: true, entries: [{ kind: "dir", name: "acme" }] }, codex: { exists: true, entries: [{ kind: "managed", name: "acme", direct: true }] } }, { acme: "/bin/acme" });
@@ -137,8 +137,20 @@ describe("planHost v2: plugins and owned skills", () => {
     const noCmd = planHost({ ...base, desired: { claude: ["acme"] }, inventory: inv(both, { acme: "/bin/acme" }), owned: [{ ...owned[0]!, command: none }] });
     expect(noCmd.map((o) => o.op)).toEqual(["blocked"]);
   });
+  test("owned.agents: the tool writes only those dirs; other agents get the store copy linked like any skill", () => {
+    const owned = [{ skill: "acme", tool: "acme", command: some("acme self skill install -g -s acme"), fallback: "store" as const, agents: some(["claude", "codex"]) }];
+    const dirs = { ...base.agentDirs, pi: "/h/.pi/agent/skills", dsh: "/h/.dsh/skills" };
+    const present = inv({ claude: { exists: true, entries: [{ kind: "dir", name: "acme" }] }, codex: { exists: true, entries: [{ kind: "dir", name: "acme" }] }, pi: { exists: true, entries: [] }, dsh: { exists: true, entries: [] } }, { acme: "/bin/acme" });
+    const ops = planHost({ ...base, agentDirs: dirs, desired: { claude: ["acme"], codex: ["acme"], pi: ["acme"], dsh: ["acme"] }, inventory: present, owned });
+    // writers are satisfied (no ensure); pi and dsh get plain links to the store copy
+    expect(ops.map((o) => (o.op === "link" ? `link:${o.agent}` : o.op)).sort()).toEqual(["link:dsh", "link:pi"]);
+    // a writer missing its real dir still triggers exactly one ensure, and never a link
+    const half = inv({ ...present.agentDirs, codex: { exists: true, entries: [] } }, { acme: "/bin/acme" });
+    const ops2 = planHost({ ...base, agentDirs: dirs, desired: { claude: ["acme"], codex: ["acme"], pi: ["acme"] }, inventory: half, owned });
+    expect(ops2.map((o) => (o.op === "link" ? `link:${o.agent}` : o.op === "owned-ensure" ? `ensure:${o.skill}` : o.op)).sort()).toEqual(["ensure:acme", "link:pi"]);
+  });
   test("owned skill with tool absent: fallback store links the hub copy; fallback none leaves the cell empty and unlinks", () => {
-    const owned = (fallback: "store" | "none") => [{ skill: "acme", tool: "acme", command: none, fallback }];
+    const owned = (fallback: "store" | "none") => [{ skill: "acme", tool: "acme", command: none, fallback, agents: none }];
     const empty = inv(both, {});
     expect(planHost({ ...base, desired: { claude: ["acme"] }, inventory: empty, owned: owned("store") }).map((o) => o.op)).toEqual(["link"]);
     expect(planHost({ ...base, desired: { claude: ["acme"] }, inventory: empty, owned: owned("none") })).toEqual([]);

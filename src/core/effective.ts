@@ -286,7 +286,8 @@ export type Finding =
   | { readonly kind: "stale-cache"; readonly host: string; readonly agent: string; readonly plugin: string; readonly versions: readonly string[] }
   | { readonly kind: "disabled-cached"; readonly host: string; readonly agent: string; readonly plugin: string }
   | { readonly kind: "unloaded-cache"; readonly host: string; readonly agent: string; readonly plugin: string; readonly marketplaceKnown: boolean }
-  | { readonly kind: "version-drift"; readonly plugin: string; readonly cells: readonly { readonly host: string; readonly agent: string; readonly version: string }[] };
+  | { readonly kind: "version-drift"; readonly plugin: string; readonly cells: readonly { readonly host: string; readonly agent: string; readonly version: string }[] }
+  | { readonly kind: "owned-drift"; readonly host: string; readonly name: string; readonly owner: Owner; readonly ownerPath: string; readonly agents: readonly string[]; readonly storeHash: string; readonly ownerHash: string };
 
 const groupBy = <T>(xs: readonly T[], key: (x: T) => string): Map<string, T[]> =>
   xs.reduce((m, x) => { const k = key(x); m.set(k, [...(m.get(k) ?? []), x]); return m; }, new Map<string, T[]>());
@@ -327,6 +328,15 @@ export const hostFindings = (
       ];
     }),
   );
+  // a CLI-owned skill (real dir the tool wrote) that other agents load as a store link: the two copies should match, or the store copy is stale
+  const all = Object.entries(effective).flatMap(([agent, es]) => es.map((e) => ({ agent, e })));
+  const drift = [...groupBy(all, ({ e }) => e.name).entries()].flatMap(([name, g]): Finding[] => {
+    const written = g.find(({ e }) => e.storage.kind === "real-dir" && e.owner !== "skm" && e.owner !== "manual" && e.hash.length > 0);
+    if (written === undefined) return [];
+    const linked = g.filter(({ e }) => e.storage.kind === "store-link" && e.hash.length > 0 && e.hash !== written.e.hash);
+    if (linked.length === 0) return [];
+    return [{ kind: "owned-drift", host, name, owner: written.e.owner, ownerPath: written.e.path, agents: [...new Set(linked.map(({ agent }) => agent))].sort(), storeHash: linked[0]?.e.hash ?? "", ownerHash: written.e.hash }];
+  });
   const skipped = Object.entries(shadowed).flatMap(([agent, ss]): Finding[] =>
     [...groupBy(ss, (x) => `${dirOf(x.winner)}|${dirOf(x.path)}`).values()].map((g): Finding => ({
       kind: "shadowed", host, agent,
@@ -336,7 +346,7 @@ export const hostFindings = (
       dir: dirOf(g[0]?.path ?? ""),
     })),
   );
-  return [...perAgent, ...skipped, ...plugins];
+  return [...perAgent, ...skipped, ...plugins, ...drift];
 };
 
 /** A plugin (by name) active at different versions across hosts or agents. */
@@ -348,6 +358,10 @@ export const driftFindings = (perHost: readonly { readonly host: string; readonl
     .filter(([, g]) => new Set(g.map((c) => c.version)).size > 1)
     .map(([plugin, g]): Finding => ({ kind: "version-drift", plugin, cells: g.map(({ host, agent, version }) => ({ host, agent, version })) }));
 };
+
+/** Findings that concern one agent's view (host-wide ones such as version-drift are excluded; owned-drift names the agents that hold the stale link). */
+export const findingConcerns = (f: Finding, agentId: string): boolean =>
+  f.kind === "version-drift" ? false : f.kind === "owned-drift" ? f.agents.includes(agentId) : f.agent === agentId;
 
 export const findingText = (f: Finding): string => {
   switch (f.kind) {
@@ -367,6 +381,8 @@ export const findingText = (f: Finding): string => {
       return `${f.host}/${f.agent}: ${f.plugin} is a cache leftover — no entry in ${f.agent === "codex" ? "config.toml [plugins]" : "settings.json enabledPlugins / installed_plugins.json"}, so ${f.agent} never loads it${f.marketplaceKnown ? "" : " (its marketplace is not configured either)"}`;
     case "version-drift":
       return `${f.plugin}: ${f.cells.map((c) => `${c.host}/${c.agent}=${c.version}`).join("  ")}`;
+    case "owned-drift":
+      return `${f.host}: the store copy of ${f.name} linked for ${f.agents.join("/")} differs from the ${f.owner}-written ${f.ownerPath} — refresh the store from that dir`;
   }
 };
 

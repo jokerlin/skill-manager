@@ -1,5 +1,5 @@
 import { type Agent, agentById } from "../core/agents";
-import { type Config, type HostConfig, PLUGIN_AGENTS, defaultEnsure, hostAgents, marketplaceFor } from "../core/config";
+import { type Config, type HostConfig, PLUGIN_AGENTS, defaultEnsure, defaultOwnedAgents, hostAgents, marketplaceFor } from "../core/config";
 import { type HostFacts, type PluginState, hostFacts, pluginStates } from "../core/effective";
 import { type Inventory } from "../core/inventory";
 import { type Op, type OwnedRule, type PluginCell, planHost } from "../core/plan";
@@ -49,7 +49,7 @@ export const pluginCellsFor = (c: Config, h: HostConfig, states: Readonly<Record
   );
 
 export const ownedRules = (c: Config): OwnedRule[] =>
-  c.owned.map((o) => ({ skill: o.skill, tool: o.tool, command: o.ensure.some ? o.ensure : defaultEnsure(o.tool, o.skill), fallback: o.fallback }));
+  c.owned.map((o) => ({ skill: o.skill, tool: o.tool, command: o.ensure.some ? o.ensure : defaultEnsure(o.tool, o.skill), fallback: o.fallback, agents: o.agents.some ? o.agents : defaultOwnedAgents(o.tool) }));
 
 /** agent id → marketplaces configured on the host, from the files the probe shipped. */
 export const marketplacesOn = (facts: HostFacts): Record<string, Readonly<Record<string, string>>> => ({ claude: facts.claudeMarketplaces, codex: facts.codex.marketplaces });

@@ -21,7 +21,14 @@ export type Op =
 export type PluginCell = { readonly agent: string; readonly name: string; readonly marketplace: string; readonly wanted: boolean };
 
 /** A CLI-owned skill as it applies to this host. */
-export type OwnedRule = { readonly skill: string; readonly tool: string; readonly command: Option<string>; readonly fallback: "store" | "none" };
+export type OwnedRule = {
+  readonly skill: string;
+  readonly tool: string;
+  readonly command: Option<string>;
+  readonly fallback: "store" | "none";
+  /** agents whose dirs the tool writes; none ⇒ all. Other agents get the store copy linked like any skill. */
+  readonly agents: Option<readonly string[]>;
+};
 
 export type PlanInput = {
   readonly hostId: string;
@@ -74,19 +81,20 @@ const unlinkOps = (host: string, agent: string, wanted: ReadonlySet<string>, inv
     .filter((e) => e.kind === "managed" && !wanted.has(e.name) && hubNames.has(e.name))
     .map((e): Op => ({ op: "unlink", host, agent, skill: e.name }));
 
-const without = (desired: Readonly<Record<string, readonly string[]>>, skill: string): Record<string, readonly string[]> =>
-  Object.fromEntries(Object.entries(desired).map(([a, names]) => [a, names.filter((n) => n !== skill)]));
+const without = (desired: Readonly<Record<string, readonly string[]>>, skill: string, agents?: readonly string[]): Record<string, readonly string[]> =>
+  Object.fromEntries(Object.entries(desired).map(([a, names]) => [a, agents === undefined || agents.includes(a) ? names.filter((n) => n !== skill) : names]));
 
 /**
- * CLI-owned skills: where the tool exists the tool writes the dirs (skm stays out and asks the tool to ensure them);
- * where it is absent, either fall back to linking the store copy or leave the cells empty.
+ * CLI-owned skills: where the tool exists the tool writes the dirs it knows (skm stays out and asks the tool to ensure them)
+ * and skm links the store copy for the other agents; where it is absent, either fall back to linking the store copy or leave the cells empty.
  */
 const ownedAdjust = (
   host: string, desired: Readonly<Record<string, readonly string[]>>, inv: Inventory, owned: readonly OwnedRule[], tools: Readonly<Record<string, string>>, hubNames: ReadonlySet<string>,
 ): { desired: Readonly<Record<string, readonly string[]>>; ops: Op[] } =>
   owned.reduce<{ desired: Readonly<Record<string, readonly string[]>>; ops: Op[] }>(
     (acc, o) => {
-      const wantedAgents = Object.entries(acc.desired).filter(([, names]) => names.includes(o.skill)).map(([a]) => a);
+      const writes = (a: string): boolean => !o.agents.some || o.agents.value.includes(a);
+      const wantedAgents = Object.entries(acc.desired).filter(([, names]) => names.includes(o.skill)).map(([a]) => a).filter(writes);
       if (wantedAgents.length === 0) return acc;
       if (tools[o.tool] === undefined) return o.fallback === "store" && hubNames.has(o.skill) ? acc : { ...acc, desired: without(acc.desired, o.skill) };
       const missing = wantedAgents.filter((a) => entryFor(inv, a, o.skill)?.kind !== "dir");
@@ -94,7 +102,7 @@ const ownedAdjust = (
         missing.length === 0 ? []
         : o.command.some ? [{ op: "owned-ensure", host, skill: o.skill, tool: o.tool, command: o.command.value }]
         : [{ op: "blocked", host, agent: missing.join("+"), what: `owned ${o.skill}`, reason: `no ensure command known for ${o.tool}; add owned.${o.skill}.ensure` }];
-      return { desired: without(acc.desired, o.skill), ops: [...acc.ops, ...ops] };
+      return { desired: without(acc.desired, o.skill, wantedAgents), ops: [...acc.ops, ...ops] };
     },
     { desired, ops: [] },
   );

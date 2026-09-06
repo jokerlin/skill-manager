@@ -141,6 +141,21 @@ describe("findings", () => {
     expect(unloaded.map(findingText)[0]).toContain("marketplace is not configured");
     expect(states.codex.map((p) => `${p.id}:${p.configured ? "configured" : "unconfigured"}`)).toEqual(["implicit@mk:unconfigured", "off@mk:configured", "superpowers@mk:configured"]);
   });
+  test("owned-drift: a store copy linked for pi differs from the acme-written claude dir; identical copies are quiet", () => {
+    const withPi = (hash: string): Inventory => ({
+      ...inv,
+      storeSkills: [...inv.storeSkills, { name: "acme", hash }],
+      agentDirs: { ...inv.agentDirs, pi: { exists: true, entries: [{ kind: "managed", name: "acme", direct: true, hash }] } },
+      docs: { ...inv.docs, [hash]: md("acme", "store copy") },
+    });
+    const stale = withPi("H-acme-store");
+    const fs = hostFindings("local", { claude: effectiveFor(stale, hostFacts(stale), agent("claude")), pi: effectiveFor(stale, hostFacts(stale), agent("pi")) }, {});
+    const d = fs.find((x) => x.kind === "owned-drift");
+    expect(d).toMatchObject({ kind: "owned-drift", host: "local", name: "acme", owner: "acme", ownerPath: "/h/.claude/skills/acme", agents: ["pi"], storeHash: "H-acme-store", ownerHash: "H-acme" });
+    expect(d && findingText(d)).toContain("differs from the acme-written /h/.claude/skills/acme");
+    const fresh = withPi("H-acme");
+    expect(hostFindings("local", { claude: effectiveFor(fresh, hostFacts(fresh), agent("claude")), pi: effectiveFor(fresh, hostFacts(fresh), agent("pi")) }, {}).filter((x) => x.kind === "owned-drift")).toEqual([]);
+  });
   test("store skill reachable from two scanned dirs collapses into one linked-twice finding; a real copy elsewhere is same-content", () => {
     const twice: Inventory = { ...inv, alsoReads: { codex: [{ kind: "managed", name: "check", direct: true, hash: "H-check" }, { kind: "dir", name: "copy-of-check", hash: "H-check" }] }, alsoDirs: { codex: { check: "/h/.codex/skills", "copy-of-check": "/h/.codex/skills" } } };
     const f2 = hostFacts(twice);

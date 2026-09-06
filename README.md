@@ -58,8 +58,8 @@ plugins:                                    # v2：期望状态扩展到 plugin�
   superpowers: { marketplace: claude-plugins-official, agents: { only: [claude, codex] } }
   linear-cli: { marketplace: { claude: linear-cli, codex: linear-cli }, hosts: { except: [home-mini] } }
   humanizer: { marketplace: claude-extras, enabled: false }   # enabled: false：凡是装了的主机都关掉，不看 hosts/agents 选择器；把"禁用"记在 skm 里而不是手改 config.toml
-owned:                                      # v2：某个 CLI 自带的 skill（真实目录），skm 不软链，只核对
-  acme: { tool: acme }              # ensure 默认 `acme self skill install -g -s acme`；fallback: store|none
+owned:                                      # v2：某个 CLI 自带的 skill（真实目录），skm 在它写的目录里不软链，只核对
+  acme: { tool: acme, agents: [claude, codex] }   # agents = 这个 CLI 自己会写的目录（acme 默认就是 claude/codex），其余 agent（pi/dsh）由 skm 链接 store 副本；ensure 默认 `acme self skill install -g -s acme`；fallback: store|none
 eval: { agent: claude }                     # 或 codex；model 可选
 contextTokens: 1000000                      # 预算模拟的兜底上下文：Claude 按各主机 settings.json 的 model、Codex 按 config.toml 的 model 在 `codex debug models` 目录里的窗口（没写 model 时取目录的默认预设）推断，认不出时才用它
 backupBeforeApply: true
@@ -102,6 +102,7 @@ backupBeforeApply: true
 - `linked-twice`：两个目录都软链到 store，同一批 skill 被加载两次（Codex 的 `~/.agents/skills` + `~/.codex/skills`）。
 - `shadowed`：agent 按名字去重时（dsh：`~/.dsh/skills` 先于 `~/.agents/skills`），另一目录里的同名副本不会加载，也不计入预算；只是提示，若两份内容不同会单独列出。
 - `same-content`：不同名但 SKILL.md 完全相同。
+- `owned-drift`：CLI 自己写的目录（如 acme 升级后重写的 `~/.agents/skills/acme`）和链接给其他 agent 的 store 副本内容不一致，提示把 store 副本刷新成 CLI 版本。
 - `stale-cache` / `disabled-cached` / `unloaded-cache`：plugin 缓存里有未生效的旧版本 / 配置里明确关掉但仍占磁盘 / 配置里根本没提（Codex：config.toml 没有 `[plugins."id"]`，多半 marketplace 也没配；Claude：不在 `enabledPlugins` 也不在 `installed_plugins.json`），agent 从不加载的纯缓存残留，例如 Codex 桌面端遗留的 openai-templates、gmail、finances。
 - `version-drift`：同一 plugin 在不同 主机×agent 生效版本不一致。
 
@@ -148,6 +149,7 @@ open macos/dist/Skm.app
 - **Hosts 是主从式**：左边每台主机下一行一个 agent，标签写明「N linked to store / N real dir / N link elsewhere / N broken link / legacy dir / builtin / from plugins」和 listing 预算；点一行，右边列出这个 agent 启动时加载的每一条 skill（来源、存储、owner、版本、成本）、plugin 列表和相关发现。
 - 颜色约定：description 超过 Claude 的 1536 字符上限、body 超过 5000 token 标橙；预算超出标红。所有 listing/预算数字都是 token。
 - 找不到 CLI 时在 设置（⌘,）里填 `skm` 路径，或 `bun run <repo>/bin/skm.ts`。
+- 安装：`ditto macos/dist/Skm.app /Applications/Skm.app` 一次即可（Raycast / Spotlight 里搜 `skm`）；之后每次 `sh macos/build.sh` 发现 `/Applications/Skm.app` 存在就会顺手替换成新构建。
 - 无头截图（文档/CI 用，不需要"屏幕录制"权限）：`SKM_SNAPSHOT=/tmp/skm ./macos/dist/Skm.app/Contents/MacOS/Skm` 会写出 `/tmp/skm-{skills,hosts,sync,insights}.png` 后自动退出；屏幕锁定或显示器休眠时窗口抓图是空白的，加 `SKM_SNAPSHOT_OFFSCREEN=1` 改走视图层级离屏渲染。
 - TUI 同样可以无头出图：`bun scripts/tui-snapshot.tsx out.txt`。
 

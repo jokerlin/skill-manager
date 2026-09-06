@@ -42,6 +42,7 @@ export type OwnedPolicy = {
   readonly tool: string;
   readonly ensure: Option<string>;             // command run when the dir is missing and the tool exists; default per tool
   readonly fallback: "store" | "none";         // when the tool is absent: link the store copy, or leave the cell empty
+  readonly agents: Option<readonly string[]>;  // agents whose dirs the tool writes itself (default per tool, none ⇒ all); elsewhere skm links the store copy
 };
 
 /** Agents that have a plugin system skm can drive. */
@@ -174,6 +175,11 @@ const parsePlugin = (name: string, v: unknown): Result<PluginPolicy, ConfigError
   return ok({ name, marketplace: marketplace.value, hosts: hosts.value, agents: agents.value, enabled: en ?? true });
 };
 
+const parseOptionalSelectorList = (v: unknown, path: string): Result<Option<readonly string[]>, ConfigError> => {
+  const r = parseStringList(v, path);
+  return r.ok ? ok(some(r.value)) : r;
+};
+
 const parseOwned = (skill: string, v: unknown): Result<OwnedPolicy, ConfigError> => {
   const path = `owned.${skill}`;
   if (!isRecord(v)) return err(shape(path, "expected a map with tool:"));
@@ -183,7 +189,9 @@ const parseOwned = (skill: string, v: unknown): Result<OwnedPolicy, ConfigError>
   if (ensure !== undefined && typeof ensure !== "string") return err(shape(`${path}.ensure`, "expected a shell command string"));
   const fallback = v["fallback"] ?? "store";
   if (fallback !== "store" && fallback !== "none") return err(shape(`${path}.fallback`, "expected store or none"));
-  return ok({ skill, tool, ensure: ensure === undefined ? none : some(ensure), fallback });
+  const agents: Result<Option<readonly string[]>, ConfigError> = v["agents"] === undefined ? ok(none) : parseOptionalSelectorList(v["agents"], `${path}.agents`);
+  if (!agents.ok) return agents;
+  return ok({ skill, tool, ensure: ensure === undefined ? none : some(ensure), fallback, agents: agents.value });
 };
 
 const sequence = <T>(rs: readonly Result<T, ConfigError>[]): Result<T[], ConfigError> =>
@@ -286,7 +294,7 @@ const pluginToRaw = (p: PluginPolicy): Raw => {
   return { ...mk, ...(p.hosts.kind === "all" ? {} : { hosts: selectorToRaw(p.hosts) }), ...(p.agents.kind === "all" ? {} : { agents: selectorToRaw(p.agents) }), ...(p.enabled ? {} : { enabled: false }) };
 };
 
-const ownedToRaw = (o: OwnedPolicy): Raw => ({ tool: o.tool, ...(o.ensure.some ? { ensure: o.ensure.value } : {}), ...(o.fallback === "store" ? {} : { fallback: o.fallback }) });
+const ownedToRaw = (o: OwnedPolicy): Raw => ({ tool: o.tool, ...(o.ensure.some ? { ensure: o.ensure.value } : {}), ...(o.fallback === "store" ? {} : { fallback: o.fallback }), ...(o.agents.some ? { agents: [...o.agents.value] } : {}) });
 
 const hostToRaw = (h: HostConfig): Raw => ({
   ...(h.ssh.some ? { ssh: h.ssh.value } : {}),
@@ -326,6 +334,10 @@ export const marketplaceFor = (p: PluginPolicy, agentId: string): Option<string>
 /** Built-in `ensure` commands for known CLI-owned skills. */
 export const defaultEnsure = (tool: string, skill: string): Option<string> =>
   tool === "acme" ? some(`acme self skill install -g -s ${skill}`) : none;
+
+/** Agent dirs a known CLI writes by itself (acme 0.144: ~/.claude/skills, ~/.agents/skills, ~/.cursor/skills); none ⇒ assume every agent. */
+export const defaultOwnedAgents = (tool: string): Option<readonly string[]> =>
+  tool === "acme" ? some(["claude", "codex"]) : none;
 
 export const configErrorText = (e: ConfigError): string => {
   switch (e.kind) {

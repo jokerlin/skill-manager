@@ -1,6 +1,6 @@
 import pc from "picocolors";
 import { trimText } from "../core/budget";
-import { findingText } from "../core/effective";
+import { findingConcerns, findingText } from "../core/effective";
 import { sourceText, storageText } from "../core/sources";
 import { agentsOn } from "../shell/hosts";
 import { hostErrorText } from "../shell/probe";
@@ -29,7 +29,7 @@ export const runInventory = async (o: InventoryOpts): Promise<void> =>
           entries: (v.effective[agent.id] ?? []).map(effectiveJson),
           counts: v.counts[agent.id], budget: budgetJson(v.budget[agent.id]),
           plugins: (v.states[agent.id] ?? []).map(pluginJson),
-          findings: v.findings.filter((f) => f.kind !== "version-drift" && f.agent === agent.id).map((f) => ({ kind: f.kind, text: findingText(f) })),
+          findings: v.findings.filter((f) => findingConcerns(f, agent.id)).map((f) => ({ kind: f.kind, text: findingText(f) })),
         };
       }), null, 2));
     }
@@ -52,7 +52,7 @@ export const runInventory = async (o: InventoryOpts): Promise<void> =>
         `${e.bodyTokens}t`,
       ]);
       out(table(["skill", "source", "storage", "owner", "version", "listing", "body"], rows));
-      const local = v.findings.filter((f) => f.kind !== "version-drift" && f.agent === agent.id);
+      const local = v.findings.filter((f) => findingConcerns(f, agent.id));
       local.forEach((f) => out(`  ${f.kind === "same-name" ? pc.yellow(f.kind) : f.kind === "same-content" ? pc.magenta(f.kind) : pc.dim(f.kind)}  ${findingText(f)}`));
       out("");
     });

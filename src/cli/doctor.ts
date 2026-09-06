@@ -57,6 +57,7 @@ const findingColor = (f: Finding): string => {
     case "stale-cache": return pc.dim(f.kind);
     case "disabled-cached": return pc.dim(f.kind);
     case "unloaded-cache": return pc.dim(f.kind);
+    case "owned-drift": return pc.yellow(f.kind);
   }
 };
 
@@ -73,7 +74,7 @@ export const runDoctor = async (o: DoctorOpts = {}): Promise<void> =>
       return out(JSON.stringify({
         store: app.storeDir, skillCount: app.skills.length, contextTokens: app.config.contextTokens,
         budget, insights,
-        findings: findings.map((f) => ({ kind: f.kind, text: findingText(f), ...("host" in f ? { host: f.host, agent: f.agent } : {}) })),
+        findings: findings.map((f) => ({ kind: f.kind, text: findingText(f), ...("host" in f ? { host: f.host } : {}), ...("agent" in f ? { agent: f.agent } : {}), ...(f.kind === "owned-drift" ? { agents: f.agents } : {}) })),
         unreachable: unreachable.map((s) => ({ host: s.host.id, error: s.result.ok ? "" : hostErrorText(s.result.error) })),
       }, null, 2));
     }
