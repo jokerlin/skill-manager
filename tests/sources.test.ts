@@ -20,6 +20,18 @@ describe("claude files", () => {
     expect(r.value.fraction).toBe(0.02);
     expect(r.value.maxDescChars).toBeUndefined();
   });
+  test("settings.json model + env drive the listing window", () => {
+    const r = parseClaudeSettings(JSON.stringify({ model: "fable", env: { CLAUDE_CODE_DISABLE_1M_CONTEXT: "1", SLASH_COMMAND_TOOL_CHAR_BUDGET: "2000", OTHER: "x" } }));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.model).toEqual({ some: true, value: "fable" });
+    expect(r.value.disable1m).toBe(true);
+    expect(r.value.fixedChars).toBe(2000);
+    const off = parseClaudeSettings(JSON.stringify({ env: { CLAUDE_CODE_DISABLE_1M_CONTEXT: "0", SLASH_COMMAND_TOOL_CHAR_BUDGET: "nope" } }));
+    expect(off.ok && off.value.model.some).toBe(false);
+    expect(off.ok && off.value.disable1m).toBe(false);
+    expect(off.ok && off.value.fixedChars).toBeUndefined();
+  });
   test("settings.json without enabledPlugins", () => {
     const r = parseClaudeSettings("{}");
     expect(r.ok && r.value.enabledPlugins).toEqual({});

@@ -49,6 +49,12 @@ describe("hostFacts", () => {
     expect(f.locks.acme.has("acme")).toBe(true);
     expect(f.acmeVersions["acme"]).toBe("0.144.0");
     expect(f.errors).toEqual([]);
+    expect(f.claudeModel.some).toBe(false);
+    expect(f.claudeDisable1m).toBe(false);
+    const modelled = hostFacts({ ...inv, files: { "claude-settings": JSON.stringify({ model: "fable", env: { CLAUDE_CODE_DISABLE_1M_CONTEXT: "true", SLASH_COMMAND_TOOL_CHAR_BUDGET: "1500" } }) } });
+    expect(modelled.claudeModel).toEqual({ some: true, value: "fable" });
+    expect(modelled.claudeDisable1m).toBe(true);
+    expect(modelled.claudeOverrides.fixedChars).toBe(1500);
     const broken = hostFacts({ ...inv, files: { "claude-settings": "{" } });
     expect(broken.errors.length).toBe(1);
     expect(broken.claudeEnabled).toEqual({});

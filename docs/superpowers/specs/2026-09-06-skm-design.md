@@ -27,7 +27,7 @@
 关键事实（实现依据）：
 
 - Agent Skills 规范：`name` ≤64 字符小写连字符且须与目录名一致；`description` 1–1024 字符；推荐 SKILL.md 正文 <5000 token、<500 行。
-- Claude Code：listing 字符预算 = 上下文窗口 × `skillListingBudgetFraction`（默认 0.01），单个 skill `description + when_to_use` 上限 `skillListingMaxDescChars`（默认 1536）；超预算时按调用频率丢弃描述。用户级目录 `~/.claude/skills`。
+- Claude Code：listing 字符预算 = 模型上下文 token × 每 token 字符数（老模型 4、Fable/Opus 4.7+/Sonnet 5 为 3）× `skillListingBudgetFraction`（默认 0.01）；上下文由 `settings.json` 的 `model` 决定（Fable 原生 1M），不是 `autoCompactWindow`；`env.SLASH_COMMAND_TOOL_CHAR_BUDGET` 可定死预算。单个 skill `description + when_to_use` 上限 `skillListingMaxDescChars`（默认 1536）；超预算时按调用频率丢弃描述。用户级目录 `~/.claude/skills`。（2026-09-06 修正：此前按「上下文 × 1% 直接当字符」低估 4–15 倍，见 `docs/reports/2026-09-06-listing-budget-fix.md`）
 - Codex：用户级目录 `~/.agents/skills`（跟随软链），listing 预算 = 上下文 2% 或未知时 8000 字符，超出先压缩描述。旧目录 `~/.codex/skills` 中的副本会造成重复加载。
 - Vercel `skills` CLI 的 agent → 目录映射表（见 `src/core/agents.ts`）。
 
@@ -142,7 +142,7 @@ rules:                                                  # 从上到下，后者�
 
 每个 skill：`descChars`、`descTokens`（gpt-tokenizer o200k 估算，标注为估算）、`bodyTokens`、`bodyLines`、`files`、`bytes`。
 
-每个 (host, agent) 汇总：listing 总字符 vs 预算；Claude 规则下超预算时估算会有多少 skill 的描述被丢弃；单 skill 描述超 1536 字符标黄；正文 >5000 token 或 >500 行标黄（规范建议）。Claude 的 `skillListingBudgetFraction / skillListingMaxDescChars` 若在 `~/.claude/settings.json` 中设置则读取。
+每个 (host, agent) 汇总：listing 总字符 vs 预算；Claude 规则下超预算时估算会有多少 skill 的描述被丢弃；单 skill 描述超 1536 字符标黄；正文 >5000 token 或 >500 行标黄（规范建议）。Claude 的 `model`、`skillListingBudgetFraction / skillListingMaxDescChars`、`env.CLAUDE_CODE_DISABLE_1M_CONTEXT`、`env.SLASH_COMMAND_TOOL_CHAR_BUDGET` 均从各主机 `~/.claude/settings.json` 读取（`src/core/claude-model.ts` 解析模型→窗口）；config `contextTokens` 只作兜底。
 
 ### 3.6 评估与推荐
 

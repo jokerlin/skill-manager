@@ -1,5 +1,6 @@
 import type { Agent } from "./agents";
-import { type BudgetOverrides, type BudgetReport, simulateListingOf } from "./budget";
+import { type BudgetOverrides, type BudgetReport, type ListingContext, simulateListingOf } from "./budget";
+import { resolveClaudeWindow } from "./claude-model";
 import { type Effective, type Finding, type HostFacts, type PluginState, effectiveFor, hostFacts, hostFindings, pluginStates, sourceCounts } from "./effective";
 import type { Inventory } from "./inventory";
 import type { Source } from "./sources";
@@ -18,11 +19,20 @@ export type HostView = {
 const overridesFor = (agent: Agent, facts: HostFacts, hub: BudgetOverrides): BudgetOverrides =>
   agent.id === "claude" ? (Object.keys(facts.claudeOverrides).length > 0 ? facts.claudeOverrides : hub) : {};
 
+/** Claude budgets against its model's window (settings.json `model`, env DISABLE_1M); config `contextTokens` is the fallback for unknown models and for other agents. */
+export const contextFor = (agent: Agent, facts: HostFacts, fallbackTokens: number): ListingContext => {
+  if (agent.id !== "claude") return { contextTokens: fallbackTokens, bytesPerToken: 1, reason: "config contextTokens" };
+  const w = resolveClaudeWindow(facts.claudeModel, facts.claudeDisable1m);
+  if (w.some) return w.value;
+  const why = facts.claudeModel.some ? `model "${facts.claudeModel.value}" not recognised` : "no model in settings.json";
+  return { contextTokens: fallbackTokens, bytesPerToken: 3, reason: `${why} → config contextTokens, 3 chars/token` };
+};
+
 export const buildHostView = (hostId: string, agents: readonly Agent[], inv: Inventory, contextTokens: number, hubOverrides: BudgetOverrides = {}): HostView => {
   const facts = hostFacts(inv);
   const states = Object.fromEntries(agents.filter((a) => a.plugins !== undefined).map((a) => [a.id, pluginStates(inv, facts, a.id)]));
   const effective = Object.fromEntries(agents.map((a) => [a.id, effectiveFor(inv, facts, a)]));
-  const budget = Object.fromEntries(agents.map((a) => [a.id, simulateListingOf(a, (effective[a.id] ?? []).map((e) => ({ name: e.name, listing: e.listing })), contextTokens, overridesFor(a, facts, hubOverrides))]));
+  const budget = Object.fromEntries(agents.map((a) => [a.id, simulateListingOf(a, (effective[a.id] ?? []).map((e) => ({ name: e.name, listing: e.listing })), contextFor(a, facts, contextTokens), overridesFor(a, facts, hubOverrides))]));
   const counts = Object.fromEntries(agents.map((a) => [a.id, sourceCounts(effective[a.id] ?? [])]));
   return { facts, states, effective, budget, counts, findings: hostFindings(hostId, effective, states) };
 };

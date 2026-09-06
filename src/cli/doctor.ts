@@ -12,7 +12,11 @@ import { planFor } from "../shell/hosts";
 
 export type DoctorOpts = { json?: boolean; cached?: boolean; host?: string };
 
-type BudgetRow = { host: string; agent: string; skills: number; usedChars: number; tokens: number | null; budgetChars: number | null; droppedCount: number; overBy: number; source: "effective" | "config-only" };
+type BudgetRow = { host: string; agent: string; skills: number; usedChars: number; tokens: number | null; budgetChars: number | null; droppedCount: number; overBy: number; source: "effective" | "config-only"; window: string };
+
+/** "1000000 tokens × 3 chars/token × 1% (fable → claude-fable-5-1, native 1M, 3 chars/token)" — only Claude has a model-derived window. */
+const windowText = (b: { context: { contextTokens: number; bytesPerToken: number; reason: string } } | undefined): string =>
+  b === undefined ? "" : b.context.bytesPerToken > 1 ? `${b.context.contextTokens} tokens × ${b.context.bytesPerToken} chars/token (${b.context.reason})` : `${b.context.contextTokens} tokens (${b.context.reason})`;
 
 /** Budget per host × agent over the effective inventory; falls back to the config-only (store) estimate for unreachable hosts. */
 const budgetRows = (app: Parameters<Parameters<typeof withApp>[0]>[0], snaps: readonly HostSnapshot[]): BudgetRow[] =>
@@ -22,11 +26,12 @@ const budgetRows = (app: Parameters<Parameters<typeof withApp>[0]>[0], snaps: re
       if (snap?.result.ok) {
         const b = snap.result.view.budget[a.id];
         const es = snap.result.view.effective[a.id] ?? [];
-        return { host: h.id, agent: a.id, skills: es.length, usedChars: b?.usedChars ?? 0, tokens: null, budgetChars: b && Number.isFinite(b.budgetChars) ? b.budgetChars : null, droppedCount: b?.droppedCount ?? 0, overBy: b?.overBy ?? 0, source: "effective" };
+        return { host: h.id, agent: a.id, skills: es.length, usedChars: b?.usedChars ?? 0, tokens: null, budgetChars: b && Number.isFinite(b.budgetChars) ? b.budgetChars : null, droppedCount: b?.droppedCount ?? 0, overBy: b?.overBy ?? 0, source: "effective", window: windowText(b) };
       }
       const linked = app.skills.filter((s) => isDesired(app.config, s.name, h.id, a.id));
-      const r = simulateListing(a, linked, app.config.contextTokens, a.id === "claude" ? app.claudeOverrides : {});
-      return { host: h.id, agent: a.id, skills: linked.length, usedChars: r.usedChars, tokens: linked.reduce((n, s) => n + s.cost.descTokens, 0), budgetChars: Number.isFinite(r.budgetChars) ? r.budgetChars : null, droppedCount: r.droppedCount, overBy: r.overBy, source: "config-only" };
+      const ctx = { contextTokens: app.config.contextTokens, bytesPerToken: a.id === "claude" ? 3 : 1, reason: "host not probed → config contextTokens" };
+      const r = simulateListing(a, linked, ctx, a.id === "claude" ? app.claudeOverrides : {});
+      return { host: h.id, agent: a.id, skills: linked.length, usedChars: r.usedChars, tokens: linked.reduce((n, s) => n + s.cost.descTokens, 0), budgetChars: Number.isFinite(r.budgetChars) ? r.budgetChars : null, droppedCount: r.droppedCount, overBy: r.overBy, source: "config-only", window: windowText(r) };
     }),
   );
 
@@ -78,7 +83,8 @@ export const runDoctor = async (o: DoctorOpts = {}): Promise<void> =>
       return [r.host, r.agent, String(r.skills), r.tokens === null ? `${r.usedChars}c` : `${r.usedChars}c / ~${fmtK(r.tokens)}t`, r.budgetChars === null ? "—" : String(r.budgetChars), verdict, r.source === "effective" ? "" : pc.dim("config-only")];
     });
     out(table(["host", "agent", "skills", "listing", "budget(c)", "verdict", ""], rows));
-    out(pc.dim(`context window assumed ${app.config.contextTokens} tokens (config: contextTokens); Claude overrides from each host's ~/.claude/settings.json (hub: ${JSON.stringify(app.claudeOverrides)})`));
+    budget.filter((r) => r.agent === "claude" && r.window !== "").forEach((r) => out(pc.dim(`  ${r.host}/${r.agent}: window ${r.window}`)));
+    out(pc.dim(`Claude: window from each host's ~/.claude/settings.json model/env, 1% of it in chars (chars/token: 4 for Opus/Sonnet ≤4.6 and Haiku, else 3); config contextTokens (${app.config.contextTokens}) is the fallback and Codex's window. Claude Code's own bundled skills are not counted.`));
     out("");
     if (findings.length > 0) {
       out(pc.bold(`${findings.length} cross-source findings`));

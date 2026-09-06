@@ -73,7 +73,7 @@ export const pluginJson = (p: PluginState) => ({
 });
 
 export const budgetJson = (b: HostView["budget"][string] | undefined) =>
-  b === undefined ? null : { usedChars: b.usedChars, budgetChars: Number.isFinite(b.budgetChars) ? b.budgetChars : null, droppedCount: b.droppedCount, overBy: b.overBy, note: b.note };
+  b === undefined ? null : { usedChars: b.usedChars, budgetChars: Number.isFinite(b.budgetChars) ? b.budgetChars : null, droppedCount: b.droppedCount, overBy: b.overBy, note: b.note, context: b.context };
 
 /** What an agent on a host actually loads. v1 fields kept; v2 adds effective/plugins/budget/tools/findings. */
 export const consumedJson = (snap: HostSnapshot, app: AppState) => {

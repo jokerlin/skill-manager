@@ -6,6 +6,7 @@ import { type Entry, type Inventory, entryHash } from "./inventory";
 import {
   type ClaudeInstalled,
   type CodexConfig,
+  EMPTY_CLAUDE_SETTINGS,
   type Enabled,
   type Locks,
   type Owner,
@@ -30,7 +31,10 @@ export type HostFacts = {
   readonly claudeEnabled: Readonly<Record<string, boolean>>;
   readonly claudeInstalled: ClaudeInstalled;
   readonly claudeMarketplaces: Readonly<Record<string, string>>;
-  readonly claudeOverrides: { readonly fraction?: number; readonly maxDescChars?: number };
+  readonly claudeOverrides: { readonly fraction?: number; readonly maxDescChars?: number; readonly fixedChars?: number };
+  /** `model` from settings.json — sizes the window the listing budget is 1% of. */
+  readonly claudeModel: Option<string>;
+  readonly claudeDisable1m: boolean;
   readonly codex: CodexConfig;
   readonly locks: Locks;
   readonly acmeVersions: Readonly<Record<string, string>>;
@@ -50,14 +54,20 @@ export const hostFacts = (inv: Inventory): HostFacts => {
     errors.push(`${id}: ${parseErrorText(r.error as Parameters<typeof parseErrorText>[0])}`);
     return fallback;
   };
-  const settings = use("claude-settings", parseClaudeSettings, { enabledPlugins: {} });
+  const settings = use("claude-settings", parseClaudeSettings, EMPTY_CLAUDE_SETTINGS);
   const acme = use("acme-lock", parseAcmeLock, {});
   const agentsLock = use("agents-lock", parseAgentsLock, {});
   return {
     claudeEnabled: settings.enabledPlugins,
     claudeInstalled: use("claude-installed", parseClaudeInstalled, {}),
     claudeMarketplaces: use("claude-marketplaces", parseClaudeMarketplaces, {}),
-    claudeOverrides: { ...(settings.fraction !== undefined ? { fraction: settings.fraction } : {}), ...(settings.maxDescChars !== undefined ? { maxDescChars: settings.maxDescChars } : {}) },
+    claudeOverrides: {
+      ...(settings.fraction !== undefined ? { fraction: settings.fraction } : {}),
+      ...(settings.maxDescChars !== undefined ? { maxDescChars: settings.maxDescChars } : {}),
+      ...(settings.fixedChars !== undefined ? { fixedChars: settings.fixedChars } : {}),
+    },
+    claudeModel: settings.model,
+    claudeDisable1m: settings.disable1m,
     codex: use("codex-config", parseCodexConfig, EMPTY_CODEX),
     locks: { acme: new Set(Object.keys(acme)), skillsCli: new Set(Object.keys(agentsLock)) },
     acmeVersions: acme,

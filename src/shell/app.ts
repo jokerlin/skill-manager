@@ -2,7 +2,8 @@ import { readFile } from "node:fs/promises";
 import { type Agent, agentById } from "../core/agents";
 import { type Config, type ConfigError, configErrorText, parseConfig } from "../core/config";
 import type { Skill } from "../core/skill";
-import { parseClaudeMarketplaces, parseCodexConfig } from "../core/sources";
+import type { BudgetOverrides } from "../core/budget";
+import { parseClaudeMarketplaces, parseClaudeSettings, parseCodexConfig } from "../core/sources";
 import { type Result, err, ok } from "../lib/result";
 import { expandHome, homeDir, skmHome } from "./paths";
 import { type StoreError, loadStore } from "./store";
@@ -17,7 +18,7 @@ export type AppState = {
   readonly agents: readonly Agent[];  // config.agents resolved
   readonly unknownAgents: readonly string[];
   /** overrides read from ~/.claude/settings.json, if any */
-  readonly claudeOverrides: { readonly fraction?: number; readonly maxDescChars?: number };
+  readonly claudeOverrides: BudgetOverrides;
   /** marketplace name → source, from the hub's own claude/codex config (used to add marketplaces on hosts that lack them) */
   readonly hubMarketplaces: Readonly<Record<string, string>>;
 };
@@ -41,15 +42,13 @@ export const appErrorText = (e: AppError): string => {
 export const readClaudeOverrides = async (home: string = homeDir()): Promise<AppState["claudeOverrides"]> => {
   const text = await readFile(`${home}/.claude/settings.json`, "utf8").catch(() => undefined);
   if (text === undefined) return {};
-  try {
-    const j = JSON.parse(text) as Record<string, unknown>;
-    return {
-      ...(typeof j["skillListingBudgetFraction"] === "number" ? { fraction: j["skillListingBudgetFraction"] } : {}),
-      ...(typeof j["skillListingMaxDescChars"] === "number" ? { maxDescChars: j["skillListingMaxDescChars"] } : {}),
-    };
-  } catch {
-    return {};
-  }
+  const r = parseClaudeSettings(text);
+  if (!r.ok) return {};
+  return {
+    ...(r.value.fraction !== undefined ? { fraction: r.value.fraction } : {}),
+    ...(r.value.maxDescChars !== undefined ? { maxDescChars: r.value.maxDescChars } : {}),
+    ...(r.value.fixedChars !== undefined ? { fixedChars: r.value.fixedChars } : {}),
+  };
 };
 
 /** Marketplaces the hub machine knows, from both agents' config files. Codex entries win on name clashes (they carry full URLs). */

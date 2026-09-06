@@ -60,7 +60,7 @@ plugins:                                    # v2：期望状态扩展到 plugin�
 owned:                                      # v2：某个 CLI 自带的 skill（真实目录），skm 不软链，只核对
   acme: { tool: acme }              # ensure 默认 `acme self skill install -g -s acme`；fallback: store|none
 eval: { agent: claude }                     # 或 codex；model 可选
-contextTokens: 200000                       # 用于上下文预算模拟
+contextTokens: 200000                       # 预算模拟的兜底上下文：Claude 按各主机 settings.json 的 model 自动推断窗口，认不出时用它；Codex 直接用它
 backupBeforeApply: true
 ```
 
@@ -108,7 +108,7 @@ backupBeforeApply: true
 ## 上下文占用怎么算
 
 - **listing**（每轮都付）：`description + when_to_use` 的字符数与估算 token（o200k 编码，仅供比较）。v2 的 `status / inventory / doctor` 按有效清单（含 plugin、内置、旧目录）算，主机不可达时才退回只按 store 估。
-  - Claude Code：总预算 = 上下文 × `skillListingBudgetFraction`（默认 1%）字符，单个 skill 上限 `skillListingMaxDescChars`（默认 1536）；超预算时按调用频率丢描述。`skm doctor` 会读你 `~/.claude/settings.json` 里的覆盖值做模拟。
+  - Claude Code：总预算（字符）= 模型上下文 token 数 × 每 token 字符数 × `skillListingBudgetFraction`（默认 1%），每 token 字符数对 Opus/Sonnet ≤4.6 与 Haiku 4.5 取 4、其余（Fable、Opus 4.7+、Sonnet 5）取 3；上下文来自各主机 `~/.claude/settings.json` 的 `model`（Fable/Opus 4.7+/Sonnet 5 原生 1M，老模型 200K，`[1m]` 后缀升 1M，`env.CLAUDE_CODE_DISABLE_1M_CONTEXT` 压回 200K），与 `autoCompactWindow` 无关；`env.SLASH_COMMAND_TOOL_CHAR_BUDGET` 直接定死预算。例：Fable 1M × 3 × 1% = 30,000 字符；Opus 4.6 200K × 4 × 1% = 8,000。单个 skill 上限 `skillListingMaxDescChars`（默认 1536）；超预算时按调用频率丢描述，名字永远保留。listing 字符按 Claude Code 的 `- name: description` 行计；Claude Code 自带的内置 skill（code-review、simplify 等十余个）不在 skm 清单里，看真实数字用 Claude Code 的 `/context`。（公式来自 Claude Code 2.1.263 二进制，见 `docs/reports/2026-09-06-listing-budget-fix.md`）
   - Codex：总预算 = 上下文 × 2%（未知时 8000 字符），超出先压缩描述。
 - **body**（激活时付）：SKILL.md 正文 token 与行数；规范建议 <5000 token、<500 行。
 

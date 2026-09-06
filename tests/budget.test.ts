@@ -20,30 +20,42 @@ describe("agents registry", () => {
 describe("simulateListing", () => {
   const claude = (() => { const a = agentById("claude"); if (!a.some) throw new Error(); return a.value; })();
   const codex = (() => { const a = agentById("codex"); if (!a.some) throw new Error(); return a.value; })();
-  test("claude budget = 1% of context tokens as chars", () => {
-    const r = simulateListing(claude, [mk("a", 100)], 200_000);
-    expect(r.budgetChars).toBe(2000);
+  const ctx = (contextTokens: number, bytesPerToken: number) => ({ contextTokens, bytesPerToken, reason: "test" });
+  test("claude budget = context tokens × chars-per-token × 1% (Claude Code formula)", () => {
+    expect(simulateListing(claude, [mk("a", 100)], ctx(200_000, 4)).budgetChars).toBe(8000);
+    expect(simulateListing(claude, [mk("a", 100)], ctx(1_000_000, 3)).budgetChars).toBe(30_000);
+  });
+  test("claude listing chars = `- name: desc` per entry, newline-separated", () => {
+    const r = simulateListing(claude, [mk("a", 100)], ctx(200_000, 4));
+    expect(r.usedChars).toBe(1 + 4 + 100);
     expect(r.droppedCount).toBe(0);
     expect(r.overBy).toBe(0);
+    expect(simulateListing(claude, [mk("a", 100), mk("bb", 50)], ctx(200_000, 4)).usedChars).toBe((1 + 4 + 100) + 1 + (2 + 4 + 50));
+  });
+  test("fixedChars (SLASH_COMMAND_TOOL_CHAR_BUDGET) overrides the formula", () => {
+    expect(simulateListing(claude, [mk("a", 100)], ctx(1_000_000, 3), { fixedChars: 2000 }).budgetChars).toBe(2000);
   });
   test("claude drops largest descriptions when over budget", () => {
-    const r = simulateListing(claude, [mk("a", 900), mk("b", 900), mk("c", 900)], 200_000);
+    const r = simulateListing(claude, [mk("a", 900), mk("b", 900), mk("c", 900)], ctx(200_000, 4), { fixedChars: 2000 });
     expect(r.usedChars).toBeGreaterThan(2000);
     expect(r.droppedCount).toBe(1);
     expect(r.perSkill.filter((p) => p.kept).map((p) => p.name).sort()).toEqual(["a", "b"]);
   });
   test("claude per-skill cap 1536", () => {
-    const r = simulateListing(claude, [mk("big", 2000)], 1_000_000);
+    const r = simulateListing(claude, [mk("big", 2000)], ctx(1_000_000, 3));
     expect(r.perSkill[0]?.cappedChars).toBe(1536);
     expect(r.perSkill[0]?.chars).toBe(2000);
+    expect(r.usedChars).toBe(3 + 4 + 1536);
   });
   test("overrides from settings", () => {
-    const r = simulateListing(claude, [mk("a", 100)], 200_000, { fraction: 0.02, maxDescChars: 50 });
-    expect(r.budgetChars).toBe(4000);
+    const r = simulateListing(claude, [mk("a", 100)], ctx(200_000, 4), { fraction: 0.02, maxDescChars: 50 });
+    expect(r.budgetChars).toBe(16_000);
     expect(r.perSkill[0]?.cappedChars).toBe(50);
+    expect(r.usedChars).toBe(1 + 4 + 50);
   });
-  test("codex budget 2%", () => {
-    const r = simulateListing(codex, [mk("a", 100)], 200_000);
+  test("codex budget 2% of context as chars, chars-per-token ignored", () => {
+    const r = simulateListing(codex, [mk("a", 100)], ctx(200_000, 4));
     expect(r.budgetChars).toBe(4000);
+    expect(r.usedChars).toBe(100);
   });
 });

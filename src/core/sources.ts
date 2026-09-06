@@ -1,4 +1,4 @@
-import { type Result, err, ok } from "../lib/result";
+import { type Option, type Result, err, none, ok, some } from "../lib/result";
 
 /**
  * Where a skill an agent loads comes from, how it is stored, and who owns it.
@@ -37,9 +37,27 @@ const json = (file: string, text: string): Result<unknown, ParseError> => {
 
 // ---------- Claude Code ----------
 
-export type ClaudeSettings = { readonly enabledPlugins: Readonly<Record<string, boolean>>; readonly fraction?: number; readonly maxDescChars?: number };
+export type ClaudeSettings = {
+  readonly enabledPlugins: Readonly<Record<string, boolean>>;
+  readonly fraction?: number;
+  readonly maxDescChars?: number;
+  /** `model` setting — drives the context window the listing budget is 1% of. */
+  readonly model: Option<string>;
+  /** env.CLAUDE_CODE_DISABLE_1M_CONTEXT truthy → every window held to 200K. */
+  readonly disable1m: boolean;
+  /** env.SLASH_COMMAND_TOOL_CHAR_BUDGET → fixed listing budget in chars. */
+  readonly fixedChars?: number;
+};
 
-/** ~/.claude/settings.json: enabledPlugins map + skill listing overrides. */
+export const EMPTY_CLAUDE_SETTINGS: ClaudeSettings = { enabledPlugins: {}, model: none, disable1m: false };
+
+const envTruthy = (v: unknown): boolean => (typeof v === "string" ? ["1", "true", "yes", "on"].includes(v.trim().toLowerCase()) : typeof v === "number" ? v !== 0 : v === true);
+const envPositiveInt = (v: unknown): number | undefined => {
+  const n = typeof v === "number" ? v : typeof v === "string" ? Number.parseInt(v.trim(), 10) : Number.NaN;
+  return Number.isInteger(n) && n > 0 ? n : undefined;
+};
+
+/** ~/.claude/settings.json: enabledPlugins map + skill listing overrides + model/env that size the listing window. */
 export const parseClaudeSettings = (text: string): Result<ClaudeSettings, ParseError> => {
   const r = json("settings.json", text);
   if (!r.ok) return r;
@@ -48,7 +66,18 @@ export const parseClaudeSettings = (text: string): Result<ClaudeSettings, ParseE
   const enabledPlugins = isRecord(ep) ? Object.fromEntries(Object.entries(ep).filter(([, v]) => typeof v === "boolean") as [string, boolean][]) : {};
   const f = r.value["skillListingBudgetFraction"];
   const m = r.value["skillListingMaxDescChars"];
-  return ok({ enabledPlugins, ...(typeof f === "number" ? { fraction: f } : {}), ...(typeof m === "number" ? { maxDescChars: m } : {}) });
+  const modelRaw = r.value["model"];
+  const model = typeof modelRaw === "string" && modelRaw.trim() !== "" ? some(modelRaw.trim()) : none;
+  const env = isRecord(r.value["env"]) ? r.value["env"] : {};
+  const fixedChars = envPositiveInt(env["SLASH_COMMAND_TOOL_CHAR_BUDGET"]);
+  return ok({
+    enabledPlugins,
+    ...(typeof f === "number" ? { fraction: f } : {}),
+    ...(typeof m === "number" ? { maxDescChars: m } : {}),
+    model,
+    disable1m: envTruthy(env["CLAUDE_CODE_DISABLE_1M_CONTEXT"]),
+    ...(fixedChars !== undefined ? { fixedChars } : {}),
+  });
 };
 
 export type ClaudeInstalled = Readonly<Record<string, { readonly version: string; readonly installPath: string }>>;
