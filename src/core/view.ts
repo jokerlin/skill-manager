@@ -50,7 +50,7 @@ export const buildHostView = (hostId: string, agents: readonly Agent[], inv: Inv
   const facts = hostFacts(inv);
   const states = Object.fromEntries(agents.filter((a) => a.plugins !== undefined).map((a) => [a.id, pluginStates(inv, facts, a.id)]));
   const effective = Object.fromEntries(agents.map((a) => [a.id, effectiveFor(inv, facts, a)]));
-  const budget = Object.fromEntries(agents.map((a) => [a.id, simulateListingOf(a, (effective[a.id] ?? []).map((e) => listingItemFor(a, e)), contextFor(a, facts, contextTokens), overridesFor(a, facts, hubOverrides))]));
+  const budget = Object.fromEntries(agents.map((a) => [a.id, simulateListingOf(a, (effective[a.id] ?? []).filter((e) => e.promptVisible).map((e) => listingItemFor(a, e)), contextFor(a, facts, contextTokens), overridesFor(a, facts, hubOverrides))]));
   const counts = Object.fromEntries(agents.map((a) => [a.id, sourceCounts(effective[a.id] ?? [])]));
   return { facts, states, effective, budget, counts, findings: hostFindings(hostId, effective, states) };
 };

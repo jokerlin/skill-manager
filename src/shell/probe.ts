@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import type { Agent } from "../core/agents";
 import type { HostConfig } from "../core/config";
-import { type Inventory, parseProbeOutput } from "../core/inventory";
+import { emptyInventory, type Inventory, parseProbeOutput } from "../core/inventory";
 import { PROBE_FILES, PROBE_TOOLS, probeScript } from "../core/scripts";
 import { type Result, err, mapErr } from "../lib/result";
 import { agentDirsRel, alsoReadsRel, builtinDirsRel, pluginCachesRel } from "./hosts";
@@ -48,7 +48,8 @@ export const readInventoryCache = async (skm: string, host: string): Promise<Inv
   if (text === undefined) return undefined;
   try {
     const j = JSON.parse(text) as { inventory?: Inventory };
-    return j.inventory && typeof j.inventory.home === "string" ? j.inventory : undefined;
+    // caches written by older probes lack newer fields (e.g. `hidden`): fill them with empties
+    return j.inventory && typeof j.inventory.home === "string" ? { ...emptyInventory(j.inventory.home), ...j.inventory } : undefined;
   } catch {
     return undefined;
   }

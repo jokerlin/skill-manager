@@ -40,6 +40,7 @@ struct EffectiveEntry: Codable, Hashable, Identifiable {
     let hash: String
     // v2.1 (optional so older CLIs still decode)
     let listing: String?
+    let promptVisible: Bool?  // false = Codex loads it but hides it from the model-visible catalog
     let plugin: String?
     let marketplace: String?
     let dir: String?

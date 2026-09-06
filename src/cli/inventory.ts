@@ -44,7 +44,7 @@ export const runInventory = async (o: InventoryOpts): Promise<void> =>
       const budget = b === undefined ? "" : !Number.isFinite(b.budgetChars) ? pc.dim(`listing ${b.usedChars}${u} (no documented budget)`) : b.overBy > 0 ? pc.red(`listing ${b.usedChars}${u} / budget ${b.budgetChars}${u} — over by ${b.overBy}${u}, ${trimText(b)}`) : pc.green(`listing ${b.usedChars}${u} / budget ${b.budgetChars}${u} — fits`);
       out(`${pc.bold(`${snap.host.id}/${agent.id}`)}  ${es.length} skills  ${budget}`);
       const rows = es.map((e) => [
-        `${flagged.has(e.name) ? pc.yellow("≡") : dupHashes.has(e.hash) ? pc.magenta("=") : " "}${e.name}`,
+        `${flagged.has(e.name) ? pc.yellow("≡") : dupHashes.has(e.hash) ? pc.magenta("=") : " "}${e.name}${e.promptVisible ? "" : pc.dim(" (hidden)")}`,
         e.source.kind === "plugin" ? `${e.source.plugin}@${e.source.marketplace}` : e.source.kind === "legacy" ? pc.dim(`legacy ${e.source.dir}`) : e.source.kind,
         storageText(e.storage),
         ownerColor(e.owner),
@@ -57,6 +57,6 @@ export const runInventory = async (o: InventoryOpts): Promise<void> =>
       local.forEach((f) => out(`  ${f.kind === "same-name" ? pc.yellow(f.kind) : f.kind === "same-content" ? pc.magenta(f.kind) : pc.dim(f.kind)}  ${findingText(f)}`));
       out("");
     });
-    out(pc.dim("≡ same name from several sources  = identical SKILL.md in several places  ·  listing = description chars paid every turn  ·  body = tokens paid on activation  ·  Codex plugins cached without a config.toml entry are not loaded and not listed  ·  " + pc.dim("sources: user dir · legacy dir · builtin · plugin cache")));
+    out(pc.dim("≡ same name from several sources  = identical SKILL.md in several places  ·  listing = description chars paid every turn  ·  body = tokens paid on activation  ·  Codex plugins cached without a config.toml entry are not loaded and not listed  ·  (hidden) = agents/openai.yaml allow_implicit_invocation: false, loaded but not in Codex's catalog, costs nothing  ·  " + pc.dim("sources: user dir · legacy dir · builtin · plugin cache")));
     void sourceText;
   });

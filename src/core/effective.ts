@@ -151,6 +151,8 @@ export type Effective = {
   readonly path: string;
   readonly version: Option<string>;
   readonly enabled: "on";
+  /** false when Codex hides the skill from the model-visible catalog (agents/openai.yaml policy.allow_implicit_invocation: false); it still loads and answers `$skill`, but costs nothing at startup */
+  readonly promptVisible: boolean;
   readonly listing: string;
   /** frontmatter `description` alone — what Codex lists; Claude lists `listing` (description + when_to_use) */
   readonly description: string;
@@ -189,6 +191,9 @@ const storageOf = (e: Entry): Storage | undefined => {
   }
 };
 
+/** Only Codex honours agents/openai.yaml; every other agent lists everything it loads. */
+const visibleFor = (inv: Inventory, agentId: string, path: string): boolean => agentId !== "codex" || !inv.hidden.some((h) => h.agent === agentId && h.dir === path);
+
 const fromEntry = (inv: Inventory, facts: HostFacts, agentId: string, e: Entry, path: string, source: Source): Effective | undefined => {
   const storage = storageOf(e);
   if (storage === undefined) return undefined;
@@ -197,7 +202,7 @@ const fromEntry = (inv: Inventory, facts: HostFacts, agentId: string, e: Entry, 
   const owner = ownerOf(agentId, storage, e.name, facts.locks);
   const info = docInfo(hash, inv.docs[hash]);
   const v = owner === "acme" ? facts.acmeVersions[e.name] : undefined;
-  return { agent: agentId, name: e.name, source, storage, owner, path, version: v ? some(v) : none, enabled: "on", listing: info.listing, description: info.description, listingChars: info.listing.length, bodyTokens: info.bodyTokens, hash };
+  return { agent: agentId, name: e.name, source, storage, owner, path, version: v ? some(v) : none, enabled: "on", promptVisible: visibleFor(inv, agentId, path), listing: info.listing, description: info.description, listingChars: info.listing.length, bodyTokens: info.bodyTokens, hash };
 };
 
 const SOURCE_ORDER: Record<Source["kind"], number> = { user: 0, legacy: 1, builtin: 2, plugin: 3 };
@@ -216,7 +221,7 @@ export const effectiveFor = (inv: Inventory, facts: HostFacts, agent: Agent): Ef
   });
   const builtin = inv.builtins.filter((b) => b.agent === agent.id).map((b): Effective => {
     const info = docInfo(b.hash, inv.docs[b.hash]);
-    return { agent: agent.id, name: b.name, source: { kind: "builtin" }, storage: { kind: "builtin" }, owner: "codex-builtin", path: b.dir, version: none, enabled: "on", listing: info.listing, description: info.description, listingChars: info.listing.length, bodyTokens: info.bodyTokens, hash: b.hash };
+    return { agent: agent.id, name: b.name, source: { kind: "builtin" }, storage: { kind: "builtin" }, owner: "codex-builtin", path: b.dir, version: none, enabled: "on", promptVisible: visibleFor(inv, agent.id, b.dir), listing: info.listing, description: info.description, listingChars: info.listing.length, bodyTokens: info.bodyTokens, hash: b.hash };
   });
   const plugin = pluginStates(inv, facts, agent.id).flatMap((p): Effective[] => {
     if (p.enabled === "off" || !p.active.some) return [];
@@ -227,7 +232,7 @@ export const effectiveFor = (inv: Inventory, facts: HostFacts, agent: Agent): Ef
         const info = docInfo(s.hash, inv.docs[s.hash]);
         return {
           agent: agent.id, name: s.name, source: { kind: "plugin", marketplace: p.marketplace, plugin: p.name, version }, storage: { kind: "plugin-cache" },
-          owner: ownerOf(agent.id, { kind: "plugin-cache" }, s.name, facts.locks), path: s.skillDir, version: some(version), enabled: "on",
+          owner: ownerOf(agent.id, { kind: "plugin-cache" }, s.name, facts.locks), path: s.skillDir, version: some(version), enabled: "on", promptVisible: visibleFor(inv, agent.id, s.skillDir),
           listing: info.listing, description: info.description, listingChars: info.listing.length, bodyTokens: info.bodyTokens, hash: s.hash,
         };
       });

@@ -478,7 +478,7 @@ struct AgentDetail: View {
             } else {
                 Table(effective) {
                     TableColumn("Skill") { e in
-                        Text(e.name)
+                        HStack(spacing: 4) { Text(e.name); if e.promptVisible == false { Text("hidden").font(.caption2).foregroundStyle(.secondary) } }
                     }.width(min: 140, ideal: 200)
                     TableColumn("Source") { e in Text(e.sourceLabel).foregroundStyle(e.source == "plugin" ? .blue : e.source == "user" ? .green : .secondary).lineLimit(1) }.width(min: 120, ideal: 250)
                     TableColumn("Storage") { e in Text(e.storage).foregroundStyle(.secondary).lineLimit(1) }.width(min: 80, ideal: 100)

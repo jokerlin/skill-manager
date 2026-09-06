@@ -75,7 +75,7 @@ export const defaultConfig = (): Config => ({
   plugins: [],
   owned: [],
   eval: { agent: "claude", model: none },
-  contextTokens: 200_000,
+  contextTokens: 1_000_000, // fallback window when a host's model cannot be resolved; Claude Fable/Opus 5/Sonnet 5 and Codex's large models are all ≥ 1M-class
   backupBeforeApply: true,
 });
 

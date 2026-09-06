@@ -60,7 +60,7 @@ plugins:                                    # v2：期望状态扩展到 plugin�
 owned:                                      # v2：某个 CLI 自带的 skill（真实目录），skm 不软链，只核对
   acme: { tool: acme }              # ensure 默认 `acme self skill install -g -s acme`；fallback: store|none
 eval: { agent: claude }                     # 或 codex；model 可选
-contextTokens: 200000                       # 预算模拟的兜底上下文：Claude 按各主机 settings.json 的 model 自动推断窗口，认不出时用它；Codex 直接用它
+contextTokens: 1000000                      # 预算模拟的兜底上下文：Claude 按各主机 settings.json 的 model、Codex 按 config.toml 的 model + models_cache.json 推断窗口，认不出时才用它
 backupBeforeApply: true
 ```
 

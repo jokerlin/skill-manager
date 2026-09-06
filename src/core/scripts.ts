@@ -41,7 +41,7 @@ export const PROBE_TOOLS: readonly string[] = ["claude", "codex", "acme"];
 /**
  * Emits TSV (see inventory.parseProbeOutput):
  *   meta/store/dir/entry/also (v1, entry/also now end with the SKILL.md hash)
- *   tool/file/pcache/pskill/builtin/md (v2). `md` carries each distinct SKILL.md once, base64.
+ *   tool/file/pcache/pskill/builtin/md/hidden (v2). `md` carries each distinct SKILL.md once, base64.
  */
 export const probeScript = (a: ProbeArgs): string => {
   const store = `${a.skm}/skills`;
@@ -54,6 +54,8 @@ export const probeScript = (a: ProbeArgs): string => {
     // emit_md FILE: prints the md line once per hash, leaves the hash in MD_HASH ("" when FILE is missing)
     `emit_md() { MD_HASH=""; [ -f "$1" ] || return 0; MD_HASH=$(skm_hash "$1"); case "$SEEN" in *" $MD_HASH "*) ;; *) SEEN="$SEEN$MD_HASH "; printf 'md\\t%s\\t%s\\t%s\\n' "$MD_HASH" "$(wc -c < "$1" | tr -d ' ')" "$(base64 < "$1" | tr -d '\\n')";; esac; return 0; }`,
     `emit_file() { [ -f "$2" ] || return 0; printf 'file\\t%s\\t%s\\n' "$1" "$(base64 < "$2" | tr -d '\\n')"; }`,
+    // emit_hidden AGENT SKILL_DIR: Codex keeps a skill out of the model-visible catalog when agents/openai.yaml sets policy.allow_implicit_invocation: false
+    `emit_hidden() { [ -f "$2/agents/openai.yaml" ] || return 0; grep -Eqs '^[[:space:]]*allow_implicit_invocation:[[:space:]]*false' "$2/agents/openai.yaml" && printf 'hidden\\t%s\\t%s\\n' "$1" "$2"; return 0; }`,
     `printf 'meta\\thome\\t%s\\n' "$HOME"`,
     `STORE=${shPath(store)}`,
     `if [ -d "$STORE" ]; then printf 'meta\\tstore\\t%s\\n' "$(cd -P "$STORE" && pwd -P)"; fi`,
@@ -66,10 +68,10 @@ export const probeScript = (a: ProbeArgs): string => {
     `    [ -e "$p" ] || [ -L "$p" ] || continue`,
     `    n=$(basename "$p")`,
     `    if [ -L "$p" ]; then raw=$(readlink "$p"); case "$raw" in /*) ;; *) raw="$dir/$raw";; esac`,
-    `      if [ -d "$p" ]; then t=$(cd -P "$p" 2>/dev/null && pwd -P); emit_md "$p/SKILL.md"; printf '%s\\t%s\\t%s\\tlink\\t%s\\t%s\\t%s\\t%s\\n' "$tag" "$agent" "$n" "$t" "$raw" "$MD_HASH" "$dir"`,
+    `      if [ -d "$p" ]; then t=$(cd -P "$p" 2>/dev/null && pwd -P); emit_md "$p/SKILL.md"; emit_hidden "$agent" "$p"; printf '%s\\t%s\\t%s\\tlink\\t%s\\t%s\\t%s\\t%s\\n' "$tag" "$agent" "$n" "$t" "$raw" "$MD_HASH" "$dir"`,
     `      elif [ -e "$p" ]; then printf '%s\\t%s\\t%s\\tlink\\t%s\\t%s\\t\\t%s\\n' "$tag" "$agent" "$n" "$raw" "$raw" "$dir"`,
     `      else printf '%s\\t%s\\t%s\\tbrokenlink\\t%s\\t%s\\t\\t%s\\n' "$tag" "$agent" "$n" "$raw" "$raw" "$dir"; fi`,
-    `    elif [ -d "$p" ]; then emit_md "$p/SKILL.md"; printf '%s\\t%s\\t%s\\tdir\\t\\t\\t%s\\t%s\\n' "$tag" "$agent" "$n" "$MD_HASH" "$dir"`,
+    `    elif [ -d "$p" ]; then emit_md "$p/SKILL.md"; emit_hidden "$agent" "$p"; printf '%s\\t%s\\t%s\\tdir\\t\\t\\t%s\\t%s\\n' "$tag" "$agent" "$n" "$MD_HASH" "$dir"`,
     `    else printf '%s\\t%s\\t%s\\tfile\\t\\t\\t\\t%s\\n' "$tag" "$agent" "$n" "$dir"; fi`,
     `  done; return 0; }`,
     // probe_plugins AGENT CACHE_ROOT: every <mk>/<plugin>/<version>/ dir and its skills/*/SKILL.md
@@ -78,9 +80,9 @@ export const probeScript = (a: ProbeArgs): string => {
     `    for pl in "$mk"*/; do [ -d "$pl" ] || continue; pn=$(basename "$pl")`,
     `      for vd in "$pl"*/; do [ -d "$vd" ] || continue; v=$(basename "$vd"); d=\${vd%/}`,
     `        printf 'pcache\\t%s\\t%s\\t%s\\t%s\\t%s\\n' "$agent" "$m" "$pn" "$v" "$d"`,
-    `        for sk in "$d"/skills/*/; do [ -f "$sk/SKILL.md" ] || continue; sn=$(basename "$sk"); emit_md "$sk/SKILL.md"; printf 'pskill\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n' "$agent" "$m" "$pn" "$v" "$sn" "\${sk%/}" "$MD_HASH"; done`,
+    `        for sk in "$d"/skills/*/; do [ -f "$sk/SKILL.md" ] || continue; sn=$(basename "$sk"); emit_md "$sk/SKILL.md"; emit_hidden "$agent" "\${sk%/}"; printf 'pskill\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n' "$agent" "$m" "$pn" "$v" "$sn" "\${sk%/}" "$MD_HASH"; done`,
     `      done; done; done; return 0; }`,
-    `probe_builtins() { agent=$1; dir=$2; [ -d "$dir" ] || return 0; for sk in "$dir"/*/; do [ -f "$sk/SKILL.md" ] || continue; sn=$(basename "$sk"); emit_md "$sk/SKILL.md"; printf 'builtin\\t%s\\t%s\\t%s\\t%s\\n' "$agent" "$sn" "\${sk%/}" "$MD_HASH"; done; return 0; }`,
+    `probe_builtins() { agent=$1; dir=$2; [ -d "$dir" ] || return 0; for sk in "$dir"/*/; do [ -f "$sk/SKILL.md" ] || continue; sn=$(basename "$sk"); emit_md "$sk/SKILL.md"; emit_hidden "$agent" "\${sk%/}"; printf 'builtin\\t%s\\t%s\\t%s\\t%s\\n' "$agent" "$sn" "\${sk%/}" "$MD_HASH"; done; return 0; }`,
     ...Object.entries(a.agentDirs).map(([agent, dir]) => `probe_dir entry ${shQuote(agent)} ${shPath(dir)}`),
     ...Object.entries(a.alsoReads).flatMap(([agent, dirs]) => dirs.map((dir) => `probe_dir also ${shQuote(agent)} ${shPath(dir)}`)),
     ...Object.entries(a.pluginCaches ?? {}).map(([agent, dir]) => `probe_plugins ${shQuote(agent)} ${shPath(dir)}`),

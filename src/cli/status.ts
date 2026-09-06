@@ -53,6 +53,7 @@ export const effectiveJson = (e: Effective) => ({
   path: e.path,
   version: e.version.some ? e.version.value : null,
   enabled: e.enabled,
+  promptVisible: e.promptVisible,
   listingChars: e.listingChars,
   bodyTokens: e.bodyTokens,
   hash: e.hash.slice(0, 8),

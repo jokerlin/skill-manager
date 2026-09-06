@@ -82,6 +82,15 @@ describe("pluginStates", () => {
     expect(by["off@mk"]?.enabled).toBe("off");
     expect(by["off@mk"]?.active.some).toBe(false);
   });
+  test("agents/openai.yaml allow_implicit_invocation: false hides a skill from Codex's catalog only", () => {
+    const hidden: Inventory = { ...inv, hidden: [{ agent: "codex", dir: "/h/.codex/skills/.system/imagegen" }, { agent: "claude", dir: "/h/.claude/skills/check" }] };
+    const f2 = hostFacts(hidden);
+    const codex = effectiveFor(hidden, f2, agent("codex"));
+    expect(codex.find((e) => e.name === "imagegen")?.promptVisible).toBe(false);
+    expect(codex.find((e) => e.name === "check" && e.source.kind === "user")?.promptVisible).toBe(true);
+    expect(effectiveFor(hidden, f2, agent("claude")).find((e) => e.name === "check")?.promptVisible).toBe(true);
+    expect(effectiveFor(inv, hostFacts(inv), agent("codex")).every((e) => e.promptVisible)).toBe(true);
+  });
   test("agents without plugins have none", () => {
     expect(pluginStates(inv, f, "cursor")).toEqual([]);
   });

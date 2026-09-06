@@ -31,9 +31,11 @@ export type Inventory = {
   readonly builtins: readonly BuiltinRef[];
   /** SKILL.md text by sha1 — every hash referenced by entries / pluginSkills / builtins that had a SKILL.md */
   readonly docs: Readonly<Record<string, string>>;
+  /** skill dirs Codex loads but keeps out of the model-visible catalog (agents/openai.yaml policy.allow_implicit_invocation: false) */
+  readonly hidden: readonly { readonly agent: string; readonly dir: string }[];
 };
 
-export const emptyInventory = (home = ""): Inventory => ({ home, storeSkills: [], agentDirs: {}, alsoReads: {}, alsoDirs: {}, tools: {}, files: {}, pluginCache: [], pluginSkills: [], builtins: [], docs: {} });
+export const emptyInventory = (home = ""): Inventory => ({ home, storeSkills: [], agentDirs: {}, alsoReads: {}, alsoDirs: {}, tools: {}, files: {}, pluginCache: [], pluginSkills: [], builtins: [], docs: {}, hidden: [] });
 
 export type ProbeParseError = { readonly kind: "bad-probe"; readonly line: string };
 
@@ -62,7 +64,7 @@ type Acc = {
   home: string; stores: string[]; store: { name: string; hash: string }[];
   dirs: Record<string, { exists: boolean; entries: Entry[] }>; also: Record<string, Entry[]>; alsoDirs: Record<string, Record<string, string>>;
   tools: Record<string, string>; files: Record<string, string>;
-  pcache: PluginCacheDir[]; pskills: PluginSkillRef[]; builtins: BuiltinRef[]; docs: Record<string, string>;
+  pcache: PluginCacheDir[]; pskills: PluginSkillRef[]; builtins: BuiltinRef[]; docs: Record<string, string>; hidden: { agent: string; dir: string }[];
   bad: string[];
 };
 
@@ -126,17 +128,21 @@ export const parseProbeOutput = (text: string, storePath: string | ((home: strin
             const [hash, , data] = f;
             return hash ? { ...a, docs: { ...a.docs, [hash]: b64(data ?? "") } } : bad;
           }
+          case "hidden": {
+            const [agent, dir] = f;
+            return agent && dir ? { ...a, hidden: [...a.hidden, { agent, dir }] } : bad;
+          }
           default:
             return bad;
         }
       },
-      { home: "", stores: [], store: [], dirs: {}, also: {}, alsoDirs: {}, tools: {}, files: {}, pcache: [], pskills: [], builtins: [], docs: {}, bad: [] },
+      { home: "", stores: [], store: [], dirs: {}, also: {}, alsoDirs: {}, tools: {}, files: {}, pcache: [], pskills: [], builtins: [], docs: {}, hidden: [], bad: [] },
     );
   const firstBad = acc.bad[0];
   if (firstBad !== undefined) return err({ kind: "bad-probe", line: firstBad });
   return ok({
     home: acc.home, storeSkills: acc.store, agentDirs: acc.dirs, alsoReads: acc.also, alsoDirs: acc.alsoDirs,
-    tools: acc.tools, files: acc.files, pluginCache: acc.pcache, pluginSkills: acc.pskills, builtins: acc.builtins, docs: acc.docs,
+    tools: acc.tools, files: acc.files, pluginCache: acc.pcache, pluginSkills: acc.pskills, builtins: acc.builtins, docs: acc.docs, hidden: acc.hidden,
   });
 };
 

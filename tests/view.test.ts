@@ -16,7 +16,7 @@ const base: Inventory = {
 const withSettings = (settings: unknown): Inventory => ({ ...base, files: { "claude-settings": JSON.stringify(settings) } });
 
 describe("listingItemFor", () => {
-  const eff: Effective = { agent: "codex", name: "brainstorming", source: { kind: "plugin", marketplace: "mk", plugin: "superpowers", version: "6.3.0" }, storage: { kind: "plugin-cache" }, owner: "codex-plugins", path: "/h/.codex/plugins/cache/mk/superpowers/6.3.0/skills/brainstorming", version: none, enabled: "on", listing: "desc. when to use", description: "desc.", listingChars: 17, bodyTokens: 10, hash: "H" };
+  const eff: Effective = { agent: "codex", name: "brainstorming", source: { kind: "plugin", marketplace: "mk", plugin: "superpowers", version: "6.3.0" }, storage: { kind: "plugin-cache" }, owner: "codex-plugins", path: "/h/.codex/plugins/cache/mk/superpowers/6.3.0/skills/brainstorming", version: none, enabled: "on", promptVisible: true, listing: "desc. when to use", description: "desc.", listingChars: 17, bodyTokens: 10, hash: "H" };
   test("plugin skills are labelled plugin:skill; Codex lists the description alone, Claude the full listing", () => {
     expect(listingItemFor(agent("codex"), eff)).toEqual({ name: "brainstorming", label: "superpowers:brainstorming", listing: "desc.", locator: "/h/.codex/plugins/cache/mk/superpowers/6.3.0/skills/brainstorming/SKILL.md" });
     expect(listingItemFor(agent("claude"), { ...eff, agent: "claude" }).listing).toBe("desc. when to use");
@@ -56,6 +56,13 @@ describe("buildHostView budget", () => {
     expect(fixed.budget["claude"]?.budgetChars).toBe(2000);
     const held = buildHostView("h", [agent("claude")], withSettings({ model: "fable", env: { CLAUDE_CODE_DISABLE_1M_CONTEXT: "1" } }), 200_000);
     expect(held.budget["claude"]?.budgetChars).toBe(6_000);
+  });
+  test("skills Codex hides via agents/openai.yaml stay in the effective list but cost nothing", () => {
+    const hidden: Inventory = { ...base, hidden: [{ agent: "codex", dir: "/h/.agents/skills/alpha" }] };
+    const v = buildHostView("h", [agent("codex"), agent("claude")], hidden, 200_000);
+    expect(v.effective["codex"]?.map((e) => [e.name, e.promptVisible])).toEqual([["alpha", false]]);
+    expect(v.budget["codex"]?.usedChars).toBe(0);
+    expect(v.budget["claude"]?.usedChars).toBeGreaterThan(0);
   });
   test("listing chars count Claude Code's `- name: description` entry format", () => {
     const v = buildHostView("h", [agent("claude")], withSettings({ model: "fable" }), 200_000);

@@ -37,6 +37,11 @@ describe("probe + apply + backup on a real temp HOME", () => {
     symlinkSync(join(home, "nowhere"), join(home, ".claude/skills/broken"));
     writeFileSync(join(home, ".claude/skills/notes.txt"), "x");
     mkdirSync(join(home, ".codex/skills/kb-doc"), { recursive: true });
+    // Codex hides a skill from its catalog when agents/openai.yaml says so; the probe reports the dir
+    mkdirSync(join(home, ".claude/skills/real/agents"), { recursive: true });
+    writeFileSync(join(home, ".claude/skills/real/agents/openai.yaml"), "interface:\n  display_name: Real\npolicy:\n  allow_implicit_invocation: false\n");
+    mkdirSync(join(home, ".skm/skills/alpha/agents"), { recursive: true });
+    writeFileSync(join(home, ".skm/skills/alpha/agents/openai.yaml"), "policy:\n  allow_implicit_invocation: true\n");
   });
 
   const agentDirs = { claude: "~/.claude/skills", codex: "~/.agents/skills" };
@@ -58,6 +63,7 @@ describe("probe + apply + backup on a real temp HOME", () => {
     expect(c["real"]?.kind).toBe("dir");
     expect(c["foreign"]?.kind).toBe("foreign-link");
     expect(c["broken"]?.kind).toBe("broken-link");
+    expect(inv.value.hidden).toEqual([{ agent: "claude", dir: join(home, ".claude/skills/real") }]);
     expect(c["notes.txt"]?.kind).toBe("file");
     expect(inv.value.agentDirs["codex"]?.exists).toBe(false);
     expect(inv.value.alsoReads["codex"]?.map((e) => e.name)).toEqual(["kb-doc"]);
