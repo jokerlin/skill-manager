@@ -140,13 +140,15 @@ struct RootView: View {
         VStack(alignment: .leading, spacing: 4) {
             ForEach(model.hosts) { h in
                 let plan = model.plans.first { $0.host == h.host }
-                let pending = plan?.ops.filter { ["mkdir", "rsync-skill", "link", "unlink"].contains($0.op) }.count ?? 0
+                let pending = plan?.ops.filter { mutationOps.contains($0.op) }.count ?? 0
+                let blocked = plan?.ops.filter { $0.op == "blocked" }.count ?? 0
                 let conflicts = plan?.ops.filter { $0.op == "conflict" }.count ?? 0
                 HStack(spacing: 6) {
                     Circle().fill(!h.reachable ? .red : pending > 0 ? .yellow : .green).frame(width: 8, height: 8)
                     Text(h.host).font(.callout)
                     if pending > 0 { Text("+\(pending)").font(.caption).foregroundStyle(.orange) }
                     if conflicts > 0 { Text("!\(conflicts)").font(.caption).foregroundStyle(.red) }
+                    if blocked > 0 { Text("⊘\(blocked)").font(.caption).foregroundStyle(.orange) }
                 }
             }
         }

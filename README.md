@@ -142,15 +142,17 @@ open macos/dist/Skm.app
 ```
 
 - 左侧 Skills / Hosts / Sync / Insights 与 TUI 的四个视图一一对应；底部是各机器的连通/待同步状态。
-- 选中一个 skill 后，点击右侧 host × agent 格子即可开关作用域（等价于 `skm scope`）。
+- **Skills 是全集**：store 里的 skill 之外，还列出各主机 agent 实际加载的 plugin skill、Codex 内置 skill、未纳管目录，可按 Store / Plugins / Builtin / Unmanaged 过滤；每行给出来源、listing/body 成本、跨主机版本（不一致标红）、在哪些主机被多少个 agent 加载。选中 store skill 可点 host × agent 格子开关作用域（等价于 `skm scope`）；选中 plugin skill 则看到它在每个 主机×agent 的加载情况、版本、缓存路径和管理方式。
+- **Hosts 是主从式**：左边每台主机下一行一个 agent，标签写明「N linked to store / N real dir / N link elsewhere / N broken link / legacy dir / builtin / from plugins」和 listing 预算；点一行，右边列出这个 agent 启动时加载的每一条 skill（来源、存储、owner、版本、成本）、plugin 列表和相关发现。
+- 颜色约定：listing 超过 1536 字符、body 超过 5000 token 标橙；预算超出标红。
 - 找不到 CLI 时在 设置（⌘,）里填 `skm` 路径，或 `bun run <repo>/bin/skm.ts`。
-- 无头截图（文档/CI 用，不需要"屏幕录制"权限）：`SKM_SNAPSHOT=/tmp/skm ./macos/dist/Skm.app/Contents/MacOS/Skm` 会写出 `/tmp/skm-{skills,hosts,sync,insights}.png` 后自动退出。
+- 无头截图（文档/CI 用，不需要"屏幕录制"权限）：`SKM_SNAPSHOT=/tmp/skm ./macos/dist/Skm.app/Contents/MacOS/Skm` 会写出 `/tmp/skm-{skills,hosts,sync,insights}.png` 后自动退出；屏幕锁定或显示器休眠时窗口抓图是空白的，加 `SKM_SNAPSHOT_OFFSCREEN=1` 改走视图层级离屏渲染。
 - TUI 同样可以无头出图：`bun scripts/tui-snapshot.tsx out.txt`。
 
 ## 开发
 
 ```sh
-bun test            # 100 个测试：纯核心 + 用临时 HOME 跑真实 sh/rsync 的集成测试 + TUI 渲染
+bun test            # 101 个测试：纯核心 + 用临时 HOME 跑真实 sh/rsync 的集成测试 + TUI 渲染
 bun run typecheck
 ```
 

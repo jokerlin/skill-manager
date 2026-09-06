@@ -134,3 +134,17 @@ describe("findings", () => {
     expect(driftFindings([{ host: "local", states: { claude: states.claude } }])).toEqual([]);
   });
 });
+
+describe("effectiveFor: directories without SKILL.md", () => {
+  test("are skipped, because agents never load them", () => {
+    const claude = agentById("claude");
+    if (!claude.some) throw new Error("claude agent missing");
+    const inv: Inventory = {
+      ...emptyInventory("/h"),
+      agentDirs: { claude: { exists: true, entries: [{ kind: "dir", name: "log" }, { kind: "dir", name: "real", hash: "h1" }] } },
+      docs: { h1: "---\nname: real\ndescription: Real skill. Use when testing.\n---\nbody" },
+    };
+    const es = effectiveFor(inv, hostFacts(inv), claude.value);
+    expect(es.map((e) => e.name)).toEqual(["real"]);
+  });
+});

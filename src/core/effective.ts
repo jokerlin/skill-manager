@@ -173,6 +173,7 @@ const fromEntry = (inv: Inventory, facts: HostFacts, agentId: string, e: Entry, 
   const storage = storageOf(e);
   if (storage === undefined) return undefined;
   const hash = entryHash(e);
+  if (hash === "") return undefined; // no SKILL.md: agents skip the directory, so it costs nothing
   const owner = ownerOf(agentId, storage, e.name, facts.locks);
   const info = docInfo(hash, inv.docs[hash]);
   const v = owner === "acme" ? facts.acmeVersions[e.name] : undefined;

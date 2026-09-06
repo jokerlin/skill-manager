@@ -55,6 +55,10 @@ export const effectiveJson = (e: Effective) => ({
   listingChars: e.listingChars,
   bodyTokens: e.bodyTokens,
   hash: e.hash.slice(0, 8),
+  listing: e.listing,
+  plugin: e.source.kind === "plugin" ? e.source.plugin : null,
+  marketplace: e.source.kind === "plugin" ? e.source.marketplace : null,
+  dir: e.source.kind === "legacy" ? e.source.dir : null,
 });
 
 export const pluginJson = (p: PluginState) => ({
