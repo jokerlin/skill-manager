@@ -34,10 +34,31 @@ export const AGENTS: readonly Agent[] = [
     listing: { kind: "codex", budgetFraction: 0.02, fallbackChars: 8000 },
     alsoReads: [under(".codex/skills")], // legacy dir; copies here load twice
   },
+  {
+    id: "pi",
+    name: "Pi",
+    userDir: under(".pi/agent/skills"), // pi.dev/docs/skills: only this dir + project .pi/skills unless settings.skills adds more
+    listing: { kind: "plain" },
+    alsoReads: [],
+  },
+  {
+    id: "dsh",
+    name: "DeepSeek Harness",
+    userDir: under(".dsh/skills"), // $DSH_HOME/skills; skill-filesystem roots also scan $DSH_AGENTS_HOME/skills (~/.agents), lower rank wins
+    listing: { kind: "plain" },
+    alsoReads: [under(".agents/skills")],
+  },
   { id: "cursor", name: "Cursor", userDir: under(".cursor/skills"), listing: { kind: "plain" }, alsoReads: [] },
   { id: "gemini", name: "Gemini CLI", userDir: under(".gemini/skills"), listing: { kind: "plain" }, alsoReads: [] },
   { id: "antigravity", name: "Antigravity", userDir: under(".gemini/antigravity/skills"), listing: { kind: "plain" }, alsoReads: [] },
-  { id: "opencode", name: "OpenCode", userDir: under(".config/opencode/skills"), listing: { kind: "plain" }, alsoReads: [] },
+  {
+    id: "opencode",
+    name: "OpenCode",
+    userDir: under(".config/opencode/skills"),
+    listing: { kind: "plain" },
+    // opencode.ai/docs/skills: also scans ~/.claude/skills and ~/.agents/skills — linking here would load skills a third time
+    alsoReads: [under(".claude/skills"), under(".agents/skills")],
+  },
   { id: "copilot", name: "GitHub Copilot", userDir: under(".copilot/skills"), listing: { kind: "plain" }, alsoReads: [] },
   { id: "windsurf", name: "Windsurf", userDir: under(".codeium/windsurf/skills"), listing: { kind: "plain" }, alsoReads: [] },
   { id: "kiro", name: "Kiro CLI", userDir: under(".kiro/skills"), listing: { kind: "plain" }, alsoReads: [] },

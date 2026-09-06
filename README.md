@@ -38,7 +38,7 @@ skm                                        # TUI
 
 ```yaml
 store: ~/.skm/skills
-agents: [claude, codex, cursor, gemini]
+agents: [claude, codex, pi, dsh]           # 可用 id 见 src/core/agents.ts（claude/codex/pi/dsh/opencode/cursor/gemini/…）
 hosts:
   local: {}
   mini: { ssh: mini }                       # ~/.ssh/config 里的别名
