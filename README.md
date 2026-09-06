@@ -150,7 +150,7 @@ open macos/dist/Skm.app
 ## 开发
 
 ```sh
-bun test            # 98 个测试：纯核心 + 用临时 HOME 跑真实 sh/rsync 的集成测试 + TUI 渲染
+bun test            # 100 个测试：纯核心 + 用临时 HOME 跑真实 sh/rsync 的集成测试 + TUI 渲染
 bun run typecheck
 ```
 

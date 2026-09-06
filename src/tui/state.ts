@@ -28,6 +28,7 @@ export type State = {
   readonly sortBy: "name" | "cost";
   readonly focus: Focus;
   readonly grid: { readonly host: number; readonly agent: number };
+  readonly hostsOffset: number;          // first visible row of the hosts view
   readonly hosts: Readonly<Record<string, HostStatus>>;
   readonly insights: readonly Insight[];
   readonly evals: Readonly<Record<string, EvalCacheEntry>>;
@@ -43,6 +44,7 @@ export type Action =
   | { readonly type: "nextView" }
   | { readonly type: "move"; readonly delta: number }
   | { readonly type: "moveGrid"; readonly dHost: number; readonly dAgent: number }
+  | { readonly type: "scrollHosts"; readonly offset: number }
   | { readonly type: "focus"; readonly focus: Focus }
   | { readonly type: "filter"; readonly text: string }
   | { readonly type: "editFilter"; readonly on: boolean }
@@ -81,6 +83,7 @@ export const reduce = (s: State, a: Action): State =>
         agent: clamp(s.grid.agent + dAgent, 0, Math.max(0, s.config.agents.length - 1)),
       },
     }))
+    .with({ type: "scrollHosts" }, ({ offset }) => ({ ...s, hostsOffset: Math.max(0, offset) }))
     .with({ type: "focus" }, ({ focus }) => ({ ...s, focus }))
     .with({ type: "filter" }, ({ text }) => ({ ...s, filter: text, selected: 0 }))
     .with({ type: "editFilter" }, ({ on }) => ({ ...s, editingFilter: on }))
@@ -105,6 +108,7 @@ export const initialState = (config: Config, skills: readonly Skill[], insights:
   sortBy: "name",
   focus: "list",
   grid: { host: 0, agent: 0 },
+  hostsOffset: 0,
   hosts: Object.fromEntries(config.hosts.map((h) => [h.id, { kind: "probing" as const }])),
   insights,
   evals,

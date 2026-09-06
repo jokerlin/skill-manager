@@ -12,7 +12,7 @@ import type { TuiIo } from "./io";
 import { type State, initialState, reduce, selectedSkill, visibleSkills } from "./state";
 import type { EvalCacheEntry } from "../shell/cache";
 import { SkillsView } from "./views/Skills";
-import { HostsView } from "./views/Hosts";
+import { HostsView, clampOffset, hostLines } from "./views/Hosts";
 import { SyncView } from "./views/Sync";
 import { InsightsView } from "./views/Insights";
 import { HelpView } from "./views/Help";
@@ -170,6 +170,15 @@ export const App = ({ app, io, evals, autoProbe = true }: AppProps): React.React
       if (input === "g") return dispatch({ type: "move", delta: -1_000_000 });
       if (input === "G") return dispatch({ type: "move", delta: 1_000_000 });
     }
+    if (st.view === "hosts") {
+      const scroll = (delta: number) => dispatch({ type: "scrollHosts", offset: clampOffset(st.hostsOffset + delta, hostLines(st).length, rows - 3) });
+      if (input === "j" || key.downArrow) return scroll(1);
+      if (input === "k" || key.upArrow) return scroll(-1);
+      if (key.pageDown) return scroll(10);
+      if (key.pageUp) return scroll(-10);
+      if (input === "g") return scroll(-1_000_000);
+      if (input === "G") return scroll(1_000_000);
+    }
   });
 
   const header = (
@@ -215,7 +224,7 @@ export const App = ({ app, io, evals, autoProbe = true }: AppProps): React.React
 
   const body = match(s.view)
     .with("skills", () => <SkillsView s={s} width={cols} height={rows - 3} />)
-    .with("hosts", () => <HostsView s={s} />)
+    .with("hosts", () => <HostsView s={s} height={rows - 3} offset={s.hostsOffset} />)
     .with("sync", () => <SyncView s={s} height={rows - 3} />)
     .with("insights", () => <InsightsView s={s} height={rows - 3} />)
     .with("help", () => <HelpView />)

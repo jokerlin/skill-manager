@@ -11,6 +11,9 @@ import { none, some } from "../src/lib/result";
 import type { AppState } from "../src/shell/app";
 import { inferRules, compressGlobs } from "../src/cli/rules";
 import { pullCandidates } from "../src/cli/pull";
+import { HostsView, clampOffset, hostLines } from "../src/tui/views/Hosts";
+import { initialState } from "../src/tui/state";
+import { buildHostView } from "../src/core/view";
 
 const mk = (name: string, desc: string) => buildSkill(name, `/s/${name}`, `---\nname: ${name}\ndescription: ${desc}\n---\n# ${name}\nbody\n`, [{ rel: "SKILL.md", bytes: 10 }]);
 const skills = [mk("pdf-tools", "Extract text from PDFs. Use when the user mentions PDFs."), mk("kb-doc", "飞书文档操作。当用户提供文档 URL 时使用。")];
@@ -94,5 +97,39 @@ describe("pull candidates", () => {
       { name: "zeta", source: ".skm/skills/zeta", via: "store" },
       { name: "only-claude", source: ".claude/skills/only-claude", via: "claude" },
     ]);
+  });
+});
+
+describe("hosts view", () => {
+  const hostsState = () => {
+    const a = app();
+    const inv = { ...emptyInventory("/h"), agentDirs: { claude: { exists: true, entries: [{ kind: "managed" as const, name: "pdf-tools", direct: true }] }, codex: { exists: true, entries: [{ kind: "dir" as const, name: "acme" }] } } };
+    const view = buildHostView("local", a.agents, inv, 200000, {});
+    const ready = { kind: "ready" as const, inventory: inv, ops: [], view };
+    return { ...initialState(a.config, skills, [], {}), hosts: { local: ready, dev: ready } };
+  };
+  test("renders one row per line and windows by height (no Yoga shrink overlap)", async () => {
+    const s = hostsState();
+    const lines = hostLines(s);
+    expect(lines.length).toBe(2 * (1 + 2 * 2 + 1)); // per host: header + 2 agents × (row + loads) + gap
+    const full = render(<HostsView s={s} height={lines.length + 1} offset={0} />); await tick();
+    const rows = (full.lastFrame() ?? "").split("\n");
+    expect(rows.length).toBe(lines.length + 1);
+    expect(rows.filter((r) => /loads \d+: user/.test(r)).length).toBe(4);
+    expect(rows.filter((r) => r.includes("/h/.claude/skills")).length).toBe(2);
+    full.unmount();
+  });
+  test("scrolls with a clamped offset and reports the window", async () => {
+    const s = hostsState();
+    const n = hostLines(s).length;
+    const small = render(<HostsView s={s} height={5} offset={0} />); await tick();
+    expect((small.lastFrame() ?? "").split("\n").length).toBe(5);
+    expect(small.lastFrame()).toContain(`lines 1–4 of ${n}`);
+    small.unmount();
+    const scrolled = render(<HostsView s={s} height={5} offset={1_000} />); await tick();
+    expect(scrolled.lastFrame()).toContain(`lines ${n - 3}–${n} of ${n}`);
+    scrolled.unmount();
+    expect(clampOffset(-5, 20, 5)).toBe(0);
+    expect(clampOffset(99, 20, 5)).toBe(16);
   });
 });
