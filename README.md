@@ -12,6 +12,8 @@ mini:~/.skm/skills  devbox:~/.skm/skills   ← rsync 镜像，远端再本地软
 
 远端主机只需要 `ssh`、`rsync`、POSIX `sh`，不用安装任何东西。
 
+v2 起，skm 的清单以「每个 agent 实际会加载什么」为准：用户目录、旧目录、Codex 内置、Claude/Codex plugin 缓存全部罗列，并标出每一条是怎么存储、归谁管的。store + 软链只是其中一种存储方式；plugin 和 CLI 自带的 skill 留在各自的 owner 那里，skm 只统一「清单 + 策略」，不搬文件。
+
 ## 安装
 
 ```sh
@@ -52,6 +54,11 @@ rules:                                      # 自上而下，后者覆盖前者�
   - skills: [hatch-pet]
     agents: { only: [codex] }
     off: ["mini/codex"]                     # 精确到 主机/agent 的单元格开关（TUI 里按空格生成）
+plugins:                                    # v2：期望状态扩展到 plugin，由 claude/codex CLI 落地，不拷文件
+  superpowers: { marketplace: claude-plugins-official, agents: { only: [claude, codex] } }
+  linear-cli: { marketplace: { claude: linear-cli, codex: linear-cli }, hosts: { except: [home-mini] } }
+owned:                                      # v2：某个 CLI 自带的 skill（真实目录），skm 不软链，只核对
+  acme: { tool: acme }              # ensure 默认 `acme self skill install -g -s acme`；fallback: store|none
 eval: { agent: claude }                     # 或 codex；model 可选
 contextTokens: 200000                       # 用于上下文预算模拟
 backupBeforeApply: true
@@ -68,17 +75,39 @@ backupBeforeApply: true
 | `skm adopt <path…> \| --from <agent…>` | 真实目录 → store + 软链 |
 | `skm ls [--json] [--host H] [--agent A] [--sort cost]` | 列表 + 上下文占用 |
 | `skm show <skill>` | 详情、成本、主机×agent 矩阵、启发式提示 |
-| `skm status [--host H] [--json]` | 探测：每个 agent 实际消费的 skill（含旧目录副本）、漂移、冲突、remote-only |
+| `skm status [--host H] [--json]` | 探测：每个 主机×agent 从所有来源加载的 skill 数（user / legacy / builtin / plugin）、listing 预算、漂移、冲突、blocked、remote-only |
+| `skm inventory [--host H] [--agent A] [--json]` | v2 清单：每个 主机×agent 实际加载的每一条 skill——来源、存储方式、owner、版本、listing/body 成本，以及同名/同内容/陈旧缓存等发现 |
 | `skm plan` / `skm sync [--dry-run] [--replace-conflicts] [-y] [--no-backup]` | 计算/执行同步；apply 前自动备份；apply 后重新探测验证 |
 | `skm pull <host> [skills…] \| --all [--force]` | 远端 store 或 agent 目录里的未纳管 skill → hub |
 | `skm rules infer [--write]` | 从各主机现状推导主机级规则 |
 | `skm backup [hosts…]` / `skm backups [host]` / `skm restore <host> <ts>` | 快照与一键还原 |
-| `skm doctor` | 规范校验、启发式、每个 主机×agent 的 listing 预算模拟 |
-| `skm eval [skills…] [--agent claude\|codex] [--fresh] [--cached] [--json] [--batch n]` | LLM 评估：有用度、描述质量、重复、建议；按内容 hash 缓存。claude 先试 `-p --bare`（最省上下文，需要 API key），登录态是订阅时自动回退到普通 `-p`（关掉工具/MCP/skills） |
+| `skm doctor [--cached] [--host H] [--json]` | 规范校验、启发式、每个 主机×agent 覆盖所有来源的 listing 预算模拟、跨主机 plugin 版本漂移；`--cached` 用上次探测缓存（`~/.skm/cache/inventory/`），不走 ssh |
+| `skm eval [skills…] [--all] [--agent claude\|codex] [--fresh] [--cached] [--json] [--batch n]` | LLM 评估（`--all` 把本机 plugin / 真实目录里的 skill 也评，名字形如 `plugin:skill`）：有用度、描述质量、重复、建议；按内容 hash 缓存。claude 先试 `-p --bare`（最省上下文，需要 API key），登录态是订阅时自动回退到普通 `-p`（关掉工具/MCP/skills） |
+
+## v2：按消费方罗列 skill 来源
+
+每个 agent 启动时会把下面这些地方的 SKILL.md 全部列进上下文，skm 按这个顺序探测并合并成「有效清单」：
+
+| 来源 | Claude Code | Codex | pi / dsh | owner |
+|---|---|---|---|---|
+| 用户目录 | `~/.claude/skills` | `~/.agents/skills` | `~/.pi/agent/skills` / `~/.dsh/skills` | skm（软链）、acme / skills-cli（真实目录）、manual |
+| 旧目录 / 兼容目录 | — | `~/.codex/skills` | dsh 还读 `~/.agents/skills` | 同上 |
+| 内置 | — | `~/.codex/skills/.system` | — | codex-builtin |
+| plugin 缓存 | `~/.claude/plugins/cache/<mk>/<plugin>/<ver>/skills/*`，启用状态看 `settings.json` `enabledPlugins`，生效版本看 `installed_plugins.json` | `~/.codex/plugins/cache/...`，`config.toml` `[plugins."name@mk"] enabled`；缓存了但没写 config 的按 Codex 默认视为启用，标 `implicit` | — | claude-plugins / codex-plugins |
+
+每一条都带：存储方式（`link→store`、`real dir`、`link→别处`、`plugin cache`、`builtin`）、owner、版本（plugin 版本 / acme lock / skills-cli lock）、listing 字符数、body token、内容 hash。发现项：
+
+- `same-name`：同一 agent 从两个来源加载同名 skill（如 Codex 内置 `skill-creator` 与 plugin 版）。
+- `linked-twice`：两个目录都软链到 store，同一批 skill 被加载两次（dsh 同时读 `~/.dsh/skills` 和 `~/.agents/skills`）。
+- `same-content`：不同名但 SKILL.md 完全相同。
+- `stale-cache` / `disabled-cached`：plugin 缓存里有未生效的旧版本 / 已禁用但仍占磁盘。
+- `version-drift`：同一 plugin 在不同 主机×agent 生效版本不一致。
+
+期望状态扩展到 plugin 与 owner 自带 skill 之后，`plan/sync` 多了几类不搬文件的 op：`marketplace-add`、`plugin-install`、`plugin-enable`、`plugin-disable`（走 `claude plugin …` / `codex plugin …`，Codex 没有 enable/disable 子命令时直接改 `config.toml` 的 `enabled`）、`owned-ensure`（调 owner CLI 安装）；主机上找不到对应 CLI 时给出 `blocked`，不会退化成拷文件。备份范围同时包含 `~/.claude/settings.json`、`~/.claude/plugins/installed_plugins.json`、`~/.codex/config.toml`。
 
 ## 上下文占用怎么算
 
-- **listing**（每轮都付）：`description + when_to_use` 的字符数与估算 token（o200k 编码，仅供比较）。
+- **listing**（每轮都付）：`description + when_to_use` 的字符数与估算 token（o200k 编码，仅供比较）。v2 的 `status / inventory / doctor` 按有效清单（含 plugin、内置、旧目录）算，主机不可达时才退回只按 store 估。
   - Claude Code：总预算 = 上下文 × `skillListingBudgetFraction`（默认 1%）字符，单个 skill 上限 `skillListingMaxDescChars`（默认 1536）；超预算时按调用频率丢描述。`skm doctor` 会读你 `~/.claude/settings.json` 里的覆盖值做模拟。
   - Codex：总预算 = 上下文 × 2%（未知时 8000 字符），超出先压缩描述。
 - **body**（激活时付）：SKILL.md 正文 token 与行数；规范建议 <5000 token、<500 行。
@@ -100,6 +129,7 @@ backupBeforeApply: true
 
 - 只删除"指向 store 且 hub 认识该 skill"的软链；真实目录、指向别处的软链、远端独有的 store skill 一律不动（除非 `--replace-conflicts`，且先移入备份）。
 - 主机不可达不影响其他主机。
+- plugin / owned 类 op 只通过各自 owner 的 CLI 落地（`claude plugin`、`codex plugin`、`acme self skill`），从不改 plugin 缓存目录；CLI 缺失时 op 变成 `blocked`。
 - 所有 IO 返回 `Result`，错误为标签联合并穷尽渲染。
 
 ## Mac App
@@ -120,8 +150,8 @@ open macos/dist/Skm.app
 ## 开发
 
 ```sh
-bun test            # 64 个测试：纯核心 + 用临时 HOME 跑真实 sh/rsync 的集成测试 + TUI 渲染
+bun test            # 98 个测试：纯核心 + 用临时 HOME 跑真实 sh/rsync 的集成测试 + TUI 渲染
 bun run typecheck
 ```
 
-结构：`src/core`（纯函数：frontmatter、规则求值、diff→Op[]、sh 脚本生成、预算模拟、去重）→ `src/shell`（文件系统、ssh/rsync、子进程）→ `src/cli` / `src/tui`。
+结构：`src/core`（纯函数：frontmatter、规则求值、来源/plugin 状态解析（`sources.ts`、`effective.ts`）、diff→Op[]、sh 脚本生成、预算模拟、去重）→ `src/shell`（文件系统、ssh/rsync、子进程）→ `src/cli` / `src/tui`。

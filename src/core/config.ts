@@ -27,12 +27,33 @@ export type HostConfig = {
 
 export type EvalAgent = "claude" | "codex";
 
+/** Desired state of one plugin (name@marketplace per agent) across the host × agent grid. */
+export type PluginPolicy = {
+  readonly name: string;
+  readonly marketplace: Readonly<Record<string, string>>;   // agent id → marketplace name
+  readonly hosts: Selector;
+  readonly agents: Selector;
+};
+
+/** A skill written and refreshed by its own CLI (acme, …): skm defers to that tool where it exists. */
+export type OwnedPolicy = {
+  readonly skill: string;
+  readonly tool: string;
+  readonly ensure: Option<string>;             // command run when the dir is missing and the tool exists; default per tool
+  readonly fallback: "store" | "none";         // when the tool is absent: link the store copy, or leave the cell empty
+};
+
+/** Agents that have a plugin system skm can drive. */
+export const PLUGIN_AGENTS: readonly string[] = ["claude", "codex"];
+
 export type Config = {
   readonly store: string;
   readonly agents: readonly string[];
   readonly hosts: readonly HostConfig[];
   readonly defaults: { readonly hosts: Selector; readonly agents: Selector };
   readonly rules: readonly Rule[];
+  readonly plugins: readonly PluginPolicy[];
+  readonly owned: readonly OwnedPolicy[];
   readonly eval: { readonly agent: EvalAgent; readonly model: Option<string> };
   readonly contextTokens: number;
   readonly backupBeforeApply: boolean;
@@ -51,6 +72,8 @@ export const defaultConfig = (): Config => ({
   hosts: [{ id: "local", ssh: none, agents: none, skm: "~/.skm" }],
   defaults: { hosts: ALL, agents: ALL },
   rules: [],
+  plugins: [],
+  owned: [],
   eval: { agent: "claude", model: none },
   contextTokens: 200_000,
   backupBeforeApply: true,
@@ -130,6 +153,36 @@ const parseHost = (id: string, v: unknown): Result<HostConfig, ConfigError> => {
   return agents.ok ? ok({ id, ssh: ssh === undefined ? none : some(ssh), agents: some(agents.value), skm }) : agents;
 };
 
+const parsePlugin = (name: string, v: unknown): Result<PluginPolicy, ConfigError> => {
+  const path = `plugins.${name}`;
+  if (v === null || v === undefined) return ok({ name, marketplace: {}, hosts: ALL, agents: ALL });
+  if (!isRecord(v)) return err(shape(path, "plugin must be a map"));
+  const mk = v["marketplace"];
+  const marketplace: Result<Readonly<Record<string, string>>, ConfigError> =
+    mk === undefined ? ok({})
+    : typeof mk === "string" ? ok(Object.fromEntries(PLUGIN_AGENTS.map((a) => [a, mk])))
+    : isRecord(mk) && Object.values(mk).every((x) => typeof x === "string") ? ok(mk as Record<string, string>)
+    : err(shape(`${path}.marketplace`, "expected a string or { agent: marketplace }"));
+  if (!marketplace.ok) return marketplace;
+  const hosts = parseSelector(v["hosts"], `${path}.hosts`);
+  if (!hosts.ok) return hosts;
+  const agents = parseSelector(v["agents"], `${path}.agents`);
+  if (!agents.ok) return agents;
+  return ok({ name, marketplace: marketplace.value, hosts: hosts.value, agents: agents.value });
+};
+
+const parseOwned = (skill: string, v: unknown): Result<OwnedPolicy, ConfigError> => {
+  const path = `owned.${skill}`;
+  if (!isRecord(v)) return err(shape(path, "expected a map with tool:"));
+  const tool = v["tool"];
+  if (typeof tool !== "string" || tool.length === 0) return err(shape(`${path}.tool`, "expected the command name"));
+  const ensure = v["ensure"];
+  if (ensure !== undefined && typeof ensure !== "string") return err(shape(`${path}.ensure`, "expected a shell command string"));
+  const fallback = v["fallback"] ?? "store";
+  if (fallback !== "store" && fallback !== "none") return err(shape(`${path}.fallback`, "expected store or none"));
+  return ok({ skill, tool, ensure: ensure === undefined ? none : some(ensure), fallback });
+};
+
 const sequence = <T>(rs: readonly Result<T, ConfigError>[]): Result<T[], ConfigError> =>
   rs.reduce<Result<T[], ConfigError>>((acc, r) => (acc.ok ? (r.ok ? ok([...acc.value, r.value]) : r) : acc), ok([]));
 
@@ -167,6 +220,16 @@ export const parseConfig = (text: string): Result<Config, ConfigError> => {
   const rules = sequence(rulesRaw.map((r, i) => parseRule(r, `rules[${i}]`)));
   if (!rules.ok) return rules;
 
+  const pluginsRaw = doc["plugins"] ?? {};
+  if (!isRecord(pluginsRaw)) return err(shape("plugins", "expected a map of plugin name → settings"));
+  const plugins = sequence(Object.entries(pluginsRaw).map(([name, v]) => parsePlugin(name, v)));
+  if (!plugins.ok) return plugins;
+
+  const ownedRaw = doc["owned"] ?? {};
+  if (!isRecord(ownedRaw)) return err(shape("owned", "expected a map of skill name → settings"));
+  const owned = sequence(Object.entries(ownedRaw).map(([skill, v]) => parseOwned(skill, v)));
+  if (!owned.ok) return owned;
+
   const evalRaw = doc["eval"] ?? {};
   if (!isRecord(evalRaw)) return err(shape("eval", "expected a map"));
   const evalAgent = evalRaw["agent"] ?? d.eval.agent;
@@ -185,6 +248,8 @@ export const parseConfig = (text: string): Result<Config, ConfigError> => {
     hosts: hosts.value,
     defaults: { hosts: dh.value, agents: da.value },
     rules: rules.value,
+    plugins: plugins.value,
+    owned: owned.value,
     eval: { agent: evalAgent, model: model === undefined ? none : some(model) },
     contextTokens,
     backupBeforeApply,
@@ -212,6 +277,14 @@ const ruleToRaw = (r: Rule): Raw => ({
   ...(r.off.length > 0 ? { off: r.off.map(cellText) } : {}),
 });
 
+const pluginToRaw = (p: PluginPolicy): Raw => {
+  const values = [...new Set(Object.values(p.marketplace))];
+  const mk = Object.keys(p.marketplace).length === 0 ? {} : values.length === 1 && PLUGIN_AGENTS.every((a) => p.marketplace[a] === values[0]) ? { marketplace: values[0] } : { marketplace: { ...p.marketplace } };
+  return { ...mk, ...(p.hosts.kind === "all" ? {} : { hosts: selectorToRaw(p.hosts) }), ...(p.agents.kind === "all" ? {} : { agents: selectorToRaw(p.agents) }) };
+};
+
+const ownedToRaw = (o: OwnedPolicy): Raw => ({ tool: o.tool, ...(o.ensure.some ? { ensure: o.ensure.value } : {}), ...(o.fallback === "store" ? {} : { fallback: o.fallback }) });
+
 const hostToRaw = (h: HostConfig): Raw => ({
   ...(h.ssh.some ? { ssh: h.ssh.value } : {}),
   ...(h.agents.some ? { agents: [...h.agents.value] } : {}),
@@ -225,6 +298,8 @@ export const serializeConfig = (c: Config): string =>
     hosts: Object.fromEntries(c.hosts.map((h) => [h.id, hostToRaw(h)])),
     defaults: { hosts: selectorToRaw(c.defaults.hosts), agents: selectorToRaw(c.defaults.agents) },
     rules: c.rules.map(ruleToRaw),
+    ...(c.plugins.length > 0 ? { plugins: Object.fromEntries(c.plugins.map((p) => [p.name, pluginToRaw(p)])) } : {}),
+    ...(c.owned.length > 0 ? { owned: Object.fromEntries(c.owned.map((o) => [o.skill, ownedToRaw(o)])) } : {}),
     eval: { agent: c.eval.agent, ...(c.eval.model.some ? { model: c.eval.model.value } : {}) },
     contextTokens: c.contextTokens,
     backupBeforeApply: c.backupBeforeApply,
@@ -238,6 +313,16 @@ export const hostById = (c: Config, id: string): Option<HostConfig> => {
 /** Agents enabled on a host: host override ∩ global list, else global list. */
 export const hostAgents = (c: Config, h: HostConfig): readonly string[] =>
   h.agents.some ? h.agents.value.filter((a) => c.agents.includes(a)) : c.agents;
+
+/** Marketplace a plugin policy uses for an agent: explicit per-agent entry, else the plugin's single marketplace, else none. */
+export const marketplaceFor = (p: PluginPolicy, agentId: string): Option<string> => {
+  const m = p.marketplace[agentId];
+  return m !== undefined ? some(m) : none;
+};
+
+/** Built-in `ensure` commands for known CLI-owned skills. */
+export const defaultEnsure = (tool: string, skill: string): Option<string> =>
+  tool === "acme" ? some(`acme self skill install -g -s ${skill}`) : none;
 
 export const configErrorText = (e: ConfigError): string => {
   switch (e.kind) {

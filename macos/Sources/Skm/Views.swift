@@ -166,6 +166,7 @@ struct HostsView: View {
                     if let d = h.drift, !d.isEmpty { Text("\(d.count) pending").foregroundStyle(.orange) } else if h.reachable { Text("in sync").foregroundStyle(.green) }
                 }
                 if let e = h.error { Text(e).foregroundStyle(.red).font(.callout) }
+                if let tools = h.tools, !tools.isEmpty { Text("tools: " + tools.keys.sorted().joined(separator: " ")).foregroundStyle(.secondary).font(.caption) }
                 if let agents = h.agents {
                     ForEach(agents.keys.sorted(), id: \.self) { a in
                         let st = agents[a]!
@@ -181,6 +182,21 @@ struct HostsView: View {
                                 if !legacy.isEmpty { Text("legacy dir: \(legacy.count)").foregroundStyle(.secondary) }
                                 Text(st.consumed.map(\.name).joined(separator: " ")).foregroundStyle(.secondary).lineLimit(2).font(.callout)
                             } else { Text("absent").foregroundStyle(.secondary) }
+                        }
+                        if let c = st.counts {
+                            HStack(alignment: .top) {
+                                Text("").frame(width: 70)
+                                Text("loads \(c.total): user \(c.user)" + (c.legacy > 0 ? " · legacy \(c.legacy)" : "") + (c.builtin > 0 ? " · builtin \(c.builtin)" : "") + (c.plugin > 0 ? " · plugin \(c.plugin)" : "")).foregroundStyle(.secondary).font(.callout)
+                                if let ps = st.plugins {
+                                    let active = ps.filter { $0.enabled != "off" && !$0.skills.isEmpty }
+                                    if !active.isEmpty { Text(active.map { "\($0.name) \($0.version ?? "")" }.joined(separator: " · ")).foregroundStyle(.secondary).font(.callout).lineLimit(1) }
+                                }
+                                if let b = st.budget {
+                                    if let budget = b.budgetChars {
+                                        Text(b.overBy > 0 ? "listing \(b.usedChars)c / \(budget)c — over by \(b.overBy)c" : "listing \(b.usedChars)c / \(budget)c fits").foregroundStyle(b.overBy > 0 ? .red : .green).font(.callout).monospacedDigit()
+                                    } else { Text("listing \(b.usedChars)c").foregroundStyle(.secondary).font(.callout) }
+                                }
+                            }
                         }
                     }
                 }
@@ -246,7 +262,7 @@ struct InsightsView: View {
                         TableColumn("Host", value: \.host).width(90)
                         TableColumn("Agent", value: \.agent).width(80)
                         TableColumn("Skills") { Text("\($0.skills)") }.width(60)
-                        TableColumn("Listing") { Text("\($0.usedChars)c ≈ \($0.tokens)t").monospacedDigit() }.width(140)
+                        TableColumn("Listing") { r in Text(r.tokens.map { "\(r.usedChars)c ≈ \($0)t" } ?? "\(r.usedChars)c").monospacedDigit() }.width(140)
                         TableColumn("Budget") { r in Text(r.budgetChars.map { "\($0)c" } ?? "—").monospacedDigit() }.width(80)
                         TableColumn("Verdict") { r in
                             if r.budgetChars == nil { Text("no documented budget").foregroundStyle(.secondary) }
@@ -255,8 +271,18 @@ struct InsightsView: View {
                         }
                     }
                     .frame(height: CGFloat(min(12, d.budget.count)) * 26 + 30)
-                    Text("context window assumed \(d.contextTokens) tokens · Claude: 1% listing budget, 1536c per skill · Codex: 2%").font(.caption).foregroundStyle(.secondary)
+                    Text("context window assumed \(d.contextTokens) tokens · counts every skill the agent loads (user dir, legacy dir, builtins, enabled plugins) · Claude: 1% listing budget, 1536c per skill · Codex: 2%").font(.caption).foregroundStyle(.secondary)
                 }.padding(8)
+                if let f = d.findings, !f.isEmpty {
+                    GroupBox("Cross-source findings (\(f.count))") {
+                        Table(f) {
+                            TableColumn("Kind") { x in Text(x.kind).foregroundStyle(x.kind == "version-drift" ? .red : x.kind.hasPrefix("same") || x.kind == "linked-twice" ? .orange : .secondary) }.width(120)
+                            TableColumn("Where") { x in Text([x.host, x.agent].compactMap { $0 }.joined(separator: "/")) }.width(110)
+                            TableColumn("Detail") { x in Text(x.text).lineLimit(2) }
+                        }
+                        .frame(height: CGFloat(min(8, f.count)) * 26 + 30)
+                    }.padding(8)
+                }
             }
             HStack {
                 Text("LLM evaluation").font(.headline)

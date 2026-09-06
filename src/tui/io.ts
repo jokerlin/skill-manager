@@ -29,7 +29,7 @@ export type TuiIo = {
 
 export const realIo = (app: AppState): TuiIo => ({
   probe: (host) => probeHost(host, agentsOn(app.config, host), runnerFor(host)),
-  plan: (config, skills, host, inv) => planFor(config, skills, host, inv),
+  plan: (config, skills, host, inv) => planFor(config, skills, host, inv, app.hubMarketplaces),
   saveConfig: (config) => writeFile(app.configPath, serializeConfig(config), "utf8"),
   backup: async (host, ts) => {
     const r = await backupHost(host, runnerFor(host), backupPathsFor(host, agentsOn(app.config, host)), app.skmHome, ts);

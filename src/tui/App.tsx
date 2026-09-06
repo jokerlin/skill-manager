@@ -4,6 +4,8 @@ import { match } from "ts-pattern";
 import { allInsights } from "../core/heuristics";
 import { isMutation } from "../core/plan";
 import { isDesired, setScope } from "../core/scope";
+import { buildHostView } from "../core/view";
+import { agentsOn } from "../shell/hosts";
 import type { AppState } from "../shell/app";
 import { hostErrorText } from "../shell/probe";
 import type { TuiIo } from "./io";
@@ -37,7 +39,9 @@ export const App = ({ app, io, evals, autoProbe = true }: AppProps): React.React
         dispatch({
           type: "host",
           id: hostId,
-          status: r.ok ? { kind: "ready", inventory: r.value, ops: io.plan(stateRef.current.config, app.skills, host, r.value) } : { kind: "error", error: r.error },
+          status: r.ok
+            ? { kind: "ready", inventory: r.value, ops: io.plan(stateRef.current.config, app.skills, host, r.value), view: buildHostView(host.id, agentsOn(stateRef.current.config, host), r.value, stateRef.current.config.contextTokens, app.claudeOverrides) }
+            : { kind: "error", error: r.error },
         }),
       );
     },
@@ -51,7 +55,7 @@ export const App = ({ app, io, evals, autoProbe = true }: AppProps): React.React
     (config: State["config"]) => {
       Object.entries(stateRef.current.hosts).forEach(([id, st]) => {
         const host = config.hosts.find((h) => h.id === id);
-        if (st.kind === "ready" && host) dispatch({ type: "host", id, status: { kind: "ready", inventory: st.inventory, ops: io.plan(config, app.skills, host, st.inventory) } });
+        if (st.kind === "ready" && host) dispatch({ type: "host", id, status: { ...st, ops: io.plan(config, app.skills, host, st.inventory) } });
       });
     },
     [io, app.skills],

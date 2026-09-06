@@ -5,6 +5,7 @@ import type { Insight } from "../core/heuristics";
 import type { Inventory } from "../core/inventory";
 import type { Op } from "../core/plan";
 import type { Skill } from "../core/skill";
+import type { HostView } from "../core/view";
 import type { HostError } from "../shell/probe";
 
 export type View = "skills" | "hosts" | "sync" | "insights" | "help";
@@ -12,7 +13,7 @@ export const VIEWS: readonly View[] = ["skills", "hosts", "sync", "insights", "h
 
 export type HostStatus =
   | { readonly kind: "probing" }
-  | { readonly kind: "ready"; readonly inventory: Inventory; readonly ops: readonly Op[] }
+  | { readonly kind: "ready"; readonly inventory: Inventory; readonly ops: readonly Op[]; readonly view?: HostView }
   | { readonly kind: "error"; readonly error: HostError };
 
 export type Focus = "list" | "grid";

@@ -44,19 +44,29 @@ const budgetFor = (agent: Agent, contextTokens: number, o: BudgetOverrides): { b
   }
 };
 
+export type ListingItem = { readonly name: string; readonly listing: string };
+
+/** Store skills as listing items. */
+export const listingItems = (skills: readonly Skill[]): ListingItem[] => skills.map((s) => ({ name: s.name, listing: listingOf(s) }));
+
+/** Convenience over `simulateListingOf` for store skills. */
+export const simulateListing = (agent: Agent, skills: readonly Skill[], contextTokens: number, overrides: BudgetOverrides = {}): BudgetReport =>
+  simulateListingOf(agent, listingItems(skills), contextTokens, overrides);
+
 /**
- * Simulate what an agent keeps at startup. We do not know invocation frequency, so we
- * drop the largest descriptions first — a conservative stand-in for "least used".
+ * Simulate what an agent keeps at startup from any set of (name, listing text) items — store skills,
+ * plugin skills, builtins alike. We do not know invocation frequency, so we drop the largest
+ * descriptions first — a conservative stand-in for "least used".
  */
-export const simulateListing = (
+export const simulateListingOf = (
   agent: Agent,
-  skills: readonly Skill[],
+  items: readonly ListingItem[],
   contextTokens: number,
   overrides: BudgetOverrides = {},
 ): BudgetReport => {
   const { budget, cap, note } = budgetFor(agent, contextTokens, overrides);
-  const entries = skills.map((s) => {
-    const chars = listingOf(s).length;
+  const entries = items.map((s) => {
+    const chars = s.listing.length;
     return { name: s.name, chars, cappedChars: Math.min(chars, cap) };
   });
   const used = entries.reduce((n, e) => n + e.cappedChars, 0);

@@ -55,13 +55,12 @@ final class AppModel: ObservableObject {
     func refreshAll() async {
         await load("loading skills") { self.config = try await self.engine.config(); self.skills = try await self.engine.skills() }
         await load("checking hosts") {
-            // status / plan / doctor each probe the hosts; run them concurrently so startup costs one probe, not three
+            // status and plan each probe the hosts (concurrently); doctor then reads the probe status cached, no third round-trip
             async let status = self.engine.status()
             async let plans = self.engine.plan()
-            async let doctor = self.engine.doctor()
             self.hosts = try await status
             self.plans = try await plans
-            self.doctor = try await doctor
+            self.doctor = try await self.engine.doctor(cached: true)
             self.evals = (try? await self.engine.evals()) ?? []
         }
     }

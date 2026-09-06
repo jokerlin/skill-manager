@@ -1,3 +1,4 @@
+import { emptyInventory } from "../src/core/inventory";
 import { describe, expect, test } from "bun:test";
 import React from "react";
 import { render } from "ink-testing-library";
@@ -19,16 +20,16 @@ const app = (): AppState => {
   if (!claude.some || !codex.some) throw new Error();
   return {
     skmHome: "/tmp/skm", configPath: "/tmp/skm/config.yaml", config: { ...defaultConfig(), hosts: [{ id: "local", ssh: none, agents: none, skm: "~/.skm" }, { id: "dev", ssh: some("dev"), agents: none, skm: "~/.skm" }] },
-    storeDir: "/tmp/skm/skills", skills, ignoredDirs: [], agents: [claude.value, codex.value], unknownAgents: [], claudeOverrides: {},
+    storeDir: "/tmp/skm/skills", skills, ignoredDirs: [], agents: [claude.value, codex.value], unknownAgents: [], claudeOverrides: {}, hubMarketplaces: {},
   };
 };
 
 const io: TuiIo = {
-  probe: async (h) => ({ ok: true, value: { home: "/h", storeSkills: [], agentDirs: { claude: { exists: true, entries: [{ kind: "managed", name: "pdf-tools", direct: true }] }, codex: { exists: false, entries: [] } }, alsoReads: {} } }),
+  probe: async (h) => ({ ok: true, value: { ...emptyInventory("/h"), agentDirs: { claude: { exists: true, entries: [{ kind: "managed", name: "pdf-tools", direct: true }] }, codex: { exists: false, entries: [] } }, alsoReads: {} } }),
   plan: () => [{ op: "link", host: "dev", agent: "codex", skill: "pdf-tools" }],
   saveConfig: async () => {},
   backup: async () => ({ ok: true, value: "/h/.skm/backups/x" }),
-  apply: async (h) => ({ host: h.id, rsynced: [], applied: ["link codex/pdf-tools"], skipped: [], conflicts: [], error: undefined }),
+  apply: async (h) => ({ host: h.id, rsynced: [], applied: ["link codex/pdf-tools"], skipped: [], conflicts: [], commands: [], error: undefined }),
   evaluate: async () => ({ ok: true, value: {} }),
   now: () => "20260906-000000",
 };
@@ -84,7 +85,7 @@ describe("pull candidates", () => {
   test("store first, then unmanaged dirs, dedup, skip hub names", () => {
     const claude = agentById("claude"); const codex = agentById("codex");
     if (!claude.some || !codex.some) throw new Error();
-    const inv = { home: "/h", storeSkills: [{ name: "zeta", hash: "z" }], alsoReads: {}, agentDirs: {
+    const inv = { ...emptyInventory("/h"), storeSkills: [{ name: "zeta", hash: "z" }], agentDirs: {
       claude: { exists: true, entries: [{ kind: "dir" as const, name: "zeta" }, { kind: "dir" as const, name: "only-claude" }, { kind: "managed" as const, name: "pdf", direct: true }, { kind: "dir" as const, name: "inhub" }] },
       codex: { exists: true, entries: [{ kind: "dir" as const, name: "only-claude" }, { kind: "foreign-link" as const, name: "repo", target: "/r" }] },
     } };

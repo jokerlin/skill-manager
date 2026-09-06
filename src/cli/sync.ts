@@ -17,7 +17,7 @@ export const runPlan = async (o: { host?: string; json?: boolean }): Promise<voi
     snaps.forEach((s) => {
       if (!s.result.ok) return out(`${pc.bold(s.host.id)}: ${pc.red(hostErrorText(s.result.error))}`);
       out(pc.bold(`${s.host.id}: ${s.result.ops.filter(isMutation).length} mutations`));
-      s.result.ops.forEach((op) => out(`  ${op.op === "conflict" ? pc.red(opText(op)) : op.op === "remote-only" ? pc.magenta(opText(op)) : opText(op)}`));
+      s.result.ops.forEach((op) => out(`  ${op.op === "conflict" ? pc.red(opText(op)) : op.op === "remote-only" ? pc.magenta(opText(op)) : op.op === "blocked" ? pc.yellow(opText(op)) : opText(op)}`));
     });
   });
 
@@ -30,7 +30,7 @@ export const runSync = async (o: SyncOpts): Promise<void> =>
       const muts = s.result.ops.filter(isMutation);
       const conflicts = s.result.ops.filter((op) => op.op === "conflict");
       out(pc.bold(`${s.host.id}: ${muts.length} mutations${conflicts.length > 0 ? `, ${conflicts.length} conflicts${o.replaceConflicts ? " (will replace)" : " (left alone)"}` : ""}`));
-      s.result.ops.filter((op) => op.op !== "remote-only").forEach((op) => out(`  ${op.op === "conflict" ? pc.red(opText(op)) : opText(op)}`));
+      s.result.ops.filter((op) => op.op !== "remote-only").forEach((op) => out(`  ${op.op === "conflict" ? pc.red(opText(op)) : op.op === "blocked" ? pc.yellow(opText(op)) : opText(op)}`));
     });
     if (todo.length === 0) return out(pc.green("\nnothing to do"));
     if (o.dryRun) return out(pc.dim("\n(dry run — nothing changed)"));
@@ -58,7 +58,8 @@ export const runSync = async (o: SyncOpts): Promise<void> =>
         });
         report.skipped.forEach((l) => out(pc.yellow(`  ${s.host.id}: ${l}`)));
         if (report.error) return out(`${pc.bold(s.host.id)}: ${pc.red(hostErrorText(report.error))}`);
-        out(`${pc.bold(s.host.id)}: ${pc.green("done")}  rsynced ${report.rsynced.length}, applied ${report.applied.length}`);
+        const failed = report.commands.filter((c) => !c.ok);
+        out(`${pc.bold(s.host.id)}: ${failed.length > 0 ? pc.yellow("done with failures") : pc.green("done")}  rsynced ${report.rsynced.length}, applied ${report.applied.length}${report.commands.length > 0 ? `, commands ${report.commands.length - failed.length} ok${failed.length > 0 ? pc.red(` / ${failed.length} failed`) : ""}` : ""}`);
       }),
     );
     void results;

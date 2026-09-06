@@ -105,7 +105,8 @@ final class Engine: @unchecked Sendable {
     func skills() async throws -> [SkillRow] { try decode([SkillRow].self, await run(["ls", "--json"])) }
     func status() async throws -> [HostStatus] { try decode([HostStatus].self, await run(["status", "--json"])) }
     func plan() async throws -> [HostPlan] { try decode([HostPlan].self, await run(["plan", "--json"])) }
-    func doctor() async throws -> DoctorReport { try decode(DoctorReport.self, await run(["doctor", "--json"])) }
+    /// `--cached` reuses the probe `status` just wrote, so a refresh costs two ssh round-trips (status + plan), not three.
+    func doctor(cached: Bool = true) async throws -> DoctorReport { try decode(DoctorReport.self, await run(["doctor", "--json"] + (cached ? ["--cached"] : []))) }
     func evals() async throws -> [EvalItem] { try decode([EvalItem].self, await run(["eval", "--json", "--cached"])) }
     func config() async throws -> ConfigSummary { try decode(ConfigSummary.self, await run(["config", "--json"])) }
     func setScope(skill: String, host: String, agent: String, on: Bool) async throws { _ = try await run(["scope", skill, "\(host)/\(agent)", on ? "on" : "off"]) }

@@ -46,3 +46,10 @@ export const loadStore = async (dir: string): Promise<Result<StoreScan, StoreErr
     ignored: results.flatMap((r) => ("ignored" in r ? [r.ignored] : [])),
   });
 };
+
+/** Read one skill directory (any location: plugin cache, real dir, store) into a Skill named `name`. */
+export const loadSkillDir = async (dir: string, name: string): Promise<Skill | undefined> => {
+  const text = await readFile(join(dir, "SKILL.md"), "utf8").catch(() => undefined);
+  if (text === undefined) return undefined;
+  return buildSkill(name, dir, text, await walk(dir, dir).catch(() => []));
+};

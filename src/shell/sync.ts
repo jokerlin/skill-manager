@@ -1,6 +1,6 @@
 import type { HostConfig } from "../core/config";
-import { type Op, opText } from "../core/plan";
-import { applyScript, shPath } from "../core/scripts";
+import { type Op, isCommandOp, opText } from "../core/plan";
+import { type CommandResult, applyScript, commandsScript, parseCommandOutput, shPath } from "../core/scripts";
 import { shQuote } from "../lib/sh";
 import type { HostError } from "./probe";
 import { type Runner, rsyncMirror, runError } from "./runner";
@@ -11,6 +11,7 @@ export type SyncReport = {
   readonly applied: readonly string[];   // lines echoed by apply.sh
   readonly skipped: readonly string[];   // stderr lines from apply.sh
   readonly conflicts: readonly string[];
+  readonly commands: readonly CommandResult[]; // plugin / owned-skill commands run through their own CLIs
   readonly error: HostError | undefined; // first fatal error; later steps were not run
 };
 
@@ -31,7 +32,7 @@ export const executePlan = async (a: ExecuteArgs): Promise<SyncReport> => {
   const { host, ops, runner, log } = a;
   const toSync = ops.flatMap((o) => (o.op === "rsync-skill" ? [o.skill] : []));
   const conflicts = ops.flatMap((o) => (o.op === "conflict" ? [opText(o)] : []));
-  const base: SyncReport = { host: host.id, rsynced: [], applied: [], skipped: [], conflicts, error: undefined };
+  const base: SyncReport = { host: host.id, rsynced: [], applied: [], skipped: [], conflicts, commands: [], error: undefined };
 
   if (toSync.length > 0) {
     const storeRel = `${rel(host.skm)}/skills`;
@@ -59,6 +60,18 @@ export const executePlan = async (a: ExecuteArgs): Promise<SyncReport> => {
     const applied = r.value.stdout.split("\n").filter((l) => l.length > 0);
     const skipped = r.value.stderr.split("\n").filter((l) => l.length > 0);
     applied.forEach((l) => log(`${host.id}: ${l}`));
-    return { ...base, applied, skipped };
+    return runCommands({ ...base, applied, skipped });
+  }
+
+  /** Plugin / owned-skill ops go through `claude plugin`, `codex plugin`, config.toml edits or the owning tool. */
+  async function runCommands(base: SyncReport): Promise<SyncReport> {
+    const cmds = ops.filter(isCommandOp);
+    if (cmds.length === 0) return base;
+    cmds.forEach((o) => log(`${host.id}: ${opText(o)}`));
+    const r = await runner.sh(commandsScript(cmds), { timeoutMs: 600_000 });
+    if (!r.ok) return { ...base, error: { kind: "step-failed", host: host.id, step: "commands", detail: runError(r.error) } };
+    const commands = parseCommandOutput(r.value.stdout);
+    commands.forEach((c) => log(`${host.id}: ${c.ok ? "ok" : "FAILED"} ${c.label}${c.ok ? "" : ` — ${c.detail}`}`));
+    return { ...base, commands };
   }
 };

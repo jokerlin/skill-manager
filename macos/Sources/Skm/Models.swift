@@ -25,12 +25,65 @@ struct ConsumedEntry: Codable, Hashable {
     let target: String?
 }
 
+struct EffectiveEntry: Codable, Hashable, Identifiable {
+    var id: String { path }
+    let name: String
+    let source: String        // user | legacy | builtin | plugin
+    let sourceText: String
+    let storage: String
+    let owner: String
+    let path: String
+    let version: String?
+    let enabled: String       // on | implicit
+    let listingChars: Int
+    let bodyTokens: Int
+    let hash: String
+}
+
+struct SourceCounts: Codable, Hashable {
+    let user: Int
+    let legacy: Int
+    let builtin: Int
+    let plugin: Int
+    var total: Int { user + legacy + builtin + plugin }
+}
+
+struct PluginStatus: Codable, Hashable, Identifiable {
+    let id: String
+    let name: String
+    let marketplace: String
+    let enabled: String       // on | off | implicit
+    let version: String?
+    let dir: String?
+    let skills: [String]
+    let cachedVersions: [String]
+}
+
+struct AgentBudget: Codable, Hashable {
+    let usedChars: Int
+    let budgetChars: Int?
+    let droppedCount: Int
+    let overBy: Int
+    let note: String
+}
+
 struct AgentStatus: Codable, Hashable {
     let dir: String
     let exists: Bool
     let consumed: [ConsumedEntry]
     let desired: [String]
     let alsoReads: [String: [String]]
+    // v2 (optional so older CLIs still decode)
+    let effective: [EffectiveEntry]?
+    let counts: SourceCounts?
+    let plugins: [PluginStatus]?
+    let budget: AgentBudget?
+}
+
+struct HostFinding: Codable, Hashable, Identifiable {
+    var id: String { "\(kind)/\(text.hashValue)" }
+    let kind: String
+    let text: String
 }
 
 struct HostStatus: Codable, Identifiable, Hashable {
@@ -43,6 +96,8 @@ struct HostStatus: Codable, Identifiable, Hashable {
     let remoteOnly: [String]?
     let agents: [String: AgentStatus]?
     let drift: [String]?
+    let tools: [String: String]?
+    let findings: [HostFinding]?
 }
 
 struct HostPlan: Codable, Identifiable, Hashable {
@@ -64,7 +119,7 @@ struct BudgetRow: Codable, Identifiable, Hashable {
     let agent: String
     let skills: Int
     let usedChars: Int
-    let tokens: Int
+    let tokens: Int?
     let budgetChars: Int?
     let droppedCount: Int
     let overBy: Int
@@ -78,12 +133,21 @@ struct Insight: Codable, Identifiable, Hashable {
     let related: [String]
 }
 
+struct DoctorFinding: Codable, Hashable, Identifiable {
+    var id: String { "\(kind)/\(text.hashValue)" }
+    let kind: String
+    let text: String
+    let host: String?
+    let agent: String?
+}
+
 struct DoctorReport: Codable {
     let store: String
     let skillCount: Int
     let contextTokens: Int
     let budget: [BudgetRow]
     let insights: [Insight]
+    let findings: [DoctorFinding]?
 }
 
 struct EvalItem: Codable, Identifiable, Hashable {

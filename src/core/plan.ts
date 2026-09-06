@@ -1,3 +1,5 @@
+import type { Option } from "../lib/result";
+import type { PluginState } from "./effective";
 import type { Entry, Inventory } from "./inventory";
 
 export type Op =
@@ -6,7 +8,20 @@ export type Op =
   | { readonly op: "link"; readonly host: string; readonly agent: string; readonly skill: string }
   | { readonly op: "unlink"; readonly host: string; readonly agent: string; readonly skill: string }
   | { readonly op: "conflict"; readonly host: string; readonly agent: string; readonly skill: string; readonly entry: Entry }
-  | { readonly op: "remote-only"; readonly host: string; readonly skill: string };
+  | { readonly op: "remote-only"; readonly host: string; readonly skill: string }
+  // v2: delegated to the agent's own plugin CLI / config, or to the skill's owning tool
+  | { readonly op: "marketplace-add"; readonly host: string; readonly agent: string; readonly marketplace: string; readonly source: string }
+  | { readonly op: "plugin-install"; readonly host: string; readonly agent: string; readonly plugin: string }
+  | { readonly op: "plugin-enable"; readonly host: string; readonly agent: string; readonly plugin: string }
+  | { readonly op: "plugin-disable"; readonly host: string; readonly agent: string; readonly plugin: string }
+  | { readonly op: "owned-ensure"; readonly host: string; readonly skill: string; readonly tool: string; readonly command: string }
+  | { readonly op: "blocked"; readonly host: string; readonly agent: string; readonly what: string; readonly reason: string };
+
+/** One plugin's desired state for one agent on this host (marketplace resolved by the shell). */
+export type PluginCell = { readonly agent: string; readonly name: string; readonly marketplace: string; readonly wanted: boolean };
+
+/** A CLI-owned skill as it applies to this host. */
+export type OwnedRule = { readonly skill: string; readonly tool: string; readonly command: Option<string>; readonly fallback: "store" | "none" };
 
 export type PlanInput = {
   readonly hostId: string;
@@ -17,9 +32,21 @@ export type PlanInput = {
   readonly hubSkills: readonly { readonly name: string; readonly hash: string }[];
   /** agent id → absolute skills dir on that host */
   readonly agentDirs: Readonly<Record<string, string>>;
+  readonly plugins?: readonly PluginCell[];
+  readonly pluginStates?: Readonly<Record<string, readonly PluginState[]>>;
+  /** agent id → marketplaces configured on this host (name → source) */
+  readonly marketplaces?: Readonly<Record<string, Readonly<Record<string, string>>>>;
+  /** marketplaces the hub knows a source for (name → source) */
+  readonly hubMarketplaces?: Readonly<Record<string, string>>;
+  readonly owned?: readonly OwnedRule[];
+  readonly tools?: Readonly<Record<string, string>>;
 };
 
-const ORDER: Record<Op["op"], number> = { mkdir: 0, "rsync-skill": 1, unlink: 2, link: 3, conflict: 4, "remote-only": 5 };
+const ORDER: Record<Op["op"], number> = {
+  mkdir: 0, "rsync-skill": 1, unlink: 2, link: 3,
+  "marketplace-add": 4, "plugin-install": 5, "plugin-enable": 6, "plugin-disable": 7, "owned-ensure": 8,
+  conflict: 9, blocked: 10, "remote-only": 11,
+};
 
 const entryFor = (inv: Inventory, agent: string, skill: string): Entry | undefined =>
   inv.agentDirs[agent]?.entries.find((e) => e.name === skill);
@@ -47,14 +74,68 @@ const unlinkOps = (host: string, agent: string, wanted: ReadonlySet<string>, inv
     .filter((e) => e.kind === "managed" && !wanted.has(e.name) && hubNames.has(e.name))
     .map((e): Op => ({ op: "unlink", host, agent, skill: e.name }));
 
+const without = (desired: Readonly<Record<string, readonly string[]>>, skill: string): Record<string, readonly string[]> =>
+  Object.fromEntries(Object.entries(desired).map(([a, names]) => [a, names.filter((n) => n !== skill)]));
+
+/**
+ * CLI-owned skills: where the tool exists the tool writes the dirs (skm stays out and asks the tool to ensure them);
+ * where it is absent, either fall back to linking the store copy or leave the cells empty.
+ */
+const ownedAdjust = (
+  host: string, desired: Readonly<Record<string, readonly string[]>>, inv: Inventory, owned: readonly OwnedRule[], tools: Readonly<Record<string, string>>, hubNames: ReadonlySet<string>,
+): { desired: Readonly<Record<string, readonly string[]>>; ops: Op[] } =>
+  owned.reduce<{ desired: Readonly<Record<string, readonly string[]>>; ops: Op[] }>(
+    (acc, o) => {
+      const wantedAgents = Object.entries(acc.desired).filter(([, names]) => names.includes(o.skill)).map(([a]) => a);
+      if (wantedAgents.length === 0) return acc;
+      if (tools[o.tool] === undefined) return o.fallback === "store" && hubNames.has(o.skill) ? acc : { ...acc, desired: without(acc.desired, o.skill) };
+      const missing = wantedAgents.filter((a) => entryFor(inv, a, o.skill)?.kind !== "dir");
+      const ops: Op[] =
+        missing.length === 0 ? []
+        : o.command.some ? [{ op: "owned-ensure", host, skill: o.skill, tool: o.tool, command: o.command.value }]
+        : [{ op: "blocked", host, agent: missing.join("+"), what: `owned ${o.skill}`, reason: `no ensure command known for ${o.tool}; add owned.${o.skill}.ensure` }];
+      return { desired: without(acc.desired, o.skill), ops: [...acc.ops, ...ops] };
+    },
+    { desired, ops: [] },
+  );
+
+const pluginOps = (
+  host: string, cells: readonly PluginCell[], states: Readonly<Record<string, readonly PluginState[]>>,
+  marketplaces: Readonly<Record<string, Readonly<Record<string, string>>>>, hubMarketplaces: Readonly<Record<string, string>>, tools: Readonly<Record<string, string>>,
+): Op[] =>
+  cells.flatMap((c): Op[] => {
+    const id = `${c.name}@${c.marketplace}`;
+    const st = (states[c.agent] ?? []).find((p) => p.id === id);
+    const present = st?.active.some ?? false;
+    const enabled = st?.enabled ?? "off";
+    const blocked = (reason: string): Op => ({ op: "blocked", host, agent: c.agent, what: `plugin ${id}`, reason });
+    if (c.wanted) {
+      if (c.marketplace.length === 0) return [blocked("marketplace unknown; set plugins.<name>.marketplace")];
+      if (tools[c.agent] === undefined) return [blocked(`${c.agent} CLI not found on ${host}`)];
+      if (!present) {
+        const known = marketplaces[c.agent]?.[c.marketplace] !== undefined;
+        const source = hubMarketplaces[c.marketplace];
+        if (!known && source === undefined) return [blocked(`marketplace ${c.marketplace} is not configured for ${c.agent} on ${host} and the hub knows no source`)];
+        return [...(known ? [] : [{ op: "marketplace-add", host, agent: c.agent, marketplace: c.marketplace, source: source ?? "" } as const]), { op: "plugin-install", host, agent: c.agent, plugin: id }];
+      }
+      return enabled === "off" ? [{ op: "plugin-enable", host, agent: c.agent, plugin: id }] : [];
+    }
+    if (st === undefined || enabled === "off") return [];
+    if (c.agent === "claude" && tools[c.agent] === undefined) return [blocked(`${c.agent} CLI not found on ${host}; cannot disable`)];
+    return [{ op: "plugin-disable", host, agent: c.agent, plugin: id }];
+  });
+
 /** Diff desired state against a host inventory. Pure; deterministic order. */
 export const planHost = (input: PlanInput): Op[] => {
-  const { hostId, isLocal, desired, inventory, hubSkills, agentDirs } = input;
+  const { hostId, isLocal, inventory, hubSkills, agentDirs } = input;
+  const tools = input.tools ?? inventory.tools;
   const hubNames = new Set(hubSkills.map((s) => s.name));
   const hubHash = new Map(hubSkills.map((s) => [s.name, s.hash]));
   const remoteHash = new Map(inventory.storeSkills.map((s) => [s.name, s.hash]));
   const agents = Object.keys(agentDirs);
 
+  const adjusted = ownedAdjust(hostId, input.desired, inventory, input.owned ?? [], tools, hubNames);
+  const desired = adjusted.desired;
   const wantedAnywhere = new Set(agents.flatMap((a) => desired[a] ?? []));
 
   const mkdirs: Op[] = agents
@@ -73,11 +154,13 @@ export const planHost = (input: PlanInput): Op[] => {
     return [...unlinkOps(hostId, a, new Set(wanted), inventory, hubNames), ...linkOps(hostId, a, wanted, inventory)];
   });
 
+  const plugins = pluginOps(hostId, input.plugins ?? [], input.pluginStates ?? {}, input.marketplaces ?? {}, input.hubMarketplaces ?? {}, tools);
+
   const remoteOnly: Op[] = isLocal
     ? []
     : inventory.storeSkills.filter((s) => !hubNames.has(s.name)).map((s): Op => ({ op: "remote-only", host: hostId, skill: s.name }));
 
-  return [...mkdirs, ...rsyncs, ...perAgent, ...remoteOnly].sort((a, b) => ORDER[a.op] - ORDER[b.op]);
+  return [...mkdirs, ...rsyncs, ...perAgent, ...plugins, ...adjusted.ops, ...remoteOnly].sort((a, b) => ORDER[a.op] - ORDER[b.op]);
 };
 
 export const opText = (o: Op): string => {
@@ -94,7 +177,28 @@ export const opText = (o: Op): string => {
       return `conflict ${o.agent}/${o.skill} (${o.entry.kind})`;
     case "remote-only":
       return `remote-only ${o.skill} (in ${o.host} store, not in hub)`;
+    case "marketplace-add":
+      return `${o.agent}: marketplace add ${o.marketplace} (${o.source})`;
+    case "plugin-install":
+      return `${o.agent}: plugin install ${o.plugin}`;
+    case "plugin-enable":
+      return `${o.agent}: plugin enable ${o.plugin}`;
+    case "plugin-disable":
+      return `${o.agent}: plugin disable ${o.plugin}`;
+    case "owned-ensure":
+      return `${o.tool}: ensure ${o.skill} (${o.command})`;
+    case "blocked":
+      return `blocked ${o.agent} ${o.what}: ${o.reason}`;
   }
 };
 
-export const isMutation = (o: Op): boolean => o.op === "mkdir" || o.op === "rsync-skill" || o.op === "link" || o.op === "unlink";
+/** Ops that change the host (file ops applied by apply.sh + command ops run through the owning CLI). */
+export const isMutation = (o: Op): boolean => isFileOp(o) || isCommandOp(o);
+
+export const isFileOp = (o: Op): boolean => o.op === "mkdir" || o.op === "rsync-skill" || o.op === "link" || o.op === "unlink";
+
+export const isCommandOp = (o: Op): boolean =>
+  o.op === "marketplace-add" || o.op === "plugin-install" || o.op === "plugin-enable" || o.op === "plugin-disable" || o.op === "owned-ensure";
+
+/** Informational ops: nothing is executed for these. */
+export const isReport = (o: Op): boolean => o.op === "conflict" || o.op === "blocked" || o.op === "remote-only";

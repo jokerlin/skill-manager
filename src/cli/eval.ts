@@ -2,9 +2,24 @@ import pc from "picocolors";
 import { buildEvalPrompt, evalErrorText, parseEvalResponse, type EvalItem } from "../core/evalPrompt";
 import { readEvalCache, writeEvalCache } from "../shell/cache";
 import { evaluators, type EvaluatorId } from "../shell/evaluators";
+import type { Skill } from "../core/skill";
+import type { AppState } from "../shell/app";
+import { loadSkillDir } from "../shell/store";
 import { die, out, table, withApp } from "./common";
+import { snapshotHosts } from "./status";
 
-export type EvalOpts = { agent?: EvaluatorId; model?: string; fresh: boolean; json: boolean; batch: number; cached?: boolean };
+export type EvalOpts = { agent?: EvaluatorId; model?: string; fresh: boolean; json: boolean; batch: number; cached?: boolean; all?: boolean };
+
+/** Skills the local machine's agents load from outside the store (plugin caches, real dirs), readable on the hub. Names are `plugin:skill` for plugin skills. */
+const localExtraSkills = async (app: AppState): Promise<Skill[]> => {
+  const snaps = await snapshotHosts(app, "local");
+  const snap = snaps[0];
+  if (!snap || !snap.result.ok) return [];
+  const es = Object.values(snap.result.view.effective).flat().filter((e) => e.owner !== "skm");
+  const byPath = [...new Map(es.map((e) => [e.path, e])).values()];
+  const loaded = await Promise.all(byPath.map((e) => loadSkillDir(e.path, e.source.kind === "plugin" ? `${e.source.plugin}:${e.name}` : e.name)));
+  return loaded.flatMap((s) => (s ? [s] : [])).sort((a, b) => a.name.localeCompare(b.name));
+};
 
 const verdictColor = (v: EvalItem["verdict"]): string =>
   v === "keep" ? pc.green(v) : v === "trim" ? pc.yellow(v) : v === "merge" ? pc.magenta(v) : pc.red(v);
@@ -13,8 +28,11 @@ export const runEval = async (names: string[], o: EvalOpts): Promise<void> =>
   withApp(async (app) => {
     const evaluatorId = o.agent ?? app.config.eval.agent;
     const model = o.model ?? (app.config.eval.model.some ? app.config.eval.model.value : undefined);
-    const targets = names.length === 0 ? app.skills : app.skills.filter((s) => names.includes(s.name));
-    const missing = names.filter((n) => !app.skills.some((s) => s.name === n));
+    const extra = o.all ? await localExtraSkills(app) : [];
+    const library = [...app.skills, ...extra.filter((e) => !app.skills.some((s) => s.name === e.name))];
+    if (o.all) out(pc.dim(`including ${extra.length} skills the local agents load from plugins / real dirs`));
+    const targets = names.length === 0 ? library : library.filter((s) => names.includes(s.name));
+    const missing = names.filter((n) => !library.some((s) => s.name === n));
     if (missing.length > 0) return die(`unknown skills: ${missing.join(", ")}`);
     const cache = await readEvalCache(app.skmHome);
     const stale = o.cached ? [] : targets.filter((s) => o.fresh || cache[s.name]?.hash !== s.contentHash || cache[s.name]?.evaluator !== evaluatorId);
@@ -22,7 +40,7 @@ export const runEval = async (names: string[], o: EvalOpts): Promise<void> =>
       out(pc.dim(`evaluating ${stale.length} skills with ${evaluatorId}${model ? ` (${model})` : ""} in batches of ${o.batch}; ${targets.length - stale.length} cached`));
       const batches = Array.from({ length: Math.ceil(stale.length / o.batch) }, (_, i) => stale.slice(i * o.batch, (i + 1) * o.batch));
       // the model sees the whole library's names so overlaps can be judged across batches
-      const roster = app.skills.map((s) => `${s.name}: ${s.cost.descChars > 0 ? (s.parsed.ok && s.parsed.value.frontmatter.description.some ? s.parsed.value.frontmatter.description.value : "").slice(0, 120) : "(no description)"}`).join("\n");
+      const roster = library.map((s) => `${s.name}: ${s.cost.descChars > 0 ? (s.parsed.ok && s.parsed.value.frontmatter.description.some ? s.parsed.value.frontmatter.description.value : "").slice(0, 120) : "(no description)"}`).join("\n");
       const failed = await batches.reduce(async (p, batch, i) => {
         const failures = await p;
         out(pc.dim(`  batch ${i + 1}/${batches.length}: ${batch.map((s) => s.name).join(" ")}`));

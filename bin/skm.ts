@@ -5,6 +5,7 @@ import { runAdopt } from "../src/cli/adopt";
 import { runLs } from "../src/cli/ls";
 import { runShow } from "../src/cli/show";
 import { runStatus } from "../src/cli/status";
+import { runInventory } from "../src/cli/inventory";
 import { runPlan, runSync } from "../src/cli/sync";
 import { runBackup, runBackups, runRestore } from "../src/cli/backup";
 import { runPull } from "../src/cli/pull";
@@ -47,6 +48,14 @@ program
   .option("--host <id>")
   .option("--json", "machine-readable", false)
   .action((o: { host?: string; json: boolean }) => runStatus({ json: o.json, ...(o.host !== undefined ? { host: o.host } : {}) }));
+program
+  .command("inventory")
+  .alias("inv")
+  .description("per host × agent: every skill the agent loads (user dir, legacy dir, builtins, plugins) with source, storage, owner, version, context cost")
+  .option("--host <id>")
+  .option("--agent <id>")
+  .option("--json", "machine-readable", false)
+  .action((o: { host?: string; agent?: string; json: boolean }) => runInventory({ json: o.json, ...(o.host !== undefined ? { host: o.host } : {}), ...(o.agent !== undefined ? { agent: o.agent } : {}) }));
 program.command("plan").description("show the operations sync would perform").option("--host <id>").option("--json", "machine-readable", false).action((o: { host?: string; json: boolean }) => runPlan({ json: o.json, ...(o.host !== undefined ? { host: o.host } : {}) }));
 program
   .command("sync")
@@ -63,7 +72,13 @@ program.command("pull <host> [skills...]").description("copy remote-only skills 
 program.command("backup [hosts...]").description("snapshot store + agent dirs on hosts; writes restore.sh").action(runBackup);
 program.command("backups [host]").description("list backups").action(runBackups);
 program.command("restore <host> <ts>").description("one-shot restore of a backup on a host").option("-y, --yes", "no confirmation", false).action((host: string, ts: string, o: { yes: boolean }) => runRestore(host, ts, o.yes));
-program.command("doctor").description("spec violations, lint, and startup-context budget per host × agent").option("--json", "machine-readable", false).action((o: { json: boolean }) => runDoctor({ json: o.json }));
+program
+  .command("doctor")
+  .description("startup-context budget per host × agent over everything each agent loads, cross-source findings, store lint")
+  .option("--json", "machine-readable", false)
+  .option("--cached", "use the last probe from ~/.skm/cache/inventory instead of ssh", false)
+  .option("--host <id>")
+  .action((o: { json: boolean; cached: boolean; host?: string }) => runDoctor({ json: o.json, cached: o.cached, ...(o.host !== undefined ? { host: o.host } : {}) }));
 program.command("scope <skill> <cell> <state>").description("toggle one host/agent cell for a skill: skm scope kb-doc mini/claude off").action(runScope);
 program.command("config").description("print config.yaml").option("--json", "hosts/agents/store summary", false).action((o: { json: boolean }) => runConfigShow(o.json));
 const rules = program.command("rules").description("scope rules helpers");
@@ -81,9 +96,10 @@ program
   .option("--json", "machine-readable", false)
   .option("--batch <n>", "skills per request", "12")
   .option("--cached", "only print cached results, never call an LLM", false)
-  .action((skills: string[], o: { agent?: string; model?: string; fresh: boolean; json: boolean; batch: string; cached: boolean }) =>
+  .option("--all", "also evaluate skills the local agents load from plugins / real dirs (named plugin:skill)", false)
+  .action((skills: string[], o: { agent?: string; model?: string; fresh: boolean; json: boolean; batch: string; cached: boolean; all: boolean }) =>
     runEval(skills, {
-      fresh: o.fresh, json: o.json, batch: Math.max(1, Number(o.batch) || 12), cached: o.cached,
+      fresh: o.fresh, json: o.json, batch: Math.max(1, Number(o.batch) || 12), cached: o.cached, all: o.all,
       ...(o.agent === "claude" || o.agent === "codex" ? { agent: o.agent } : {}),
       ...(o.model !== undefined ? { model: o.model } : {}),
     }),

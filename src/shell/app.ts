@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { type Agent, agentById } from "../core/agents";
 import { type Config, type ConfigError, configErrorText, parseConfig } from "../core/config";
 import type { Skill } from "../core/skill";
+import { parseClaudeMarketplaces, parseCodexConfig } from "../core/sources";
 import { type Result, err, ok } from "../lib/result";
 import { expandHome, homeDir, skmHome } from "./paths";
 import { type StoreError, loadStore } from "./store";
@@ -17,6 +18,8 @@ export type AppState = {
   readonly unknownAgents: readonly string[];
   /** overrides read from ~/.claude/settings.json, if any */
   readonly claudeOverrides: { readonly fraction?: number; readonly maxDescChars?: number };
+  /** marketplace name → source, from the hub's own claude/codex config (used to add marketplaces on hosts that lack them) */
+  readonly hubMarketplaces: Readonly<Record<string, string>>;
 };
 
 export type AppError =
@@ -49,6 +52,15 @@ export const readClaudeOverrides = async (home: string = homeDir()): Promise<App
   }
 };
 
+/** Marketplaces the hub machine knows, from both agents' config files. Codex entries win on name clashes (they carry full URLs). */
+export const readHubMarketplaces = async (home: string = homeDir()): Promise<Readonly<Record<string, string>>> => {
+  const claudeText = await readFile(`${home}/.claude/plugins/known_marketplaces.json`, "utf8").catch(() => undefined);
+  const codexText = await readFile(`${home}/.codex/config.toml`, "utf8").catch(() => undefined);
+  const claude = claudeText === undefined ? undefined : parseClaudeMarketplaces(claudeText);
+  const codex = codexText === undefined ? undefined : parseCodexConfig(codexText);
+  return { ...(claude?.ok ? claude.value : {}), ...(codex?.ok ? codex.value.marketplaces : {}) };
+};
+
 export const configPathFor = (skm: string = skmHome()): string => `${skm}/config.yaml`;
 
 export const loadApp = async (skm: string = skmHome()): Promise<Result<AppState, AppError>> => {
@@ -76,5 +88,6 @@ export const loadWith = async (skm: string, configPath: string, config: Config):
     agents: resolved.flatMap((r) => (r.agent.some ? [r.agent.value] : [])),
     unknownAgents: resolved.flatMap((r) => (r.agent.some ? [] : [r.id])),
     claudeOverrides: await readClaudeOverrides(),
+    hubMarketplaces: await readHubMarketplaces(),
   });
 };

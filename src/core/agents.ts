@@ -14,6 +14,10 @@ export type Agent = {
   readonly listing: ListingRule;
   /** Other directories this agent also reads (legacy / duplicate sources) — reported, never managed. */
   readonly alsoReads: readonly ((home: string) => string)[];
+  /** Plugin system, when the agent has one: cache root holding <marketplace>/<plugin>/<version>/skills/*. */
+  readonly plugins?: { readonly cache: (home: string) => string };
+  /** Directory of vendor-shipped skills the agent always loads (e.g. ~/.codex/skills/.system). */
+  readonly builtinDir?: (home: string) => string;
 };
 
 const under = (rel: string) => (home: string) => `${home}/${rel}`;
@@ -26,6 +30,7 @@ export const AGENTS: readonly Agent[] = [
     userDir: under(".claude/skills"),
     listing: { kind: "claude", budgetFraction: 0.01, maxDescChars: 1536 },
     alsoReads: [],
+    plugins: { cache: under(".claude/plugins/cache") }, // enabled via ~/.claude/settings.json enabledPlugins; active version in plugins/installed_plugins.json
   },
   {
     id: "codex",
@@ -33,6 +38,8 @@ export const AGENTS: readonly Agent[] = [
     userDir: under(".agents/skills"), // Codex ≥0.9x scans $HOME/.agents/skills and follows symlinks
     listing: { kind: "codex", budgetFraction: 0.02, fallbackChars: 8000 },
     alsoReads: [under(".codex/skills")], // legacy dir; copies here load twice
+    plugins: { cache: under(".codex/plugins/cache") }, // switched in ~/.codex/config.toml [plugins."name@mk"] enabled (default true)
+    builtinDir: under(".codex/skills/.system"),
   },
   {
     id: "pi",
