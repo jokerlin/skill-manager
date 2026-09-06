@@ -33,3 +33,8 @@ PLIST
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 codesign --force --sign - "$APP" >/dev/null 2>&1 || true
 echo "built $PWD/$APP"
+# Keep the copy Raycast/Spotlight launch in step with the build: replace /Applications/Skm.app whenever it exists.
+INSTALLED="/Applications/Skm.app"
+if [ -d "$INSTALLED" ]; then
+  rm -rf "$INSTALLED" && ditto "$APP" "$INSTALLED" && echo "installed $INSTALLED"
+fi
