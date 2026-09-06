@@ -6,7 +6,8 @@ struct SkillsView: View {
     @EnvironmentObject var model: AppModel
     @State private var selected: String?
     @State private var filter = ""
-    @State private var sortByCost = false
+    /// Click a column header to sort by it, click again to flip; default is source group then name.
+    @State private var sortOrder = [KeyPathComparator(\CatalogItem.sourceKey)]
     @State private var scope: Scope = .all
 
     enum Scope: String, CaseIterable, Identifiable {
@@ -26,7 +27,8 @@ struct SkillsView: View {
         let q = filter.lowercased()
         let scoped = catalog.filter { scope.matches($0.group) }
         let list = q.isEmpty ? scoped : scoped.filter { $0.name.lowercased().contains(q) || $0.description.lowercased().contains(q) || $0.group.text.lowercased().contains(q) }
-        return sortByCost ? list.sorted { $0.listingTokens > $1.listingTokens } : list.sorted { ($0.group.order, $0.group.text, $0.name) < ($1.group.order, $1.group.text, $1.name) }
+        // ties fall back to source group, then name, so every ordering is deterministic
+        return list.sorted(using: sortOrder + [KeyPathComparator(\CatalogItem.sourceKey), KeyPathComparator(\CatalogItem.name)])
     }
 
     var body: some View {
@@ -37,22 +39,21 @@ struct SkillsView: View {
                 HStack {
                     TextField("Filter", text: $filter).textFieldStyle(.roundedBorder)
                     Picker("", selection: $scope) { ForEach(Scope.allCases) { s in Text("\(s.rawValue) \(count(s))").tag(s) } }.pickerStyle(.segmented).frame(width: 440)
-                    Toggle("by cost", isOn: $sortByCost).toggleStyle(.checkbox)
                 }.padding(8)
-                Table(visible, selection: $selected) {
-                    TableColumn("Skill") { i in
+                Table(visible, selection: $selected, sortOrder: $sortOrder) {
+                    TableColumn("Skill", value: \.name) { i in
                         HStack(spacing: 4) {
                             Text(i.name).foregroundStyle((i.store?.violations.isEmpty ?? true) ? Color.primary : Color.red)
                         }
                     }.width(min: 140, ideal: 180)
-                    TableColumn("Source") { i in Text(i.group.text).foregroundStyle(groupColor(i.group)).lineLimit(1) }.width(min: 90, ideal: 160)
-                    TableColumn("Listing") { i in Text("\(i.listingTokens)t").monospacedDigit().foregroundStyle(i.listingChars > 1536 ? .orange : .secondary) }.width(55)
-                    TableColumn("Body") { i in Text("\(i.bodyTokens)t").monospacedDigit().foregroundStyle(i.bodyTokens > 5000 ? .orange : .secondary) }.width(60)
-                    TableColumn("Version") { i in Text(i.versions.joined(separator: " / ")).foregroundStyle(i.versions.count > 1 ? .red : .secondary).lineLimit(1) }.width(min: 60, ideal: 80)
-                    TableColumn("Loaded on") { i in Text(i.loadsText).foregroundStyle(i.loads.isEmpty ? .orange : .secondary).lineLimit(1) }.width(min: 100, ideal: 150)
-                    TableColumn("Description") { i in Text(i.description).lineLimit(1).foregroundStyle(.secondary) }
+                    TableColumn("Source", value: \.sourceKey) { i in Text(i.group.text).foregroundStyle(groupColor(i.group)).lineLimit(1) }.width(min: 90, ideal: 160)
+                    TableColumn("Listing", value: \.listingTokens) { i in Text("\(i.listingTokens)t").monospacedDigit().foregroundStyle(i.listingChars > 1536 ? .orange : .secondary) }.width(55)
+                    TableColumn("Body", value: \.bodyTokens) { i in Text("\(i.bodyTokens)t").monospacedDigit().foregroundStyle(i.bodyTokens > 5000 ? .orange : .secondary) }.width(60)
+                    TableColumn("Version", value: \.versionText) { i in Text(i.versionText).foregroundStyle(i.versions.count > 1 ? .red : .secondary).lineLimit(1) }.width(min: 60, ideal: 80)
+                    TableColumn("Loaded on", value: \.cells) { i in Text(i.loadsText).foregroundStyle(i.loads.isEmpty ? .orange : .secondary).lineLimit(1) }.width(min: 100, ideal: 150)
+                    TableColumn("Description", value: \.description) { i in Text(i.description).lineLimit(1).foregroundStyle(.secondary) }
                 }
-                Text("\(visible.count) shown · store \(count(.store)) · plugin skills \(count(.plugins)) · builtin \(count(.builtin)) · unmanaged \(count(.other))   ·   listing = description tokens paid every turn (orange = over Claude's 1536-char cap) · body = SKILL.md tokens paid on activation (orange > 5000t) · red version = differs across hosts")
+                Text("\(visible.count) shown · store \(count(.store)) · plugin skills \(count(.plugins)) · builtin \(count(.builtin)) · unmanaged \(count(.other))   ·   click a column header to sort, again to flip   ·   listing = description tokens paid every turn (orange = over Claude's 1536-char cap) · body = SKILL.md tokens paid on activation (orange > 5000t) · red version = differs across hosts")
                     .font(.caption).foregroundStyle(.secondary).padding(6)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

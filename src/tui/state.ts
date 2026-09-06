@@ -18,6 +18,17 @@ export type HostStatus =
 
 export type Focus = "list" | "grid";
 
+/** Skills list ordering: `o` cycles the key (each starts in its natural direction), `O` flips the direction. */
+export type SortKey = "name" | "listing" | "body";
+export type SortState = { readonly by: SortKey; readonly dir: "asc" | "desc" };
+const SORT_KEYS: readonly SortKey[] = ["name", "listing", "body"];
+const naturalDir = (by: SortKey): SortState["dir"] => (by === "name" ? "asc" : "desc");
+export const nextSort = (s: SortState): SortState => {
+  const by = SORT_KEYS[(SORT_KEYS.indexOf(s.by) + 1) % SORT_KEYS.length] ?? "name";
+  return { by, dir: naturalDir(by) };
+};
+export const sortText = (s: SortState): string => `${s.by} ${s.dir === "asc" ? "↑" : "↓"}`;
+
 export type State = {
   readonly view: View;
   readonly config: Config;
@@ -25,7 +36,7 @@ export type State = {
   readonly selected: number;             // index into visibleSkills(state)
   readonly filter: string;
   readonly editingFilter: boolean;
-  readonly sortBy: "name" | "cost";
+  readonly sort: SortState;
   readonly focus: Focus;
   readonly grid: { readonly host: number; readonly agent: number };
   readonly hostsOffset: number;          // first visible row of the hosts view
@@ -48,7 +59,8 @@ export type Action =
   | { readonly type: "focus"; readonly focus: Focus }
   | { readonly type: "filter"; readonly text: string }
   | { readonly type: "editFilter"; readonly on: boolean }
-  | { readonly type: "toggleSort" }
+  | { readonly type: "cycleSort" }
+  | { readonly type: "flipSort" }
   | { readonly type: "config"; readonly config: Config }
   | { readonly type: "host"; readonly id: string; readonly status: HostStatus }
   | { readonly type: "evals"; readonly evals: Readonly<Record<string, EvalCacheEntry>> }
@@ -61,7 +73,9 @@ export type Action =
 export const visibleSkills = (s: State): readonly Skill[] => {
   const q = s.filter.toLowerCase();
   const filtered = q.length === 0 ? s.skills : s.skills.filter((k) => k.name.toLowerCase().includes(q) || descriptionLower(k).includes(q));
-  return [...filtered].sort((a, b) => (s.sortBy === "cost" ? b.cost.descTokens - a.cost.descTokens || a.name.localeCompare(b.name) : a.name.localeCompare(b.name)));
+  const sign = s.sort.dir === "asc" ? 1 : -1;
+  const key = (k: Skill): number => (s.sort.by === "listing" ? k.cost.descTokens : k.cost.bodyTokens);
+  return [...filtered].sort((a, b) => (s.sort.by === "name" ? sign * a.name.localeCompare(b.name) : sign * (key(a) - key(b)) || a.name.localeCompare(b.name)));
 };
 
 const descriptionLower = (k: Skill): string =>
@@ -87,7 +101,8 @@ export const reduce = (s: State, a: Action): State =>
     .with({ type: "focus" }, ({ focus }) => ({ ...s, focus }))
     .with({ type: "filter" }, ({ text }) => ({ ...s, filter: text, selected: 0 }))
     .with({ type: "editFilter" }, ({ on }) => ({ ...s, editingFilter: on }))
-    .with({ type: "toggleSort" }, (): State => ({ ...s, sortBy: s.sortBy === "name" ? "cost" : "name", selected: 0 }))
+    .with({ type: "cycleSort" }, (): State => ({ ...s, sort: nextSort(s.sort), selected: 0 }))
+    .with({ type: "flipSort" }, (): State => ({ ...s, sort: { ...s.sort, dir: s.sort.dir === "asc" ? "desc" : "asc" }, selected: 0 }))
     .with({ type: "config" }, ({ config }) => ({ ...s, config }))
     .with({ type: "host" }, ({ id, status }) => ({ ...s, hosts: { ...s.hosts, [id]: status } }))
     .with({ type: "evals" }, ({ evals }) => ({ ...s, evals }))
@@ -105,7 +120,7 @@ export const initialState = (config: Config, skills: readonly Skill[], insights:
   selected: 0,
   filter: "",
   editingFilter: false,
-  sortBy: "name",
+  sort: { by: "name", dir: "asc" },
   focus: "list",
   grid: { host: 0, agent: 0 },
   hostsOffset: 0,

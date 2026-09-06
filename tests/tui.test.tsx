@@ -12,7 +12,7 @@ import type { AppState } from "../src/shell/app";
 import { inferRules, compressGlobs } from "../src/cli/rules";
 import { pullCandidates } from "../src/cli/pull";
 import { HostsView, clampOffset, hostLines } from "../src/tui/views/Hosts";
-import { initialState } from "../src/tui/state";
+import { initialState, reduce, visibleSkills } from "../src/tui/state";
 import { buildHostView } from "../src/core/view";
 
 const mk = (name: string, desc: string) => buildSkill(name, `/s/${name}`, `---\nname: ${name}\ndescription: ${desc}\n---\n# ${name}\nbody\n`, [{ rel: "SKILL.md", bytes: 10 }]);
@@ -38,6 +38,25 @@ const io: TuiIo = {
 };
 
 const tick = () => new Promise((r) => setTimeout(r, 30));
+
+describe("TUI sort", () => {
+  test("o cycles name → listing → body (costs descending first); O flips the direction; ties break by name", () => {
+    const s0 = initialState(app().config, skills, [], {});
+    expect(s0.sort).toEqual({ by: "name", dir: "asc" });
+    expect(visibleSkills(s0).map((k) => k.name)).toEqual(["kb-doc", "pdf-tools"]);
+    const byListingDesc = [...skills].sort((a, b) => b.cost.descTokens - a.cost.descTokens || a.name.localeCompare(b.name)).map((k) => k.name);
+    const s1 = reduce(s0, { type: "cycleSort" });
+    expect(s1.sort).toEqual({ by: "listing", dir: "desc" });
+    expect(s1.selected).toBe(0);
+    expect(visibleSkills(s1).map((k) => k.name)).toEqual(byListingDesc);
+    const s2 = reduce(s1, { type: "flipSort" });
+    expect(s2.sort).toEqual({ by: "listing", dir: "asc" });
+    expect(visibleSkills(s2).map((k) => k.name)).toEqual([...byListingDesc].reverse());
+    const s3 = reduce(s2, { type: "cycleSort" });
+    expect(s3.sort).toEqual({ by: "body", dir: "desc" });
+    expect(reduce(s3, { type: "cycleSort" }).sort).toEqual({ by: "name", dir: "asc" });
+  });
+});
 
 describe("TUI", () => {
   test("renders skills, filters, and shows probe results in the header", async () => {

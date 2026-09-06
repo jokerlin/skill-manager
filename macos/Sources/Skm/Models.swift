@@ -222,6 +222,9 @@ struct CatalogItem: Identifiable, Hashable {
     let store: SkillRow?
 
     var cells: Int { loads.values.reduce(0) { $0 + $1.count } }
+    // Sort keys for the Skills table (KeyPathComparator needs Comparable values)
+    var sourceKey: String { "\(group.order) \(group.text)" }   // store < unmanaged < builtin < plugins, then by marketplace/plugin text
+    var versionText: String { versions.joined(separator: " / ") }
     var loadsText: String {
         loads.isEmpty ? "not loaded anywhere" : loads.keys.sorted().map { "\($0) ×\(loads[$0]!.count)" }.joined(separator: " · ")
     }

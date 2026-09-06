@@ -152,7 +152,8 @@ export const App = ({ app, io, evals, autoProbe = true }: AppProps): React.React
     if (input === "e") return void runEval();
     if (st.view === "skills") {
       if (input === "/") return dispatch({ type: "editFilter", on: true });
-      if (input === "o") return dispatch({ type: "toggleSort" });
+      if (input === "o") return dispatch({ type: "cycleSort" });
+      if (input === "O") return dispatch({ type: "flipSort" });
       if (input === "m") return dispatch({ type: "focus", focus: st.focus === "list" ? "grid" : "list" });
       if (key.escape) { dispatch({ type: "filter", text: "" }); return dispatch({ type: "focus", focus: "list" }); }
       if (st.focus === "grid") {
@@ -216,7 +217,7 @@ export const App = ({ app, io, evals, autoProbe = true }: AppProps): React.React
     <Box justifyContent="space-between">
       <Text color="gray">
         {s.busy ? <Text color="yellow">{`⏳ ${s.busy}  `}</Text> : null}
-        {s.editingFilter ? `filter: ${s.filter}▏` : s.view === "skills" && s.focus === "grid" ? "grid: hjkl move  space toggle  m back" : "j/k move  / filter  o sort  m targets  s sync  b backup  e eval  r reprobe  Tab view  q quit"}
+        {s.editingFilter ? `filter: ${s.filter}▏` : s.view === "skills" && s.focus === "grid" ? "grid: hjkl move  space toggle  m back" : "j/k move  / filter  o sort  O flip  m targets  s sync  b backup  e eval  r reprobe  Tab view  q quit"}
       </Text>
       <Text color="gray">{s.message} </Text>
     </Box>

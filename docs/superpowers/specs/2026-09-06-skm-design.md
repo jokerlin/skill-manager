@@ -187,7 +187,7 @@ skm eval [--agent claude|codex] [skills...]
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-视图：Skills（列表+详情+矩阵）、Hosts（可达性、drift 数、remote-only 数）、Sync（plan 列表 → 确认 → 执行日志）、Insights（评估结果排序）。列表按 listing 成本排序可切换。
+视图：Skills（列表+详情+矩阵）、Hosts（可达性、drift 数、remote-only 数）、Sync（plan 列表 → 确认 → 执行日志）、Insights（评估结果排序）。Skills 列表排序：TUI 用 `o` 轮换排序键（name → listing token → body token，成本键默认降序）、`O` 翻转方向；App 点表头排序（Skill / Source / Listing / Body / Version / Loaded on / Description），再点翻转，默认按来源分组再按名字。
 
 ## 6. 错误处理
 

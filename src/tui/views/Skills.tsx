@@ -3,7 +3,7 @@ import { Box, Text } from "ink";
 import { isDesired } from "../../core/scope";
 import { descriptionOf } from "../../core/skill";
 import { agentsOn } from "../../shell/hosts";
-import { type State, cellGlyph, selectedSkill, visibleSkills } from "../state";
+import { type State, cellGlyph, selectedSkill, sortText, visibleSkills } from "../state";
 
 const fmtK = (n: number): string => (n >= 10_000 ? `${(n / 1000).toFixed(0)}k` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 
@@ -19,7 +19,8 @@ export const SkillsView = ({ s, width, height }: { s: State; width: number; heig
   return (
     <Box flexDirection="row" flexGrow={1}>
       <Box flexDirection="column" width={listWidth} borderStyle="single" borderColor={s.focus === "list" ? "cyan" : "gray"} paddingX={1}>
-        <Text color="gray">{`${list.length} skills · sort ${s.sortBy}${s.filter ? ` · filter "${s.filter}"` : ""}`}</Text>
+        <Text color="gray">{`${list.length} skills · sort ${sortText(s.sort)} (o/O)${s.filter ? ` · filter "${s.filter}"` : ""}`}</Text>
+        <Text color="gray">{`  ${"skill".padEnd(nameWidth)} ${"listing".padStart(6)} ${"body".padStart(6)}`}</Text>
         {window.map((k, i) => {
           const idx = start + i;
           const active = idx === s.selected;

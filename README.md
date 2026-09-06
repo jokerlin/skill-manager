@@ -71,7 +71,7 @@ backupBeforeApply: true
 
 | 命令 | 作用 |
 |---|---|
-| `skm` | TUI：skills / hosts / sync / insights / help 五个视图 |
+| `skm` | TUI：skills / hosts / sync / insights / help 五个视图（skills 列表 `o` 轮换排序键 name → listing → body，`O` 翻转方向；`?` 看全部按键） |
 | `skm init` | 初始化，列出未纳管 skill |
 | `skm adopt <path…> \| --from <agent…>` | 真实目录 → store + 软链 |
 | `skm ls [--json] [--host H] [--agent A] [--sort cost]` | 列表 + 上下文占用 |
@@ -145,7 +145,7 @@ open macos/dist/Skm.app
 ```
 
 - 左侧 Skills / Hosts / Sync / Insights 与 TUI 的四个视图一一对应；底部是各机器的连通/待同步状态。
-- **Skills 是全集**：store 里的 skill 之外，还列出各主机 agent 实际加载的 plugin skill、Codex 内置 skill、未纳管目录，可按 Store / Plugins / Builtin / Unmanaged 过滤；每行给出来源、listing/body 成本、跨主机版本（不一致标红）、在哪些主机被多少个 agent 加载。选中 store skill 可点 host × agent 格子开关作用域（等价于 `skm scope`）；选中 plugin skill 则看到它在每个 主机×agent 的加载情况、版本、缓存路径和管理方式。
+- **Skills 是全集**：store 里的 skill 之外，还列出各主机 agent 实际加载的 plugin skill、Codex 内置 skill、未纳管目录，可按 Store / Plugins / Builtin / Unmanaged 过滤，点表头按 Skill / Source / Listing / Body / Version / Loaded on 排序（再点翻转）；每行给出来源、listing/body 成本、跨主机版本（不一致标红）、在哪些主机被多少个 agent 加载。选中 store skill 可点 host × agent 格子开关作用域（等价于 `skm scope`）；选中 plugin skill 则看到它在每个 主机×agent 的加载情况、版本、缓存路径和管理方式。
 - **Hosts 是主从式**：左边每台主机下一行一个 agent，标签写明「N linked to store / N real dir / N link elsewhere / N broken link / legacy dir / builtin / from plugins」和 listing 预算；点一行，右边列出这个 agent 启动时加载的每一条 skill（来源、存储、owner、版本、成本）、plugin 列表和相关发现。
 - 颜色约定：description 超过 Claude 的 1536 字符上限、body 超过 5000 token 标橙；预算超出标红。所有 listing/预算数字都是 token。
 - 找不到 CLI 时在 设置（⌘,）里填 `skm` 路径，或 `bun run <repo>/bin/skm.ts`。
