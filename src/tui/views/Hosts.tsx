@@ -1,5 +1,6 @@
 import React from "react";
 import { Box, Text } from "ink";
+import { unitSuffix } from "../../core/budget";
 import type { HostConfig } from "../../core/config";
 import { isMutation } from "../../core/plan";
 import { activePluginsText } from "../../core/view";
@@ -42,7 +43,8 @@ const readyLines = (s: State, h: HostConfig, st: Ready): Line[] => {
     const c = st.view?.counts[a.id];
     const b = st.view?.budget[a.id];
     const plugins = activePluginsText(st.view?.states[a.id] ?? [], 3);
-    const budget = b === undefined ? "" : !Number.isFinite(b.budgetChars) ? `${b.usedChars}c` : b.overBy > 0 ? `${b.usedChars}c/${b.budgetChars}c over by ${b.overBy}c` : `${b.usedChars}c/${b.budgetChars}c fits`;
+    const u = b === undefined ? "c" : unitSuffix(b);
+    const budget = b === undefined ? "" : !Number.isFinite(b.budgetChars) ? `${b.usedChars}${u}` : b.overBy > 0 ? `${b.usedChars}${u}/${b.budgetChars}${u} over by ${b.overBy}${u}` : `${b.usedChars}${u}/${b.budgetChars}${u} fits`;
     const row = (
       <Text key={`${h.id}/${a.id}`} wrap="truncate-end">
         {`  ${a.id.padEnd(8)} `}

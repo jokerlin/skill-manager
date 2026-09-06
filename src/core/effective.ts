@@ -1,12 +1,14 @@
 import { type Option, none, some } from "../lib/result";
 import { estimateTokens } from "../lib/tokens";
 import type { Agent } from "./agents";
-import { listingText, parseSkillMd } from "./frontmatter";
+import type { CodexModels } from "./codex-model";
+import { descriptionText, listingText, parseSkillMd } from "./frontmatter";
 import { type Entry, type Inventory, entryHash } from "./inventory";
 import {
   type ClaudeInstalled,
   type CodexConfig,
   EMPTY_CLAUDE_SETTINGS,
+  EMPTY_CODEX,
   type Enabled,
   type Locks,
   type Owner,
@@ -18,6 +20,7 @@ import {
   parseAcmeLock,
   parseClaudeInstalled,
   parseClaudeMarketplaces,
+  parseCodexModels,
   parseClaudeSettings,
   parseCodexConfig,
   parseErrorText,
@@ -36,12 +39,13 @@ export type HostFacts = {
   readonly claudeModel: Option<string>;
   readonly claudeDisable1m: boolean;
   readonly codex: CodexConfig;
+  /** ~/.codex/models_cache.json — slug → context window, sizes the Codex skills budget */
+  readonly codexModels: CodexModels;
   readonly locks: Locks;
   readonly acmeVersions: Readonly<Record<string, string>>;
   readonly errors: readonly string[];
 };
 
-const EMPTY_CODEX: CodexConfig = { plugins: {}, marketplaces: {}, pluginsFeature: true };
 
 /** Parse every config/lock file the probe shipped. Parse failures become `errors`, never exceptions. */
 export const hostFacts = (inv: Inventory): HostFacts => {
@@ -69,6 +73,7 @@ export const hostFacts = (inv: Inventory): HostFacts => {
     claudeModel: settings.model,
     claudeDisable1m: settings.disable1m,
     codex: use("codex-config", parseCodexConfig, EMPTY_CODEX),
+    codexModels: use("codex-models", parseCodexModels, {}),
     locks: { acme: new Set(Object.keys(acme)), skillsCli: new Set(Object.keys(agentsLock)) },
     acmeVersions: acme,
     errors,
@@ -121,7 +126,8 @@ export const pluginStates = (inv: Inventory, facts: HostFacts, agentId: string):
         const versions = versionsOf(id);
         const top = highestVersion(versions);
         const dir = top === undefined ? undefined : dirOf(id, top);
-        const enabled: Enabled = !facts.codex.pluginsFeature ? "off" : configured === undefined ? (versions.length > 0 ? "implicit" : "off") : configured ? "on" : "off";
+        // cached without a config.toml entry ⇒ not installed: Codex 0.153.4 leaves such plugins out of the model-visible catalog (verified 2026-09-06)
+        const enabled: Enabled = !facts.codex.pluginsFeature ? "off" : configured === undefined ? "off" : configured ? "on" : "off";
         return {
           agent: agentId, ...splitId(id), id, enabled,
           active: top !== undefined && dir !== undefined ? some({ version: top, dir, skills: skillsIn(inv, agentId, dir) }) : none,
@@ -144,23 +150,27 @@ export type Effective = {
   readonly owner: Owner;
   readonly path: string;
   readonly version: Option<string>;
-  readonly enabled: "on" | "implicit";
+  readonly enabled: "on";
   readonly listing: string;
+  /** frontmatter `description` alone — what Codex lists; Claude lists `listing` (description + when_to_use) */
+  readonly description: string;
   readonly listingChars: number;
   readonly bodyTokens: number;
   readonly hash: string;
 };
 
-type DocInfo = { readonly listing: string; readonly bodyTokens: number };
+type DocInfo = { readonly listing: string; readonly description: string; readonly bodyTokens: number };
 const docMemo = new Map<string, DocInfo>();
 
 /** Listing text + body token estimate for a SKILL.md, memoized by content hash (the same plugin docs recur on every host). */
 export const docInfo = (hash: string, text: string | undefined): DocInfo => {
-  if (text === undefined) return { listing: "", bodyTokens: 0 };
+  if (text === undefined) return { listing: "", description: "", bodyTokens: 0 };
   const hit = docMemo.get(hash);
   if (hit) return hit;
   const parsed = parseSkillMd(text);
-  const info: DocInfo = parsed.ok ? { listing: listingText(parsed.value.frontmatter), bodyTokens: estimateTokens(parsed.value.body) } : { listing: "", bodyTokens: estimateTokens(text) };
+  const info: DocInfo = parsed.ok
+    ? { listing: listingText(parsed.value.frontmatter), description: descriptionText(parsed.value.frontmatter), bodyTokens: estimateTokens(parsed.value.body) }
+    : { listing: "", description: "", bodyTokens: estimateTokens(text) };
   if (hash.length > 0) docMemo.set(hash, info);
   return info;
 };
@@ -187,7 +197,7 @@ const fromEntry = (inv: Inventory, facts: HostFacts, agentId: string, e: Entry, 
   const owner = ownerOf(agentId, storage, e.name, facts.locks);
   const info = docInfo(hash, inv.docs[hash]);
   const v = owner === "acme" ? facts.acmeVersions[e.name] : undefined;
-  return { agent: agentId, name: e.name, source, storage, owner, path, version: v ? some(v) : none, enabled: "on", listing: info.listing, listingChars: info.listing.length, bodyTokens: info.bodyTokens, hash };
+  return { agent: agentId, name: e.name, source, storage, owner, path, version: v ? some(v) : none, enabled: "on", listing: info.listing, description: info.description, listingChars: info.listing.length, bodyTokens: info.bodyTokens, hash };
 };
 
 const SOURCE_ORDER: Record<Source["kind"], number> = { user: 0, legacy: 1, builtin: 2, plugin: 3 };
@@ -206,20 +216,19 @@ export const effectiveFor = (inv: Inventory, facts: HostFacts, agent: Agent): Ef
   });
   const builtin = inv.builtins.filter((b) => b.agent === agent.id).map((b): Effective => {
     const info = docInfo(b.hash, inv.docs[b.hash]);
-    return { agent: agent.id, name: b.name, source: { kind: "builtin" }, storage: { kind: "builtin" }, owner: "codex-builtin", path: b.dir, version: none, enabled: "on", listing: info.listing, listingChars: info.listing.length, bodyTokens: info.bodyTokens, hash: b.hash };
+    return { agent: agent.id, name: b.name, source: { kind: "builtin" }, storage: { kind: "builtin" }, owner: "codex-builtin", path: b.dir, version: none, enabled: "on", listing: info.listing, description: info.description, listingChars: info.listing.length, bodyTokens: info.bodyTokens, hash: b.hash };
   });
   const plugin = pluginStates(inv, facts, agent.id).flatMap((p): Effective[] => {
     if (p.enabled === "off" || !p.active.some) return [];
     const { version, dir } = p.active.value;
-    const enabled = p.enabled;
     return inv.pluginSkills
       .filter((s) => s.agent === agent.id && s.dir === dir)
       .map((s) => {
         const info = docInfo(s.hash, inv.docs[s.hash]);
         return {
           agent: agent.id, name: s.name, source: { kind: "plugin", marketplace: p.marketplace, plugin: p.name, version }, storage: { kind: "plugin-cache" },
-          owner: ownerOf(agent.id, { kind: "plugin-cache" }, s.name, facts.locks), path: s.skillDir, version: some(version), enabled,
-          listing: info.listing, listingChars: info.listing.length, bodyTokens: info.bodyTokens, hash: s.hash,
+          owner: ownerOf(agent.id, { kind: "plugin-cache" }, s.name, facts.locks), path: s.skillDir, version: some(version), enabled: "on",
+          listing: info.listing, description: info.description, listingChars: info.listing.length, bodyTokens: info.bodyTokens, hash: s.hash,
         };
       });
   });

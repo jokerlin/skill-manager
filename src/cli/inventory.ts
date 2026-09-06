@@ -1,4 +1,5 @@
 import pc from "picocolors";
+import { trimText, unitSuffix } from "../core/budget";
 import { findingText } from "../core/effective";
 import { sourceText, storageText } from "../core/sources";
 import { agentsOn } from "../shell/hosts";
@@ -39,7 +40,8 @@ export const runInventory = async (o: InventoryOpts): Promise<void> =>
       const b = v.budget[agent.id];
       const flagged = new Set(v.findings.flatMap((f) => (f.kind === "same-name" && f.agent === agent.id ? [f.name] : [])));
       const dupHashes = new Set(v.findings.flatMap((f) => (f.kind === "same-content" && f.agent === agent.id ? [f.hash] : [])));
-      const budget = b === undefined ? "" : !Number.isFinite(b.budgetChars) ? pc.dim(`listing ${b.usedChars}c (no documented budget)`) : b.overBy > 0 ? pc.red(`listing ${b.usedChars}c / budget ${b.budgetChars}c — over by ${b.overBy}c, ~${b.droppedCount} descriptions dropped`) : pc.green(`listing ${b.usedChars}c / budget ${b.budgetChars}c — fits`);
+      const u = b === undefined ? "c" : unitSuffix(b);
+      const budget = b === undefined ? "" : !Number.isFinite(b.budgetChars) ? pc.dim(`listing ${b.usedChars}${u} (no documented budget)`) : b.overBy > 0 ? pc.red(`listing ${b.usedChars}${u} / budget ${b.budgetChars}${u} — over by ${b.overBy}${u}, ${trimText(b)}`) : pc.green(`listing ${b.usedChars}${u} / budget ${b.budgetChars}${u} — fits`);
       out(`${pc.bold(`${snap.host.id}/${agent.id}`)}  ${es.length} skills  ${budget}`);
       const rows = es.map((e) => [
         `${flagged.has(e.name) ? pc.yellow("≡") : dupHashes.has(e.hash) ? pc.magenta("=") : " "}${e.name}`,
@@ -49,13 +51,12 @@ export const runInventory = async (o: InventoryOpts): Promise<void> =>
         e.version.some ? e.version.value : pc.dim("–"),
         `${e.listingChars}c`,
         `${e.bodyTokens}t`,
-        e.enabled === "implicit" ? pc.dim("implicit") : "",
       ]);
-      out(table(["skill", "source", "storage", "owner", "version", "listing", "body", ""], rows));
+      out(table(["skill", "source", "storage", "owner", "version", "listing", "body"], rows));
       const local = v.findings.filter((f) => f.kind !== "version-drift" && f.agent === agent.id);
       local.forEach((f) => out(`  ${f.kind === "same-name" ? pc.yellow(f.kind) : f.kind === "same-content" ? pc.magenta(f.kind) : pc.dim(f.kind)}  ${findingText(f)}`));
       out("");
     });
-    out(pc.dim("≡ same name from several sources  = identical SKILL.md in several places  ·  listing = description chars paid every turn  ·  body = tokens paid on activation  ·  implicit = Codex plugin without a config.toml entry (Codex default: enabled)  ·  " + pc.dim("sources: user dir · legacy dir · builtin · plugin cache")));
+    out(pc.dim("≡ same name from several sources  = identical SKILL.md in several places  ·  listing = description chars paid every turn  ·  body = tokens paid on activation  ·  Codex plugins cached without a config.toml entry are not loaded and not listed  ·  " + pc.dim("sources: user dir · legacy dir · builtin · plugin cache")));
     void sourceText;
   });

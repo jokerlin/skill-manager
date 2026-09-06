@@ -43,7 +43,6 @@ struct SkillsView: View {
                     TableColumn("Skill") { i in
                         HStack(spacing: 4) {
                             Text(i.name).foregroundStyle((i.store?.violations.isEmpty ?? true) ? Color.primary : Color.red)
-                            if i.implicitSomewhere { Text("implicit").font(.caption2).foregroundStyle(.orange) }
                         }
                     }.width(min: 140, ideal: 180)
                     TableColumn("Source") { i in Text(i.group.text).foregroundStyle(groupColor(i.group)).lineLimit(1) }.width(min: 90, ideal: 160)
@@ -231,9 +230,6 @@ struct CatalogDetail: View {
                     Text(item.group.text).font(.callout.bold()).foregroundStyle(groupColor(item.group))
                     if let e = entries.first?.entry { Text(e.storage).foregroundStyle(.secondary); Text("owner \(e.owner)").foregroundStyle(.secondary) }
                 }
-                if item.implicitSomewhere {
-                    Text("implicit: Codex has this plugin in its cache but config.toml has no entry for it; Codex treats that as enabled, so it is counted.").font(.caption).foregroundStyle(.orange)
-                }
                 Text(item.description.isEmpty ? "(no description)" : item.description).textSelection(.enabled)
                 HStack(spacing: 16) {
                     StatView(label: "listing", value: "\(item.listingChars)c", warn: item.listingChars > 1536)
@@ -417,8 +413,8 @@ struct AgentRow: View {
             Spacer()
             if let c = st.counts { Text("loads \(c.total)").monospacedDigit().foregroundStyle(.secondary) }
             if let b = st.budget {
-                if let budget = b.budgetChars { Chip(text: "\(b.usedChars)c / \(budget)c", color: b.overBy > 0 ? .red : .green) }
-                else { Chip(text: "\(b.usedChars)c", color: .secondary) }
+                if let budget = b.budgetChars { Chip(text: "\(b.usedChars)\(b.u) / \(budget)\(b.u)", color: b.overBy > 0 ? .red : .green) }
+                else { Chip(text: "\(b.usedChars)\(b.u)", color: .secondary) }
             }
         }
         .padding(.vertical, 2)
@@ -464,10 +460,10 @@ struct AgentDetail: View {
                 if let b = st.budget {
                     if let budget = b.budgetChars {
                         ProgressView(value: min(1, Double(b.usedChars) / Double(max(1, budget)))).tint(b.overBy > 0 ? .red : .green)
-                        Text(b.overBy > 0 ? "listing \(b.usedChars)c of a \(budget)c budget — over by \(b.overBy)c, about \(b.droppedCount) descriptions get dropped or compressed" : "listing \(b.usedChars)c of a \(budget)c budget — fits")
+                        Text(b.overBy > 0 ? "listing \(b.usedChars)\(b.u) of a \(budget)\(b.u) budget — over by \(b.overBy)\(b.u), \(b.trimText)" : "listing \(b.usedChars)\(b.u) of a \(budget)\(b.u) budget — fits")
                             .foregroundStyle(b.overBy > 0 ? .red : .green).monospacedDigit()
                     } else {
-                        Text("listing \(b.usedChars)c — \(agent) documents no listing budget").foregroundStyle(.secondary)
+                        Text("listing \(b.usedChars)\(b.u) — \(agent) documents no listing budget").foregroundStyle(.secondary)
                     }
                     if !b.note.isEmpty { Text(b.note).font(.caption).foregroundStyle(.secondary) }
                 }
@@ -482,7 +478,7 @@ struct AgentDetail: View {
             } else {
                 Table(effective) {
                     TableColumn("Skill") { e in
-                        HStack(spacing: 4) { Text(e.name); if e.enabled == "implicit" { Text("implicit").font(.caption2).foregroundStyle(.orange) } }
+                        Text(e.name)
                     }.width(min: 140, ideal: 200)
                     TableColumn("Source") { e in Text(e.sourceLabel).foregroundStyle(e.source == "plugin" ? .blue : e.source == "user" ? .green : .secondary).lineLimit(1) }.width(min: 120, ideal: 250)
                     TableColumn("Storage") { e in Text(e.storage).foregroundStyle(.secondary).lineLimit(1) }.width(min: 80, ideal: 100)
@@ -504,7 +500,7 @@ struct AgentDetail: View {
                 Table(ps) {
                     TableColumn("Plugin") { (p: PluginStatus) in Text(p.name) }.width(min: 120, ideal: 170)
                     TableColumn("Marketplace") { (p: PluginStatus) in Text(p.marketplace) }.width(min: 120, ideal: 170)
-                    TableColumn("State") { (p: PluginStatus) in Text(p.enabled).foregroundStyle(p.enabled == "off" ? Color.secondary : p.enabled == "implicit" ? Color.orange : Color.green) }.width(70)
+                    TableColumn("State") { (p: PluginStatus) in Text(p.enabled).foregroundStyle(p.enabled == "off" ? Color.secondary : Color.green) }.width(70)
                     TableColumn("Version") { (p: PluginStatus) in Text(p.version ?? "–").lineLimit(1) }.width(90)
                     TableColumn("Skills") { (p: PluginStatus) in Text("\(p.skills.count)").monospacedDigit() }.width(50)
                     TableColumn("Cached versions") { (p: PluginStatus) in Text(p.cachedVersions.joined(separator: ", ")).foregroundStyle(p.cachedVersions.count > 1 ? .orange : .secondary).lineLimit(1) }
@@ -601,11 +597,11 @@ struct InsightsView: View {
                         TableColumn("Host", value: \.host).width(90)
                         TableColumn("Agent", value: \.agent).width(80)
                         TableColumn("Skills") { Text("\($0.skills)") }.width(60)
-                        TableColumn("Listing") { r in Text(r.tokens.map { "\(r.usedChars)c ≈ \($0)t" } ?? "\(r.usedChars)c").monospacedDigit() }.width(140)
-                        TableColumn("Budget") { r in Text(r.budgetChars.map { "\($0)c" } ?? "—").monospacedDigit() }.width(80)
+                        TableColumn("Listing") { r in Text(r.unit == "tokens" ? "\(r.usedChars)t" : (r.tokens.map { "\(r.usedChars)c ≈ \($0)t" } ?? "\(r.usedChars)c")).monospacedDigit() }.width(140)
+                        TableColumn("Budget") { r in Text(r.budgetChars.map { "\($0)\(r.u)" } ?? "—").monospacedDigit() }.width(80)
                         TableColumn("Verdict") { r in
                             if r.budgetChars == nil { Text("no documented budget").foregroundStyle(.secondary) }
-                            else if r.overBy > 0 { Text("over by \(r.overBy)c → ~\(r.droppedCount) descriptions dropped").foregroundStyle(.red) }
+                            else if r.overBy > 0 { Text("over by \(r.overBy)\(r.u) → \(r.trimText)").foregroundStyle(.red) }
                             else { Text("fits").foregroundStyle(.green) }
                         }
                     }

@@ -1,4 +1,5 @@
 import { type Option, type Result, err, none, ok, some } from "../lib/result";
+import type { CodexModels } from "./codex-model";
 
 /**
  * Where a skill an agent loads comes from, how it is stored, and who owns it.
@@ -20,7 +21,7 @@ export type Storage =
 
 export type Owner = "skm" | "acme" | "skills-cli" | "claude-plugins" | "codex-plugins" | "codex-builtin" | "manual";
 
-export type Enabled = "on" | "off" | "implicit";
+export type Enabled = "on" | "off";
 
 export type ParseError = { readonly kind: "bad-json" | "bad-toml" | "bad-shape"; readonly file: string; readonly message: string };
 
@@ -125,6 +126,26 @@ export type CodexConfig = {
   readonly plugins: Readonly<Record<string, boolean>>;        // "name@mk" → enabled
   readonly marketplaces: Readonly<Record<string, string>>;    // name → source
   readonly pluginsFeature: boolean;                            // [features] plugins (default true)
+  /** top-level `model` — named in budget notes; skm does not read the model's context window */
+  readonly model: Option<string>;
+  /** `[skills] max_context_tokens` — fixed token budget for the skills catalog (Codex caps it at 10,000) */
+  readonly skillsMaxContextTokens: Option<number>;
+  /** top-level `model_context_window` — overrides the model's window (clamped to its max) */
+  readonly modelContextWindow: Option<number>;
+};
+
+export const EMPTY_CODEX: CodexConfig = { plugins: {}, marketplaces: {}, pluginsFeature: true, model: none, skillsMaxContextTokens: none, modelContextWindow: none };
+
+const positiveInt = (v: unknown): Option<number> => (typeof v === "number" && Number.isInteger(v) && v > 0 ? some(v) : none);
+
+/** ~/.codex/models_cache.json: slug → context_window / max_context_window (what Codex budgets skills against). */
+export const parseCodexModels = (text: string): Result<CodexModels, ParseError> => {
+  const r = json("models_cache.json", text);
+  if (!r.ok) return r;
+  if (!isRecord(r.value)) return err({ kind: "bad-shape", file: "models_cache.json", message: "not an object" });
+  const models = r.value["models"];
+  if (!Array.isArray(models)) return err({ kind: "bad-shape", file: "models_cache.json", message: "no models array" });
+  return ok(Object.fromEntries(models.flatMap((m) => (isRecord(m) && typeof m["slug"] === "string" ? [[m["slug"], { contextWindow: positiveInt(m["context_window"]), maxContextWindow: positiveInt(m["max_context_window"]) }] as const] : []))));
 };
 
 /** ~/.codex/config.toml: plugin switches and marketplace sources. Uses Bun's TOML parser. */
@@ -144,7 +165,12 @@ export const parseCodexConfig = (text: string): Result<CodexConfig, ParseError> 
     : {};
   const features = doc["features"];
   const pluginsFeature = isRecord(features) && features["plugins"] === false ? false : true;
-  return ok({ plugins, marketplaces, pluginsFeature });
+  const modelRaw = doc["model"];
+  const model = typeof modelRaw === "string" && modelRaw.trim() !== "" ? some(modelRaw.trim()) : none;
+  const skills = doc["skills"];
+  const mct = isRecord(skills) ? skills["max_context_tokens"] : undefined;
+  const skillsMaxContextTokens = positiveInt(mct);
+  return ok({ plugins, marketplaces, pluginsFeature, model, skillsMaxContextTokens, modelContextWindow: positiveInt(doc["model_context_window"]) });
 };
 
 // ---------- CLI-owned skill locks ----------

@@ -1,6 +1,7 @@
 import type { Agent } from "./agents";
-import { type BudgetOverrides, type BudgetReport, type ListingContext, simulateListingOf } from "./budget";
+import { type BudgetOverrides, type BudgetReport, type ListingContext, type ListingItem, fallbackContext, simulateListingOf } from "./budget";
 import { resolveClaudeWindow } from "./claude-model";
+import { resolveCodexWindow } from "./codex-model";
 import { type Effective, type Finding, type HostFacts, type PluginState, effectiveFor, hostFacts, hostFindings, pluginStates, sourceCounts } from "./effective";
 import type { Inventory } from "./inventory";
 import type { Source } from "./sources";
@@ -16,12 +17,29 @@ export type HostView = {
 };
 
 /** Claude's listing budget overrides come from the host's own settings.json; the hub's are the fallback. */
-const overridesFor = (agent: Agent, facts: HostFacts, hub: BudgetOverrides): BudgetOverrides =>
-  agent.id === "claude" ? (Object.keys(facts.claudeOverrides).length > 0 ? facts.claudeOverrides : hub) : {};
+const overridesFor = (agent: Agent, facts: HostFacts, hub: BudgetOverrides): BudgetOverrides => {
+  if (agent.id === "claude") return Object.keys(facts.claudeOverrides).length > 0 ? facts.claudeOverrides : hub;
+  if (agent.id === "codex") return facts.codex.skillsMaxContextTokens.some ? { fixedTokens: facts.codex.skillsMaxContextTokens.value } : {};
+  return {};
+};
+
+/** What the agent prints per skill: plugin skills as `plugin:skill`; Codex lists the frontmatter description alone, Claude adds when_to_use. */
+export const listingItemFor = (agent: Agent, e: Effective): ListingItem => ({
+  name: e.name,
+  label: e.source.kind === "plugin" ? `${e.source.plugin}:${e.name}` : e.name,
+  listing: agent.id === "codex" ? e.description : e.listing,
+  locator: `${e.path}/SKILL.md`,
+});
 
 /** Claude budgets against its model's window (settings.json `model`, env DISABLE_1M); config `contextTokens` is the fallback for unknown models and for other agents. */
 export const contextFor = (agent: Agent, facts: HostFacts, fallbackTokens: number): ListingContext => {
-  if (agent.id !== "claude") return { contextTokens: fallbackTokens, bytesPerToken: 1, reason: "config contextTokens" };
+  if (agent.id === "codex") {
+    const w = resolveCodexWindow(facts.codex.model, facts.codex.modelContextWindow, facts.codexModels);
+    if (w.some) return fallbackContext(agent, w.value.contextTokens, w.value.reason);
+    const why = facts.codex.model.some ? `model "${facts.codex.model.value}" not in ~/.codex/models_cache.json` : "no model in config.toml";
+    return fallbackContext(agent, fallbackTokens, `${why} → config contextTokens`);
+  }
+  if (agent.id !== "claude") return fallbackContext(agent, fallbackTokens, "config contextTokens");
   const w = resolveClaudeWindow(facts.claudeModel, facts.claudeDisable1m);
   if (w.some) return w.value;
   const why = facts.claudeModel.some ? `model "${facts.claudeModel.value}" not recognised` : "no model in settings.json";
@@ -32,7 +50,7 @@ export const buildHostView = (hostId: string, agents: readonly Agent[], inv: Inv
   const facts = hostFacts(inv);
   const states = Object.fromEntries(agents.filter((a) => a.plugins !== undefined).map((a) => [a.id, pluginStates(inv, facts, a.id)]));
   const effective = Object.fromEntries(agents.map((a) => [a.id, effectiveFor(inv, facts, a)]));
-  const budget = Object.fromEntries(agents.map((a) => [a.id, simulateListingOf(a, (effective[a.id] ?? []).map((e) => ({ name: e.name, listing: e.listing })), contextFor(a, facts, contextTokens), overridesFor(a, facts, hubOverrides))]));
+  const budget = Object.fromEntries(agents.map((a) => [a.id, simulateListingOf(a, (effective[a.id] ?? []).map((e) => listingItemFor(a, e)), contextFor(a, facts, contextTokens), overridesFor(a, facts, hubOverrides))]));
   const counts = Object.fromEntries(agents.map((a) => [a.id, sourceCounts(effective[a.id] ?? [])]));
   return { facts, states, effective, budget, counts, findings: hostFindings(hostId, effective, states) };
 };

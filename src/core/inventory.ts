@@ -24,7 +24,7 @@ export type Inventory = {
   readonly alsoDirs: Readonly<Record<string, Readonly<Record<string, string>>>>;
   /** tool name → resolved path (absent when not found on the host's augmented PATH) */
   readonly tools: Readonly<Record<string, string>>;
-  /** config/lock files shipped back verbatim: id → text (claude-settings, claude-installed, claude-marketplaces, codex-config, acme-lock, agents-lock) */
+  /** config/lock files shipped back verbatim: id → text (claude-settings, claude-installed, claude-marketplaces, codex-config, codex-models, acme-lock, agents-lock) */
   readonly files: Readonly<Record<string, string>>;
   readonly pluginCache: readonly PluginCacheDir[];
   readonly pluginSkills: readonly PluginSkillRef[];

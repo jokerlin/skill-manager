@@ -3,7 +3,8 @@ import { type Option, none, some } from "../lib/result";
 /** How an agent turns skill descriptions into startup context, and how it trims them. */
 export type ListingRule =
   | { readonly kind: "claude"; readonly budgetFraction: number; readonly maxDescChars: number }
-  | { readonly kind: "codex"; readonly budgetFraction: number; readonly fallbackChars: number }
+  /** codex-rs/ext/skills/src/render.rs: 2% of the window in tokens, `[skills] max_context_tokens` capped at maxConfiguredTokens, fallbackChars when the window is unknown; ⌈bytes/bytesPerToken⌉ per line; descriptions cut at maxDescChars. */
+  | { readonly kind: "codex"; readonly budgetFraction: number; readonly fallbackChars: number; readonly maxConfiguredTokens: number; readonly bytesPerToken: number; readonly maxDescChars: number }
   | { readonly kind: "plain" };
 
 export type Agent = {
@@ -36,7 +37,7 @@ export const AGENTS: readonly Agent[] = [
     id: "codex",
     name: "Codex",
     userDir: under(".agents/skills"), // Codex ≥0.9x scans $HOME/.agents/skills and follows symlinks
-    listing: { kind: "codex", budgetFraction: 0.02, fallbackChars: 8000 },
+    listing: { kind: "codex", budgetFraction: 0.02, fallbackChars: 8000, maxConfiguredTokens: 10_000, bytesPerToken: 4, maxDescChars: 1024 },
     alsoReads: [under(".codex/skills")], // legacy dir; copies here load twice
     plugins: { cache: under(".codex/plugins/cache") }, // switched in ~/.codex/config.toml [plugins."name@mk"] enabled (default true)
     builtinDir: under(".codex/skills/.system"),

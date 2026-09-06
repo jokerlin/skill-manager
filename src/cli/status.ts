@@ -9,6 +9,7 @@ import { type HostView, activePluginsText, buildHostView } from "../core/view";
 import type { AppState } from "../shell/app";
 import { agentsOn, desiredOn, planFor, runnerFor } from "../shell/hosts";
 import { type HostError, hostErrorText, probeHost, writeInventoryCache } from "../shell/probe";
+import { trimText, unitSuffix } from "../core/budget";
 import { out, table, withApp } from "./common";
 
 export type HostSnapshot = {
@@ -73,7 +74,7 @@ export const pluginJson = (p: PluginState) => ({
 });
 
 export const budgetJson = (b: HostView["budget"][string] | undefined) =>
-  b === undefined ? null : { usedChars: b.usedChars, budgetChars: Number.isFinite(b.budgetChars) ? b.budgetChars : null, droppedCount: b.droppedCount, overBy: b.overBy, note: b.note, context: b.context };
+  b === undefined ? null : { usedChars: b.usedChars, budgetChars: Number.isFinite(b.budgetChars) ? b.budgetChars : null, droppedCount: b.droppedCount, overBy: b.overBy, note: b.note, context: b.context, unit: b.unit, trim: b.trim };
 
 /** What an agent on a host actually loads. v1 fields kept; v2 adds effective/plugins/budget/tools/findings. */
 export const consumedJson = (snap: HostSnapshot, app: AppState) => {
@@ -115,8 +116,9 @@ export const consumedJson = (snap: HostSnapshot, app: AppState) => {
 
 const budgetText = (b: HostView["budget"][string] | undefined): string => {
   if (b === undefined) return "";
-  if (!Number.isFinite(b.budgetChars)) return pc.dim(`${b.usedChars}c`);
-  return b.overBy > 0 ? pc.red(`${b.usedChars}c / ${b.budgetChars}c  over by ${b.overBy}c (~${b.droppedCount} dropped)`) : pc.green(`${b.usedChars}c / ${b.budgetChars}c fits`);
+  const u = unitSuffix(b);
+  if (!Number.isFinite(b.budgetChars)) return pc.dim(`${b.usedChars}${u}`);
+  return b.overBy > 0 ? pc.red(`${b.usedChars}${u} / ${b.budgetChars}${u}  over by ${b.overBy}${u} (${trimText(b)})`) : pc.green(`${b.usedChars}${u} / ${b.budgetChars}${u} fits`);
 };
 
 const sourcesText = (view: HostView, agent: string): string => {

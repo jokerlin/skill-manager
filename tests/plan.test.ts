@@ -99,7 +99,7 @@ describe("planHost v2: plugins and owned skills", () => {
   const inv = (entries: Record<string, Inventory["agentDirs"][string]>, tools: Record<string, string> = {}): Inventory => ({
     ...emptyInventory("/h"), storeSkills: [{ name: "acme", hash: "B" }, { name: "alpha", hash: "A" }], agentDirs: entries, tools,
   });
-  const state = (agent: string, id: string, enabled: "on" | "off" | "implicit", version?: string) => {
+  const state = (agent: string, id: string, enabled: "on" | "off", version?: string) => {
     const at = id.lastIndexOf("@");
     return { agent, id, name: id.slice(0, at), marketplace: id.slice(at + 1), enabled, active: version ? some({ version, dir: `/c/${version}`, skills: [] }) : none, cachedVersions: version ? [version] : [] };
   };
@@ -114,16 +114,16 @@ describe("planHost v2: plugins and owned skills", () => {
     const quiet = planHost({ ...base, desired: {}, inventory: inv(both, { claude: "/bin/claude" }), plugins: [cells[0]!], pluginStates: { claude: [state("claude", "superpowers@mk", "on", "6.3.0")] } });
     expect(quiet).toEqual([]);
   });
-  test("blocked when the agent CLI is missing or no marketplace source is known; implicit counts as on", () => {
+  test("blocked when the agent CLI is missing or no marketplace source is known; an on plugin with an empty marketplace is quiet", () => {
     const cells = [{ agent: "claude", name: "p", marketplace: "mk", wanted: true }, { agent: "codex", name: "q", marketplace: "mk2", wanted: true }, { agent: "codex", name: "r", marketplace: "", wanted: true }];
-    const ops = planHost({ ...base, desired: {}, inventory: inv(both, { codex: "/bin/codex" }), plugins: cells, pluginStates: { codex: [state("codex", "r@", "implicit", "1")] }, hubMarketplaces: {} });
+    const ops = planHost({ ...base, desired: {}, inventory: inv(both, { codex: "/bin/codex" }), plugins: cells, pluginStates: { codex: [state("codex", "r@", "on", "1")] }, hubMarketplaces: {} });
     expect(ops.map((o) => (o.op === "blocked" ? `${o.agent}:${o.what}` : o.op))).toEqual(["claude:plugin p@mk", "codex:plugin q@mk2", "codex:plugin r@"]);
-    const okImplicit = planHost({ ...base, desired: {}, inventory: inv(both, { codex: "/bin/codex" }), plugins: [{ agent: "codex", name: "r", marketplace: "mk", wanted: true }], pluginStates: { codex: [state("codex", "r@mk", "implicit", "1")] } });
-    expect(okImplicit).toEqual([]);
+    const alreadyOn = planHost({ ...base, desired: {}, inventory: inv(both, { codex: "/bin/codex" }), plugins: [{ agent: "codex", name: "r", marketplace: "mk", wanted: true }], pluginStates: { codex: [state("codex", "r@mk", "on", "1")] } });
+    expect(alreadyOn).toEqual([]);
   });
-  test("unwanted plugin: disable only when currently on/implicit; codex disable needs no CLI", () => {
+  test("unwanted plugin: disable only when currently on; codex disable needs no CLI", () => {
     const cells = [{ agent: "claude", name: "p", marketplace: "mk", wanted: false }, { agent: "codex", name: "p", marketplace: "mk", wanted: false }, { agent: "codex", name: "z", marketplace: "mk", wanted: false }];
-    const ops = planHost({ ...base, desired: {}, inventory: inv(both, {}), plugins: cells, pluginStates: { claude: [state("claude", "p@mk", "on", "1")], codex: [state("codex", "p@mk", "implicit", "1"), state("codex", "z@mk", "off", "1")] } });
+    const ops = planHost({ ...base, desired: {}, inventory: inv(both, {}), plugins: cells, pluginStates: { claude: [state("claude", "p@mk", "on", "1")], codex: [state("codex", "p@mk", "on", "1"), state("codex", "z@mk", "off", "1")] } });
     expect(kinds(ops)).toEqual(["plugin-disable:codex:p@mk", "blocked:claude"]);
   });
   test("owned skill with tool present: no link/conflict, ensure when a wanted agent lacks the real dir", () => {

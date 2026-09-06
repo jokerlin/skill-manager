@@ -57,13 +57,13 @@ type Effective = {                                     // 一条「agent 会加�
   source: Source; storage: Storage; owner: Owner;
   path: string;                                        // 磁盘上的目录
   version: Option<string>;                             // 插件版本 / acme 版本
-  enabled: "on" | "implicit";                          // implicit = Codex 插件无 config 条目，按缺省 true 计入
+  enabled: "on";                                       // 2026-09-06 修正：Codex 缓存了但无 config 条目的插件不会加载，不再有 implicit
   listing: string; listingChars: number; bodyTokens: number; hash: string;
 };
 
 type PluginState = {                                   // 一台主机上一个 agent 的一个插件
   agent: string; marketplace: string; name: string;
-  enabled: "on" | "off" | "implicit";
+  enabled: "on" | "off";
   active: Option<{ version: string; dir: string; skills: string[] }>;
   cachedVersions: string[];                            // 全部缓存版本（含残留）
 };
@@ -125,7 +125,7 @@ owned:                                       # CLI 自管的 skill
 | `marketplace-add {agent, marketplace, source}` | 插件期望存在，但该 agent 未配置此 marketplace；hub 端知道 source | `claude plugin marketplace add <source>` / `codex plugin marketplace add <source>` |
 | `plugin-install {agent, plugin}` | 期望 on，缓存无该插件 | `claude plugin install name@mk` / `codex plugin add name@mk` |
 | `plugin-enable {agent, plugin}` | 期望 on，已缓存但 off | `claude plugin enable name@mk` / Codex：awk 改写 `config.toml` 的 `[plugins."name@mk"]` 表（无则追加） |
-| `plugin-disable {agent, plugin}` | 期望 off（配置里声明了该插件但选择器不含此单元格），当前 on/implicit | `claude plugin disable name@mk` / 同上写 `enabled = false` |
+| `plugin-disable {agent, plugin}` | 期望 off（配置里声明了该插件但选择器不含此单元格），当前 on | `claude plugin disable name@mk` / 同上写 `enabled = false` |
 | `owned-ensure {skill, tool, command}` | owned skill 期望在此主机，工具存在，且该主机任一 agent 的目录缺失或不是真实目录 | 运行 `command`（每主机一次） |
 | `blocked {agent, what, reason}` | 需要的工具不存在 / marketplace 来源未知 | 不执行，只报告（同 conflict） |
 

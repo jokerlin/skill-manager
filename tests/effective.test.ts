@@ -72,12 +72,13 @@ describe("pluginStates", () => {
     expect(sp?.cachedVersions).toEqual(["6.2.0", "6.3.0"]);
     expect(ps.find((p) => p.id === "video@mk")?.enabled).toBe("off");
   });
-  test("codex: config entry wins; cached without entry is implicit; configured-but-uncached has no active version", () => {
+  test("codex: config entry wins; cached without entry is off (Codex does not load it); configured-but-uncached has no active version", () => {
     const ps = pluginStates(inv, f, "codex");
     const by = Object.fromEntries(ps.map((p) => [p.id, p]));
     expect(by["superpowers@mk"]?.enabled).toBe("on");
     expect(by["superpowers@mk"]?.active.some && by["superpowers@mk"]?.active.value.version).toBe("6.2.0");
-    expect(by["implicit@mk"]?.enabled).toBe("implicit");
+    expect(by["implicit@mk"]?.enabled).toBe("off");
+    expect(by["implicit@mk"]?.cachedVersions).toEqual(["1.0.0"]);
     expect(by["off@mk"]?.enabled).toBe("off");
     expect(by["off@mk"]?.active.some).toBe(false);
   });
@@ -101,12 +102,12 @@ describe("effectiveFor", () => {
     expect(brain?.path).toBe("/h/.claude/plugins/cache/mk/superpowers/6.3.0/skills/brainstorming");
     expect(sourceCounts(es)).toEqual({ user: 2, legacy: 0, builtin: 0, plugin: 1 });
   });
-  test("codex: legacy dir entries carry their dir, builtins and implicit plugins included, skills-cli owner from lock", () => {
+  test("codex: legacy dir entries carry their dir, builtins included, cached-only plugins excluded, skills-cli owner from lock", () => {
     const es = effectiveFor(inv, f, agent("codex"));
-    expect(es.map((e) => `${e.source.kind}:${e.name}`)).toEqual(["user:check", "user:orca-cli", "legacy:check", "builtin:imagegen", "plugin:brainstorming", "plugin:imp"]);
+    expect(es.map((e) => `${e.source.kind}:${e.name}`)).toEqual(["user:check", "user:orca-cli", "legacy:check", "builtin:imagegen", "plugin:brainstorming"]);
     expect(es.find((e) => e.source.kind === "legacy")?.path).toBe("/h/.codex/skills/check");
     expect(es.find((e) => e.name === "orca-cli")?.owner).toBe("skills-cli");
-    expect(es.find((e) => e.name === "imp")?.enabled).toBe("implicit");
+    expect(es.find((e) => e.name === "imp")).toBeUndefined();
     expect(es.find((e) => e.name === "imagegen")?.owner).toBe("codex-builtin");
   });
 });
@@ -123,7 +124,8 @@ describe("findings", () => {
     // the identical-content pair is the same path set as the same-name finding → reported once, not twice
     expect(fs.filter((x) => x.kind === "same-content")).toEqual([]);
     expect(fs.filter((x) => x.kind === "stale-cache").map((x) => x.kind === "stale-cache" ? `${x.agent}:${x.plugin}:${x.versions.join("+")}` : "")).toEqual(["claude:superpowers@mk:6.2.0"]);
-    expect(fs.filter((x) => x.kind === "disabled-cached").map((x) => x.kind === "disabled-cached" ? `${x.agent}:${x.plugin}` : "")).toEqual(["claude:video@mk"]);
+    // codex's cached-but-unconfigured plugin is not loaded, so its cache is flagged like any other disabled cache
+    expect(fs.filter((x) => x.kind === "disabled-cached").map((x) => x.kind === "disabled-cached" ? `${x.agent}:${x.plugin}` : "")).toEqual(["claude:video@mk", "codex:implicit@mk"]);
   });
   test("store skill reachable from two scanned dirs collapses into one linked-twice finding; a real copy elsewhere is same-content", () => {
     const twice: Inventory = { ...inv, alsoReads: { codex: [{ kind: "managed", name: "check", direct: true, hash: "H-check" }, { kind: "dir", name: "copy-of-check", hash: "H-check" }] }, alsoDirs: { codex: { check: "/h/.codex/skills", "copy-of-check": "/h/.codex/skills" } } };

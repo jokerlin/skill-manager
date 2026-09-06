@@ -34,7 +34,7 @@ struct EffectiveEntry: Codable, Hashable, Identifiable {
     let owner: String
     let path: String
     let version: String?
-    let enabled: String       // on | implicit
+    let enabled: String       // on
     let listingChars: Int
     let bodyTokens: Int
     let hash: String
@@ -65,11 +65,22 @@ struct PluginStatus: Codable, Hashable, Identifiable {
     let id: String
     let name: String
     let marketplace: String
-    let enabled: String       // on | off | implicit
+    let enabled: String       // on | off
     let version: String?
     let dir: String?
     let skills: [String]
     let cachedVersions: [String]
+}
+
+/// "c" for char budgets (Claude), "t" for token budgets (Codex); older JSON without `unit` is chars.
+func budgetUnit(_ unit: String?) -> String { unit == "tokens" ? "t" : "c" }
+/// What the simulation predicts happens to the overflow, matching skm's `trimText`.
+func budgetTrimText(_ trim: String?, _ count: Int) -> String {
+    switch trim {
+    case "shortened": return "\(count) descriptions shortened"
+    case "omitted": return "\(count) skills omitted entirely"
+    default: return "~\(count) descriptions dropped"
+    }
 }
 
 struct AgentBudget: Codable, Hashable {
@@ -78,6 +89,10 @@ struct AgentBudget: Codable, Hashable {
     let droppedCount: Int
     let overBy: Int
     let note: String
+    let unit: String?
+    let trim: String?
+    var u: String { budgetUnit(unit) }
+    var trimText: String { budgetTrimText(trim, droppedCount) }
 }
 
 struct AgentStatus: Codable, Hashable {
@@ -136,6 +151,10 @@ struct BudgetRow: Codable, Identifiable, Hashable {
     let budgetChars: Int?
     let droppedCount: Int
     let overBy: Int
+    let unit: String?
+    let trim: String?
+    var u: String { budgetUnit(unit) }
+    var trimText: String { budgetTrimText(trim, droppedCount) }
 }
 
 struct Insight: Codable, Identifiable, Hashable {
@@ -209,7 +228,6 @@ struct CatalogItem: Identifiable, Hashable {
     var loadsText: String {
         loads.isEmpty ? "not loaded anywhere" : loads.keys.sorted().map { "\($0) ×\(loads[$0]!.count)" }.joined(separator: " · ")
     }
-    var implicitSomewhere: Bool { loads.values.contains { $0.values.contains { $0.enabled == "implicit" } } }
 }
 
 enum Catalog {

@@ -9,6 +9,7 @@ import {
   parseClaudeMarketplaces,
   parseClaudeSettings,
   parseCodexConfig,
+  parseCodexModels,
 } from "../src/core/sources";
 
 describe("claude files", () => {
@@ -69,6 +70,28 @@ mcp_servers = {}
     expect(r.value.plugins).toEqual({ "superpowers@claude-plugins-official": true, "documents@openai-primary-runtime": false, "implicit@x": true });
     expect(r.value.marketplaces).toEqual({ "claude-plugins-official": "https://github.com/anthropics/claude-plugins-official.git" });
     expect(r.value.pluginsFeature).toBe(true);
+    expect(r.value.model).toEqual({ some: true, value: "gpt-6" });
+    expect(r.value.skillsMaxContextTokens.some).toBe(false);
+  });
+  test("config.toml model and [skills] max_context_tokens feed the Codex listing budget", () => {
+    const r = parseCodexConfig('model = "gpt-6-astra"\n\n[skills]\nmax_context_tokens = 3000\n');
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.model).toEqual({ some: true, value: "gpt-6-astra" });
+    expect(r.value.skillsMaxContextTokens).toEqual({ some: true, value: 3000 });
+    const bad = parseCodexConfig('[skills]\nmax_context_tokens = -5\n');
+    expect(bad.ok && bad.value.skillsMaxContextTokens.some).toBe(false);
+    const win = parseCodexConfig("model_context_window = 400000\n");
+    expect(win.ok && win.value.modelContextWindow).toEqual({ some: true, value: 400000 });
+  });
+  test("models_cache.json → slug → context windows", () => {
+    const r = parseCodexModels(JSON.stringify({ fetched_at: 1, models: [{ slug: "gpt-6-astra", context_window: 272000, max_context_window: 872000 }, { slug: "odd", context_window: "x" }, { nope: true }] }));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value["gpt-6-astra"]).toEqual({ contextWindow: { some: true, value: 272000 }, maxContextWindow: { some: true, value: 872000 } });
+    expect(r.value["odd"]?.contextWindow.some).toBe(false);
+    expect(Object.keys(r.value)).toEqual(["gpt-6-astra", "odd"]);
+    expect(parseCodexModels("{}").ok).toBe(false);
   });
   test("bad toml is an error, empty toml is fine", () => {
     expect(parseCodexConfig("a = ").ok).toBe(false);

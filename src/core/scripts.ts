@@ -31,6 +31,7 @@ export const PROBE_FILES: Readonly<Record<string, string>> = {
   "claude-installed": "~/.claude/plugins/installed_plugins.json",
   "claude-marketplaces": "~/.claude/plugins/known_marketplaces.json",
   "codex-config": "~/.codex/config.toml",
+  "codex-models": "~/.codex/models_cache.json",
   "acme-lock": "~/.local/share/acme/data/skill-lock.json",
   "agents-lock": "~/.agents/.skill-lock.json",
 };

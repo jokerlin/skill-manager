@@ -93,7 +93,7 @@ backupBeforeApply: true
 | 用户目录 | `~/.claude/skills` | `~/.agents/skills` | `~/.pi/agent/skills` / `~/.dsh/skills` | skm（软链）、acme / skills-cli（真实目录）、manual |
 | 旧目录 / 兼容目录 | — | `~/.codex/skills` | dsh 还读 `~/.agents/skills` | 同上 |
 | 内置 | — | `~/.codex/skills/.system` | — | codex-builtin |
-| plugin 缓存 | `~/.claude/plugins/cache/<mk>/<plugin>/<ver>/skills/*`，启用状态看 `settings.json` `enabledPlugins`，生效版本看 `installed_plugins.json` | `~/.codex/plugins/cache/...`，`config.toml` `[plugins."name@mk"] enabled`；缓存了但没写 config 的按 Codex 默认视为启用，标 `implicit` | — | claude-plugins / codex-plugins |
+| plugin 缓存 | `~/.claude/plugins/cache/<mk>/<plugin>/<ver>/skills/*`，启用状态看 `settings.json` `enabledPlugins`，生效版本看 `installed_plugins.json` | `~/.codex/plugins/cache/...`，`config.toml` `[plugins."name@mk"] enabled`；缓存了但没写 config 的 Codex 不会加载，不计入（2026-09-06 用真实会话核对） | — | claude-plugins / codex-plugins |
 
 每一条都带：存储方式（`link→store`、`real dir`、`link→别处`、`plugin cache`、`builtin`）、owner、版本（plugin 版本 / acme lock / skills-cli lock）、listing 字符数、body token、内容 hash。发现项：
 
@@ -109,7 +109,7 @@ backupBeforeApply: true
 
 - **listing**（每轮都付）：`description + when_to_use` 的字符数与估算 token（o200k 编码，仅供比较）。v2 的 `status / inventory / doctor` 按有效清单（含 plugin、内置、旧目录）算，主机不可达时才退回只按 store 估。
   - Claude Code：总预算（字符）= 模型上下文 token 数 × 每 token 字符数 × `skillListingBudgetFraction`（默认 1%），每 token 字符数对 Opus/Sonnet ≤4.6 与 Haiku 4.5 取 4、其余（Fable、Opus 4.7+、Sonnet 5）取 3；上下文来自各主机 `~/.claude/settings.json` 的 `model`（Fable/Opus 4.7+/Sonnet 5 原生 1M，老模型 200K，`[1m]` 后缀升 1M，`env.CLAUDE_CODE_DISABLE_1M_CONTEXT` 压回 200K），与 `autoCompactWindow` 无关；`env.SLASH_COMMAND_TOOL_CHAR_BUDGET` 直接定死预算。例：Fable 1M × 3 × 1% = 30,000 字符；Opus 4.6 200K × 4 × 1% = 8,000。单个 skill 上限 `skillListingMaxDescChars`（默认 1536）；超预算时按调用频率丢描述，名字永远保留。listing 字符按 Claude Code 的 `- name: description` 行计；Claude Code 自带的内置 skill（code-review、simplify 等十余个）不在 skm 清单里，看真实数字用 Claude Code 的 `/context`。（公式来自 Claude Code 2.1.263 二进制，见 `docs/reports/2026-09-06-listing-budget-fix.md`）
-  - Codex：总预算 = 上下文 × 2%（未知时 8000 字符），超出先压缩描述。
+  - Codex：总预算（token）= 模型上下文窗口 × 2%，窗口来自各主机 `~/.codex/config.toml` 的 `model` 在 `~/.codex/models_cache.json` 里的 `context_window`（`model_context_window` 可覆盖，封顶 `max_context_window`；认不出时用 config `contextTokens`）；`[skills] max_context_tokens` 直接定死（封顶 10,000）；窗口未知时 8,000 字符。每条 `- name: description (file: rN/path)` 按 ⌈字节/4⌉ 计 token（路径经 `### Skill roots` 别名表压缩，表本身也计费；plugin 技能名带 `plugin:` 前缀；只列 `description`，不含 `when_to_use`；单条 ≤1,024 字符）。超预算时先把所有描述按轮询缩短（技能都还在），连空描述都放不下才整条省略。例：gpt-6-astra 272K × 2% = 5,440 token。（公式来自 codex-rs/ext/skills/src/render.rs，并用 codex 0.153.4 真实会话核对，见 `docs/reports/2026-09-06-listing-budget-fix.md`）
 - **body**（激活时付）：SKILL.md 正文 token 与行数；规范建议 <5000 token、<500 行。
 
 ## 备份 / 一键还原
