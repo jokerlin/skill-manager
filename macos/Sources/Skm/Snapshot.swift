@@ -45,19 +45,19 @@ enum Snapshot {
         return NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:])
     }
 
-    /// Fallback: content view only, rendered through the view hierarchy.
+    /// Fallback: content view only, rendered through the view hierarchy (works with the screen locked).
+    /// The content view is transparent where the window background would show, so composite it onto a light ground.
     private static func viewImage(_ view: NSView) -> Data? {
         guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
         view.cacheDisplay(in: view.bounds, to: rep)
-        // The content view renders transparent where the window background would show; composite onto the window colour.
-        guard let out = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: rep.pixelsWide, pixelsHigh: rep.pixelsHigh, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
-              let ctx = NSGraphicsContext(bitmapImageRep: out) else { return rep.representation(using: .png, properties: [:]) }
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = ctx
-        NSColor(calibratedWhite: 0.98, alpha: 1).setFill()   // dynamic colours resolve unpredictably off-window
-        NSRect(x: 0, y: 0, width: out.pixelsWide, height: out.pixelsHigh).fill()
-        rep.draw(in: NSRect(x: 0, y: 0, width: out.pixelsWide, height: out.pixelsHigh))
-        NSGraphicsContext.restoreGraphicsState()
-        return out.representation(using: .png, properties: [:])
+        guard let cg = rep.cgImage,
+              let ctx = CGContext(data: nil, width: cg.width, height: cg.height, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return rep.representation(using: .png, properties: [:]) }
+        let full = CGRect(x: 0, y: 0, width: cg.width, height: cg.height)
+        ctx.setFillColor(CGColor(gray: 0.98, alpha: 1))
+        ctx.fill(full)
+        ctx.draw(cg, in: full)
+        guard let out = ctx.makeImage() else { return rep.representation(using: .png, properties: [:]) }
+        return NSBitmapImageRep(cgImage: out).representation(using: .png, properties: [:])
     }
 }
