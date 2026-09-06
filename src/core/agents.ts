@@ -15,6 +15,11 @@ export type Agent = {
   readonly listing: ListingRule;
   /** Other directories this agent also reads (legacy / duplicate sources) — reported, never managed. */
   readonly alsoReads: readonly ((home: string) => string)[];
+  /**
+   * What happens when a skill name is present in `userDir` and an `alsoReads` dir. Absent (Codex, OpenCode): every copy loads.
+   * `"user-dir-first"` (dsh): the registry keeps the first root's copy by name — the user-dir copy — and the alsoReads copy is skipped (shadowed).
+   */
+  readonly duplicates?: "user-dir-first";
   /** Plugin system, when the agent has one: cache root holding <marketplace>/<plugin>/<version>/skills/*. */
   readonly plugins?: { readonly cache: (home: string) => string };
   /** Directory of vendor-shipped skills the agent always loads (e.g. ~/.codex/skills/.system). */
@@ -52,9 +57,10 @@ export const AGENTS: readonly Agent[] = [
   {
     id: "dsh",
     name: "DeepSeek Harness",
-    userDir: under(".dsh/skills"), // $DSH_HOME/skills; skill-filesystem roots also scan $DSH_AGENTS_HOME/skills (~/.agents), lower rank wins
+    userDir: under(".dsh/skills"), // $DSH_HOME/skills (root rank 400); skill-filesystem also scans $DSH_AGENTS_HOME/skills (~/.agents, rank 500)
     listing: { kind: "plain" },
     alsoReads: [under(".agents/skills")],
+    duplicates: "user-dir-first", // dsh-skill registry dedupes by name, first root by rank wins: a name in both dirs loads once, from ~/.dsh/skills
   },
   { id: "cursor", name: "Cursor", userDir: under(".cursor/skills"), listing: { kind: "plain" }, alsoReads: [] },
   { id: "gemini", name: "Gemini CLI", userDir: under(".gemini/skills"), listing: { kind: "plain" }, alsoReads: [] },

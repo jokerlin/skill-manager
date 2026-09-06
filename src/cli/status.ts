@@ -9,7 +9,7 @@ import { type HostView, activePluginsText, buildHostView } from "../core/view";
 import type { AppState } from "../shell/app";
 import { agentsOn, desiredOn, planFor, runnerFor } from "../shell/hosts";
 import { type HostError, hostErrorText, probeHost, writeInventoryCache } from "../shell/probe";
-import { trimText, unitSuffix } from "../core/budget";
+import { trimText } from "../core/budget";
 import { out, table, withApp } from "./common";
 
 export type HostSnapshot = {
@@ -55,6 +55,7 @@ export const effectiveJson = (e: Effective) => ({
   enabled: e.enabled,
   promptVisible: e.promptVisible,
   listingChars: e.listingChars,
+  listingTokens: e.listingTokens,
   bodyTokens: e.bodyTokens,
   hash: e.hash.slice(0, 8),
   listing: e.listing,
@@ -75,7 +76,7 @@ export const pluginJson = (p: PluginState) => ({
 });
 
 export const budgetJson = (b: HostView["budget"][string] | undefined) =>
-  b === undefined ? null : { usedChars: b.usedChars, budgetChars: Number.isFinite(b.budgetChars) ? b.budgetChars : null, droppedCount: b.droppedCount, overBy: b.overBy, note: b.note, context: b.context, unit: b.unit, trim: b.trim };
+  b === undefined ? null : { usedTokens: b.usedTokens, budgetTokens: Number.isFinite(b.budgetTokens) ? b.budgetTokens : null, droppedCount: b.droppedCount, overBy: b.overBy, note: b.note, context: b.context, trim: b.trim };
 
 /** What an agent on a host actually loads. v1 fields kept; v2 adds effective/plugins/budget/tools/findings. */
 export const consumedJson = (snap: HostSnapshot, app: AppState) => {
@@ -117,9 +118,8 @@ export const consumedJson = (snap: HostSnapshot, app: AppState) => {
 
 const budgetText = (b: HostView["budget"][string] | undefined): string => {
   if (b === undefined) return "";
-  const u = unitSuffix(b);
-  if (!Number.isFinite(b.budgetChars)) return pc.dim(`${b.usedChars}${u}`);
-  return b.overBy > 0 ? pc.red(`${b.usedChars}${u} / ${b.budgetChars}${u}  over by ${b.overBy}${u} (${trimText(b)})`) : pc.green(`${b.usedChars}${u} / ${b.budgetChars}${u} fits`);
+  if (!Number.isFinite(b.budgetTokens)) return pc.dim(`${b.usedTokens}t`);
+  return b.overBy > 0 ? pc.red(`${b.usedTokens}t / ${b.budgetTokens}t  over by ${b.overBy}t (${trimText(b)})`) : pc.green(`${b.usedTokens}t / ${b.budgetTokens}t fits`);
 };
 
 const sourcesText = (view: HostView, agent: string): string => {

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { AGENTS, agentById } from "../src/core/agents";
 import { sharedAliasRoots, simulateListing, simulateListingOf } from "../src/core/budget";
 import { buildSkill } from "../src/core/skill";
+import { estimateTokens } from "../src/lib/tokens";
 
 const mk = (name: string, descLen: number) =>
   buildSkill(name, `/s/${name}`, `---\nname: ${name}\ndescription: ${"d".repeat(descLen)}\n---\nbody`, [{ rel: "SKILL.md", bytes: 10 }]);
@@ -21,23 +22,32 @@ describe("simulateListing", () => {
   const claude = (() => { const a = agentById("claude"); if (!a.some) throw new Error(); return a.value; })();
   const codex = (() => { const a = agentById("codex"); if (!a.some) throw new Error(); return a.value; })();
   const ctx = (contextTokens: number, bytesPerToken: number) => ({ contextTokens, bytesPerToken, reason: "test" });
-  test("claude budget = context tokens × chars-per-token × 1% (Claude Code formula)", () => {
-    expect(simulateListing(claude, [mk("a", 100)], ctx(200_000, 4)).budgetChars).toBe(8000);
-    expect(simulateListing(claude, [mk("a", 100)], ctx(1_000_000, 3)).budgetChars).toBe(30_000);
+  test("claude budget = context tokens × 1%, reported in tokens (Claude Code counts it as chars at the model's chars/token)", () => {
+    const small = simulateListing(claude, [mk("a", 100)], ctx(200_000, 4));
+    expect(small.budgetTokens).toBe(2000);
+    expect(small.note).toContain("8000 chars at 4 chars/token");
+    const big = simulateListing(claude, [mk("a", 100)], ctx(1_000_000, 3));
+    expect(big.budgetTokens).toBe(10_000);
+    expect(big.note).toContain("30000 chars at 3 chars/token");
   });
-  test("claude listing chars = `- name: desc` per entry, newline-separated", () => {
+  test("claude listing cost = chars of `- name: desc` per entry, newline-separated, ÷ chars/token", () => {
     const r = simulateListing(claude, [mk("a", 100)], ctx(200_000, 4));
-    expect(r.usedChars).toBe(1 + 4 + 100);
+    expect(r.usedTokens).toBe(Math.ceil((1 + 4 + 100) / 4));
+    expect(r.perSkill[0]?.entryTokens).toBe(Math.ceil((1 + 4 + 100) / 4));
     expect(r.droppedCount).toBe(0);
     expect(r.overBy).toBe(0);
-    expect(simulateListing(claude, [mk("a", 100), mk("bb", 50)], ctx(200_000, 4)).usedChars).toBe((1 + 4 + 100) + 1 + (2 + 4 + 50));
+    expect(simulateListing(claude, [mk("a", 100), mk("bb", 50)], ctx(200_000, 4)).usedTokens).toBe(Math.ceil(((1 + 4 + 100) + 1 + (2 + 4 + 50)) / 4));
+    expect(simulateListing(claude, [mk("a", 100)], ctx(1_000_000, 3)).usedTokens).toBe(Math.ceil((1 + 4 + 100) / 3));
   });
   test("fixedChars (SLASH_COMMAND_TOOL_CHAR_BUDGET) overrides the formula", () => {
-    expect(simulateListing(claude, [mk("a", 100)], ctx(1_000_000, 3), { fixedChars: 2000 }).budgetChars).toBe(2000);
+    const r = simulateListing(claude, [mk("a", 100)], ctx(1_000_000, 3), { fixedChars: 2000 });
+    expect(r.budgetTokens).toBe(Math.ceil(2000 / 3));
+    expect(r.note).toContain("fixed at 2000 chars");
   });
-  test("claude drops largest descriptions when over budget", () => {
+  test("claude drops largest descriptions when over budget; overBy is in tokens", () => {
     const r = simulateListing(claude, [mk("a", 900), mk("b", 900), mk("c", 900)], ctx(200_000, 4), { fixedChars: 2000 });
-    expect(r.usedChars).toBeGreaterThan(2000);
+    expect(r.usedTokens).toBeGreaterThan(r.budgetTokens);
+    expect(r.overBy).toBe(Math.ceil((3 * (1 + 4 + 900) + 2 - 2000) / 4));
     expect(r.droppedCount).toBe(1);
     expect(r.perSkill.filter((p) => p.kept).map((p) => p.name).sort()).toEqual(["a", "b"]);
   });
@@ -45,37 +55,46 @@ describe("simulateListing", () => {
     const r = simulateListing(claude, [mk("big", 2000)], ctx(1_000_000, 3));
     expect(r.perSkill[0]?.cappedChars).toBe(1536);
     expect(r.perSkill[0]?.chars).toBe(2000);
-    expect(r.usedChars).toBe(3 + 4 + 1536);
+    expect(r.usedTokens).toBe(Math.ceil((3 + 4 + 1536) / 3));
   });
   test("overrides from settings", () => {
     const r = simulateListing(claude, [mk("a", 100)], ctx(200_000, 4), { fraction: 0.02, maxDescChars: 50 });
-    expect(r.budgetChars).toBe(16_000);
+    expect(r.budgetTokens).toBe(4000);
     expect(r.perSkill[0]?.cappedChars).toBe(50);
-    expect(r.usedChars).toBe(1 + 4 + 50);
+    expect(r.usedTokens).toBe(Math.ceil((1 + 4 + 50) / 4));
+  });
+  test("agents without a documented budget: no limit, tokens are an o200k estimate of each description", () => {
+    const pi = (() => { const a = agentById("pi"); if (!a.some) throw new Error(); return a.value; })();
+    const r = simulateListingOf(pi, [{ name: "a", listing: "Does demo things. Use when demoing." }, { name: "b", listing: "" }], ctx(1_000_000, 1));
+    expect(r.budgetTokens).toBe(Number.POSITIVE_INFINITY);
+    expect(r.perSkill.map((e) => e.entryTokens)).toEqual([estimateTokens("Does demo things. Use when demoing."), 0]);
+    expect(r.usedTokens).toBe(estimateTokens("Does demo things. Use when demoing."));
+    expect(r.overBy).toBe(0);
+    expect(r.note).toContain("no documented listing budget");
   });
   describe("codex (codex-rs/ext/skills/src/render.rs)", () => {
     const line = (name: string, desc: string, path: string) => `- ${name}: ${desc} (file: ${path})\n`;
     const tok = (text: string) => Math.ceil(new TextEncoder().encode(text).length / 4);
     test("budget = 2% of the context window in tokens; a line costs ⌈bytes/4⌉ including its locator", () => {
       const r = simulateListingOf(codex, [{ name: "a", listing: "x".repeat(100), locator: "a-SKILL.md" }], ctx(200_000, 4));
-      expect(r.unit).toBe("tokens");
-      expect(r.budgetChars).toBe(4000);
-      expect(r.usedChars).toBe(tok(line("a", "x".repeat(100), "a-SKILL.md")));
+      expect(r.budgetTokens).toBe(4000);
+      expect(r.usedTokens).toBe(tok(line("a", "x".repeat(100), "a-SKILL.md")));
+      expect(r.perSkill[0]?.entryTokens).toBe(tok(line("a", "x".repeat(100), "a-SKILL.md")));
       expect(r.trim).toBe("shortened");
       expect(r.droppedCount).toBe(0);
       expect(r.overBy).toBe(0);
     });
     test("[skills] max_context_tokens fixes the budget, capped at 10,000", () => {
-      expect(simulateListingOf(codex, [], ctx(200_000, 4), { fixedTokens: 3000 }).budgetChars).toBe(3000);
+      expect(simulateListingOf(codex, [], ctx(200_000, 4), { fixedTokens: 3000 }).budgetTokens).toBe(3000);
       const capped = simulateListingOf(codex, [], ctx(200_000, 4), { fixedTokens: 50_000 });
-      expect(capped.budgetChars).toBe(10_000);
+      expect(capped.budgetTokens).toBe(10_000);
       expect(capped.note).toContain("capped at 10000");
     });
-    test("unknown window → 8,000 chars, lines counted in chars", () => {
+    test("unknown window → 8,000 chars counted in chars, reported ≈ tokens at 4 chars/token", () => {
       const r = simulateListingOf(codex, [{ name: "a", listing: "héllo", locator: "/p" }], ctx(0, 4));
-      expect(r.unit).toBe("chars");
-      expect(r.budgetChars).toBe(8000);
-      expect(r.usedChars).toBe([...line("a", "héllo", "/p")].length);
+      expect(r.budgetTokens).toBe(2000);
+      expect(r.usedTokens).toBe(Math.ceil([...line("a", "héllo", "/p")].length / 4));
+      expect(r.note).toContain("8000 chars ≈ 2000 tokens");
     });
     test("descriptions are cut at 1,024 chars with an ellipsis", () => {
       const r = simulateListingOf(codex, [{ name: "a", listing: "x".repeat(2000), locator: "/p" }], ctx(200_000, 4));
@@ -121,8 +140,8 @@ describe("simulateListing", () => {
       const aliasedLines = [line("alpha", desc, "r0/alpha/SKILL.md"), line("solo", desc, "r1/solo/1.0.0/skills/solo/SKILL.md"), line("brainstorming", desc, "r2/brainstorming/SKILL.md"), line("writing-plans", desc, "r2/writing-plans/SKILL.md")];
       const roots = "- `r0` = `/h/.agents/skills`\n- `r1` = `/h/.codex/plugins/cache/mk`\n- `r2` = `/h/.codex/plugins/cache/mk/sp/6.3.0/skills`\n";
       const overhead = Math.max(0, tok(`${"x".repeat(261)}\n### Skill roots\n${roots}`) - tok(`${"x".repeat(425)}\n`));
-      expect(r.usedChars).toBe(overhead + aliasedLines.reduce((n, l) => n + tok(l), 0));
-      expect(r.usedChars).toBeLessThan(items.reduce((n, i) => n + tok(line(i.name, desc, i.locator)), 0));
+      expect(r.usedTokens).toBe(overhead + aliasedLines.reduce((n, l) => n + tok(l), 0));
+      expect(r.usedTokens).toBeLessThan(items.reduce((n, i) => n + tok(line(i.name, desc, i.locator)), 0));
       expect(r.note).toContain("3 skill roots aliased (r0 r1 r2)");
     });
   });

@@ -1,5 +1,5 @@
 import pc from "picocolors";
-import { trimText, unitSuffix } from "../core/budget";
+import { trimText } from "../core/budget";
 import { findingText } from "../core/effective";
 import { sourceText, storageText } from "../core/sources";
 import { agentsOn } from "../shell/hosts";
@@ -40,8 +40,7 @@ export const runInventory = async (o: InventoryOpts): Promise<void> =>
       const b = v.budget[agent.id];
       const flagged = new Set(v.findings.flatMap((f) => (f.kind === "same-name" && f.agent === agent.id ? [f.name] : [])));
       const dupHashes = new Set(v.findings.flatMap((f) => (f.kind === "same-content" && f.agent === agent.id ? [f.hash] : [])));
-      const u = b === undefined ? "c" : unitSuffix(b);
-      const budget = b === undefined ? "" : !Number.isFinite(b.budgetChars) ? pc.dim(`listing ${b.usedChars}${u} (no documented budget)`) : b.overBy > 0 ? pc.red(`listing ${b.usedChars}${u} / budget ${b.budgetChars}${u} — over by ${b.overBy}${u}, ${trimText(b)}`) : pc.green(`listing ${b.usedChars}${u} / budget ${b.budgetChars}${u} — fits`);
+      const budget = b === undefined ? "" : !Number.isFinite(b.budgetTokens) ? pc.dim(`listing ${b.usedTokens}t (no documented budget)`) : b.overBy > 0 ? pc.red(`listing ${b.usedTokens}t / budget ${b.budgetTokens}t — over by ${b.overBy}t, ${trimText(b)}`) : pc.green(`listing ${b.usedTokens}t / budget ${b.budgetTokens}t — fits`);
       out(`${pc.bold(`${snap.host.id}/${agent.id}`)}  ${es.length} skills  ${budget}`);
       const rows = es.map((e) => [
         `${flagged.has(e.name) ? pc.yellow("≡") : dupHashes.has(e.hash) ? pc.magenta("=") : " "}${e.name}${e.promptVisible ? "" : pc.dim(" (hidden)")}`,
@@ -49,7 +48,7 @@ export const runInventory = async (o: InventoryOpts): Promise<void> =>
         storageText(e.storage),
         ownerColor(e.owner),
         e.version.some ? e.version.value : pc.dim("–"),
-        `${e.listingChars}c`,
+        `${e.listingTokens}t`,
         `${e.bodyTokens}t`,
       ]);
       out(table(["skill", "source", "storage", "owner", "version", "listing", "body"], rows));
@@ -57,6 +56,6 @@ export const runInventory = async (o: InventoryOpts): Promise<void> =>
       local.forEach((f) => out(`  ${f.kind === "same-name" ? pc.yellow(f.kind) : f.kind === "same-content" ? pc.magenta(f.kind) : pc.dim(f.kind)}  ${findingText(f)}`));
       out("");
     });
-    out(pc.dim("≡ same name from several sources  = identical SKILL.md in several places  ·  listing = description chars paid every turn  ·  body = tokens paid on activation  ·  Codex plugins cached without a config.toml entry are not loaded and not listed  ·  (hidden) = agents/openai.yaml allow_implicit_invocation: false, loaded but not in Codex's catalog, costs nothing  ·  " + pc.dim("sources: user dir · legacy dir · builtin · plugin cache")));
+    out(pc.dim("≡ same name from several sources  = identical SKILL.md in several places  ·  listing = description tokens (o200k estimate) paid every turn  ·  body = tokens paid on activation  ·  Codex plugins cached without a config.toml entry are not loaded and not listed  ·  (hidden) = agents/openai.yaml allow_implicit_invocation: false, loaded but not in Codex's catalog, costs nothing  ·  " + pc.dim("sources: user dir · legacy dir · builtin · plugin cache")));
     void sourceText;
   });

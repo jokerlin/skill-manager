@@ -138,14 +138,16 @@ export const EMPTY_CODEX: CodexConfig = { plugins: {}, marketplaces: {}, plugins
 
 const positiveInt = (v: unknown): Option<number> => (typeof v === "number" && Number.isInteger(v) && v > 0 ? some(v) : none);
 
-/** ~/.codex/models_cache.json: slug → context_window / max_context_window (what Codex budgets skills against). */
+/** Codex model catalog (`codex debug models`, else ~/.codex/models_cache.json): slug → context_window / max_context_window (what Codex budgets skills against), priority and visibility (what it defaults to). */
 export const parseCodexModels = (text: string): Result<CodexModels, ParseError> => {
   const r = json("models_cache.json", text);
   if (!r.ok) return r;
   if (!isRecord(r.value)) return err({ kind: "bad-shape", file: "models_cache.json", message: "not an object" });
   const models = r.value["models"];
   if (!Array.isArray(models)) return err({ kind: "bad-shape", file: "models_cache.json", message: "no models array" });
-  return ok(Object.fromEntries(models.flatMap((m) => (isRecord(m) && typeof m["slug"] === "string" ? [[m["slug"], { contextWindow: positiveInt(m["context_window"]), maxContextWindow: positiveInt(m["max_context_window"]) }] as const] : []))));
+  return ok(Object.fromEntries(models.flatMap((m) => (isRecord(m) && typeof m["slug"] === "string"
+    ? [[m["slug"], { contextWindow: positiveInt(m["context_window"]), maxContextWindow: positiveInt(m["max_context_window"]), priority: positiveInt(m["priority"]), listed: m["visibility"] === "list" }] as const]
+    : []))));
 };
 
 /** ~/.codex/config.toml: plugin switches and marketplace sources. Uses Bun's TOML parser. */

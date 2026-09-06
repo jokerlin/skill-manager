@@ -150,6 +150,20 @@ describe("probe v2: plugins, builtins, config files, tools, docs", () => {
     mkdirSync(join(home, ".local/bin"), { recursive: true });
     writeFileSync(join(home, ".local/bin/claude"), "#!/bin/sh\necho fake\n", { mode: 0o755 });
   });
+  test("commands ship their stdout in place of the file; a missing or failing command falls back to the file", async () => {
+    const r = await sh(probeScript({
+      skm: "~/.skm", agentDirs: {}, alsoReads: {},
+      files: { "codex-models": "~/.codex/config.toml", other: "~/.codex/config.toml", absent: "~/nothing" },
+      commands: { "codex-models": "printf '{\"models\":[]}'", other: "definitely-not-a-tool-either", absent: "definitely-not-a-tool-either" },
+    }), home);
+    expect(r.code).toBe(0);
+    const inv = parseProbeOutput(r.out, join(home, ".skm/skills"));
+    expect(inv.ok).toBe(true);
+    if (!inv.ok) return;
+    expect(inv.value.files["codex-models"]).toBe('{"models":[]}');
+    expect(inv.value.files["other"]).toContain("superpowers@mk");
+    expect(inv.value.files["absent"]).toBeUndefined();
+  });
   test("probe emits every v2 line kind and dedupes docs by hash", async () => {
     const r = await sh(probeScript({
       skm: "~/.skm", agentDirs: { claude: "~/.claude/skills", codex: "~/.agents/skills" }, alsoReads: { codex: ["~/.codex/skills"] },

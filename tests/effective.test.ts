@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { agentById } from "../src/core/agents";
-import { driftFindings, effectiveFor, hostFacts, hostFindings, pluginStates, sourceCounts } from "../src/core/effective";
+import { driftFindings, effectiveFor, findingText, hostFacts, hostFindings, pluginStates, shadowedFor, sourceCounts } from "../src/core/effective";
 import { type Inventory, emptyInventory } from "../src/core/inventory";
 
 const agent = (id: string) => { const a = agentById(id); if (!a.some) throw new Error(id); return a.value; };
@@ -133,8 +133,13 @@ describe("findings", () => {
     // the identical-content pair is the same path set as the same-name finding → reported once, not twice
     expect(fs.filter((x) => x.kind === "same-content")).toEqual([]);
     expect(fs.filter((x) => x.kind === "stale-cache").map((x) => x.kind === "stale-cache" ? `${x.agent}:${x.plugin}:${x.versions.join("+")}` : "")).toEqual(["claude:superpowers@mk:6.2.0"]);
-    // codex's cached-but-unconfigured plugin is not loaded, so its cache is flagged like any other disabled cache
-    expect(fs.filter((x) => x.kind === "disabled-cached").map((x) => x.kind === "disabled-cached" ? `${x.agent}:${x.plugin}` : "")).toEqual(["claude:video@mk", "codex:implicit@mk"]);
+    // switched off in the agent's config ⇒ disabled-cached; never mentioned there ⇒ unloaded-cache (codex's cached-but-unconfigured plugin is a leftover it never loads)
+    expect(fs.filter((x) => x.kind === "disabled-cached").map((x) => x.kind === "disabled-cached" ? `${x.agent}:${x.plugin}` : "")).toEqual(["claude:video@mk"]);
+    const unloaded = fs.filter((x) => x.kind === "unloaded-cache");
+    expect(unloaded).toEqual([{ kind: "unloaded-cache", host: "local", agent: "codex", plugin: "implicit@mk", marketplaceKnown: false }]);
+    expect(unloaded.map(findingText)[0]).toContain("no entry in config.toml [plugins]");
+    expect(unloaded.map(findingText)[0]).toContain("marketplace is not configured");
+    expect(states.codex.map((p) => `${p.id}:${p.configured ? "configured" : "unconfigured"}`)).toEqual(["implicit@mk:unconfigured", "off@mk:configured", "superpowers@mk:configured"]);
   });
   test("store skill reachable from two scanned dirs collapses into one linked-twice finding; a real copy elsewhere is same-content", () => {
     const twice: Inventory = { ...inv, alsoReads: { codex: [{ kind: "managed", name: "check", direct: true, hash: "H-check" }, { kind: "dir", name: "copy-of-check", hash: "H-check" }] }, alsoDirs: { codex: { check: "/h/.codex/skills", "copy-of-check": "/h/.codex/skills" } } };
@@ -163,5 +168,36 @@ describe("effectiveFor: directories without SKILL.md", () => {
     };
     const es = effectiveFor(inv, hostFacts(inv), claude.value);
     expect(es.map((e) => e.name)).toEqual(["real"]);
+  });
+});
+
+describe("effectiveFor: agents that dedupe by name (dsh: ~/.dsh/skills wins over ~/.agents/skills)", () => {
+  const dsh: Inventory = {
+    ...emptyInventory("/h"),
+    storeSkills: [{ name: "check", hash: "H-check" }, { name: "hunt", hash: "H-hunt" }, { name: "learn", hash: "H-learn" }],
+    agentDirs: { dsh: { exists: true, entries: [{ kind: "managed", name: "check", direct: true, hash: "H-check" }, { kind: "managed", name: "hunt", direct: true, hash: "H-hunt" }, { kind: "broken-link", name: "gone", target: "/x" }] } },
+    alsoReads: { dsh: [{ kind: "managed", name: "check", direct: true, hash: "H-check" }, { kind: "managed", name: "learn", direct: true, hash: "H-learn" }, { kind: "dir", name: "hunt", hash: "H-hunt-other" }, { kind: "managed", name: "gone", direct: true, hash: "H-gone" }] },
+    alsoDirs: { dsh: { check: "/h/.agents/skills", learn: "/h/.agents/skills", hunt: "/h/.agents/skills", gone: "/h/.agents/skills" } },
+    docs: { "H-check": md("check"), "H-hunt": md("hunt"), "H-hunt-other": md("hunt", "a different hunt"), "H-learn": md("learn"), "H-gone": md("gone") },
+  };
+  const f = hostFacts(dsh);
+  const es = effectiveFor(dsh, f, agent("dsh"));
+  test("a name present in the user dir loads once; the ~/.agents copy is shadowed and not part of the effective list", () => {
+    expect(es.map((e) => `${e.source.kind}:${e.name}`)).toEqual(["user:check", "user:hunt", "legacy:gone", "legacy:learn"]);
+    expect(sourceCounts(es)).toEqual({ user: 2, legacy: 2, builtin: 0, plugin: 0 });
+  });
+  test("shadowed copies are reported once as a `shadowed` finding (content-differing copies named), never as linked-twice or same-name", () => {
+    const shadowed = shadowedFor(dsh, f, agent("dsh"));
+    expect(shadowed.map((x) => `${x.name}:${x.sameContent}`)).toEqual(["check:true", "hunt:false"]);
+    const fs = hostFindings("local", { dsh: es }, {}, { dsh: shadowed });
+    expect(fs).toEqual([{ kind: "shadowed", host: "local", agent: "dsh", names: ["check", "hunt"], differing: ["hunt"], winner: "/h/.dsh/skills", dir: "/h/.agents/skills" }]);
+  });
+  test("codex still loads every copy (no dedupe), so the same inventory shape keeps its linked-twice finding", () => {
+    const codex: Inventory = { ...dsh, agentDirs: { codex: dsh.agentDirs["dsh"]! }, alsoReads: { codex: [{ kind: "managed", name: "check", direct: true, hash: "H-check" }] }, alsoDirs: { codex: { check: "/h/.codex/skills" } } };
+    const f2 = hostFacts(codex);
+    const es2 = effectiveFor(codex, f2, agent("codex"));
+    expect(es2.map((e) => `${e.source.kind}:${e.name}`)).toEqual(["user:check", "user:hunt", "legacy:check"]);
+    expect(shadowedFor(codex, f2, agent("codex"))).toEqual([]);
+    expect(hostFindings("local", { codex: es2 }, {}, { codex: [] }).map((x) => x.kind)).toEqual(["linked-twice"]);
   });
 });

@@ -101,7 +101,7 @@ describe("planHost v2: plugins and owned skills", () => {
   });
   const state = (agent: string, id: string, enabled: "on" | "off", version?: string) => {
     const at = id.lastIndexOf("@");
-    return { agent, id, name: id.slice(0, at), marketplace: id.slice(at + 1), enabled, active: version ? some({ version, dir: `/c/${version}`, skills: [] }) : none, cachedVersions: version ? [version] : [] };
+    return { agent, id, name: id.slice(0, at), marketplace: id.slice(at + 1), enabled, configured: true, marketplaceKnown: true, active: version ? some({ version, dir: `/c/${version}`, skills: [] }) : none, cachedVersions: version ? [version] : [] };
   };
   const both = { claude: { exists: true, entries: [] }, codex: { exists: true, entries: [] } };
   const kinds = (ops: readonly ReturnType<typeof planHost>[number][]) => ops.map((o) => o.op === "blocked" ? `blocked:${o.agent}` : o.op === "owned-ensure" ? `owned-ensure:${o.skill}` : "plugin" in o ? `${o.op}:${o.agent}:${o.plugin}` : "marketplace" in o ? `${o.op}:${o.agent}:${o.marketplace}` : `${o.op}`);

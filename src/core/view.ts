@@ -2,7 +2,7 @@ import type { Agent } from "./agents";
 import { type BudgetOverrides, type BudgetReport, type ListingContext, type ListingItem, fallbackContext, simulateListingOf } from "./budget";
 import { resolveClaudeWindow } from "./claude-model";
 import { resolveCodexWindow } from "./codex-model";
-import { type Effective, type Finding, type HostFacts, type PluginState, effectiveFor, hostFacts, hostFindings, pluginStates, sourceCounts } from "./effective";
+import { type Effective, type Finding, type HostFacts, type PluginState, type Shadowed, hostFacts, hostFindings, loadedFor, pluginStates, sourceCounts } from "./effective";
 import type { Inventory } from "./inventory";
 import type { Source } from "./sources";
 
@@ -11,6 +11,8 @@ export type HostView = {
   readonly facts: HostFacts;
   readonly states: Readonly<Record<string, readonly PluginState[]>>;
   readonly effective: Readonly<Record<string, readonly Effective[]>>;
+  /** alsoReads copies an agent skips because its user dir already has the name (dsh) — not loaded, not budgeted */
+  readonly shadowed: Readonly<Record<string, readonly Shadowed[]>>;
   readonly budget: Readonly<Record<string, BudgetReport>>;
   readonly counts: Readonly<Record<string, Record<Source["kind"], number>>>;
   readonly findings: readonly Finding[];
@@ -36,7 +38,7 @@ export const contextFor = (agent: Agent, facts: HostFacts, fallbackTokens: numbe
   if (agent.id === "codex") {
     const w = resolveCodexWindow(facts.codex.model, facts.codex.modelContextWindow, facts.codexModels);
     if (w.some) return fallbackContext(agent, w.value.contextTokens, w.value.reason);
-    const why = facts.codex.model.some ? `model "${facts.codex.model.value}" not in ~/.codex/models_cache.json` : "no model in config.toml";
+    const why = facts.codex.model.some ? `model "${facts.codex.model.value}" not in the Codex model catalog` : "no model in config.toml and no Codex model catalog to take the default from";
     return fallbackContext(agent, fallbackTokens, `${why} → config contextTokens`);
   }
   if (agent.id !== "claude") return fallbackContext(agent, fallbackTokens, "config contextTokens");
@@ -49,10 +51,12 @@ export const contextFor = (agent: Agent, facts: HostFacts, fallbackTokens: numbe
 export const buildHostView = (hostId: string, agents: readonly Agent[], inv: Inventory, contextTokens: number, hubOverrides: BudgetOverrides = {}): HostView => {
   const facts = hostFacts(inv);
   const states = Object.fromEntries(agents.filter((a) => a.plugins !== undefined).map((a) => [a.id, pluginStates(inv, facts, a.id)]));
-  const effective = Object.fromEntries(agents.map((a) => [a.id, effectiveFor(inv, facts, a)]));
+  const loaded = agents.map((a) => [a.id, loadedFor(inv, facts, a)] as const);
+  const effective = Object.fromEntries(loaded.map(([id, l]) => [id, l.loaded]));
+  const shadowed = Object.fromEntries(loaded.map(([id, l]) => [id, l.shadowed]));
   const budget = Object.fromEntries(agents.map((a) => [a.id, simulateListingOf(a, (effective[a.id] ?? []).filter((e) => e.promptVisible).map((e) => listingItemFor(a, e)), contextFor(a, facts, contextTokens), overridesFor(a, facts, hubOverrides))]));
   const counts = Object.fromEntries(agents.map((a) => [a.id, sourceCounts(effective[a.id] ?? [])]));
-  return { facts, states, effective, budget, counts, findings: hostFindings(hostId, effective, states) };
+  return { facts, states, effective, shadowed, budget, counts, findings: hostFindings(hostId, effective, states, shadowed) };
 };
 
 /** Plugins that contribute skills for an agent (enabled or implicit, with an active version). */

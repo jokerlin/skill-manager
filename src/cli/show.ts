@@ -13,7 +13,7 @@ export const runShow = async (name: string): Promise<void> =>
     out(descriptionOf(s));
     if (s.parsed.ok && s.parsed.value.frontmatter.whenToUse.some) out(pc.dim(`when_to_use: ${s.parsed.value.frontmatter.whenToUse.value}`));
     out("");
-    out(`listing: ${s.cost.descChars} chars ≈ ${s.cost.descTokens} tokens (every turn)   body: ${fmtK(s.cost.bodyTokens)} tokens, ${s.cost.bodyLines} lines (on activation)   files: ${s.cost.fileCount}, ${fmtBytes(s.cost.totalBytes)}`);
+    out(`listing: ${s.cost.descTokens} tokens (every turn)   body: ${fmtK(s.cost.bodyTokens)} tokens, ${s.cost.bodyLines} lines (on activation)   files: ${s.cost.fileCount}, ${fmtBytes(s.cost.totalBytes)}`);
     if (s.parsed.ok) {
       const extra = Object.keys(s.parsed.value.frontmatter.extra);
       if (extra.length > 0) out(pc.dim(`other frontmatter: ${extra.join(", ")}`));

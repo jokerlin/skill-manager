@@ -38,13 +38,13 @@ export const desiredOn = (c: Config, skills: readonly Skill[], h: HostConfig): R
 export const pluginStatesOn = (c: Config, h: HostConfig, inv: Inventory, facts: HostFacts = hostFacts(inv)): Record<string, PluginState[]> =>
   Object.fromEntries(agentsOn(c, h).filter((a) => PLUGIN_AGENTS.includes(a.id)).map((a) => [a.id, pluginStates(inv, facts, a.id)]));
 
-/** Desired plugin cells for this host; marketplace from the policy, else whatever marketplace the host already has the plugin from. */
+/** Desired plugin cells for this host; marketplace from the policy, else whatever marketplace the host already has the plugin from. `enabled: false` makes every cell unwanted. */
 export const pluginCellsFor = (c: Config, h: HostConfig, states: Readonly<Record<string, readonly PluginState[]>>): PluginCell[] =>
   c.plugins.flatMap((p) =>
     agentsOn(c, h).filter((a) => PLUGIN_AGENTS.includes(a.id)).map((a): PluginCell => {
       const mk = marketplaceFor(p, a.id);
       const marketplace = mk.some ? mk.value : (states[a.id] ?? []).find((s) => s.name === p.name)?.marketplace ?? "";
-      return { agent: a.id, name: p.name, marketplace, wanted: selects(p.hosts, h.id) && selects(p.agents, a.id) };
+      return { agent: a.id, name: p.name, marketplace, wanted: p.enabled && selects(p.hosts, h.id) && selects(p.agents, a.id) };
     }),
   );
 

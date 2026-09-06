@@ -96,6 +96,7 @@ plugins:
   superpowers: { marketplace: claude-plugins-official, agents: { only: [claude, codex] } }
   linear-cli: { marketplace: { claude: linear-cli, codex: claude-extras }, hosts: { only: [local] } }
   bare:
+  off: { marketplace: claude-extras, enabled: false }
 owned:
   acme: { tool: acme }
   other: { tool: foo, ensure: "foo install", fallback: none }
@@ -104,23 +105,27 @@ owned:
     const r = parseConfig(text);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.value.plugins.map((p) => p.name)).toEqual(["superpowers", "linear-cli", "bare"]);
+    expect(r.value.plugins.map((p) => p.name)).toEqual(["superpowers", "linear-cli", "bare", "off"]);
     expect(r.value.plugins[0]?.marketplace).toEqual({ claude: "claude-plugins-official", codex: "claude-plugins-official" });
     expect(r.value.plugins[1]?.marketplace).toEqual({ claude: "linear-cli", codex: "claude-extras" });
     expect(r.value.plugins[1]?.hosts).toEqual({ kind: "only", globs: ["local"] });
-    expect(r.value.plugins[2]).toEqual({ name: "bare", marketplace: {}, hosts: { kind: "all" }, agents: { kind: "all" } });
+    expect(r.value.plugins[2]).toEqual({ name: "bare", marketplace: {}, hosts: { kind: "all" }, agents: { kind: "all" }, enabled: true });
+    expect(r.value.plugins[3]?.enabled).toBe(false);
     expect(r.value.owned).toEqual([
       { skill: "acme", tool: "acme", ensure: { some: false }, fallback: "store" },
       { skill: "other", tool: "foo", ensure: { some: true, value: "foo install" }, fallback: "none" },
     ]);
     expect(parseConfig(serializeConfig(r.value))).toEqual({ ok: true, value: r.value });
     expect(serializeConfig(r.value)).toContain("marketplace: claude-plugins-official");
+    expect(serializeConfig(r.value)).toContain("enabled: false");
+    expect(serializeConfig(r.value)).not.toContain("enabled: true");
   });
   test("rejects bad shapes", () => {
     expect(parseConfig("hosts: { local: {} }\nplugins: [a]").ok).toBe(false);
     expect(parseConfig("hosts: { local: {} }\nowned: { x: { ensure: 1 } }").ok).toBe(false);
     expect(parseConfig("hosts: { local: {} }\nowned: { x: { tool: t, fallback: maybe } }").ok).toBe(false);
     expect(parseConfig("hosts: { local: {} }\nplugins: { p: { marketplace: [1] } }").ok).toBe(false);
+    expect(parseConfig("hosts: { local: {} }\nplugins: { p: { enabled: maybe } }").ok).toBe(false);
   });
   test("defaults have no plugins/owned and serialize without those keys", () => {
     const d = defaultConfig();

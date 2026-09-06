@@ -3,12 +3,12 @@ import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readlinkSync, symlin
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { none, some } from "../src/lib/result";
-import { defaultConfig, type HostConfig } from "../src/core/config";
+import { defaultConfig, parseConfig, type HostConfig } from "../src/core/config";
 import { agentById } from "../src/core/agents";
 import { loadStore } from "../src/shell/store";
 import { localRunner } from "../src/shell/runner";
 import { probeHost } from "../src/shell/probe";
-import { planFor, agentsOn, agentDirsRel, backupPathsFor } from "../src/shell/hosts";
+import { planFor, agentsOn, agentDirsRel, backupPathsFor, pluginCellsFor } from "../src/shell/hosts";
 import { executePlan } from "../src/shell/sync";
 import { backupHost, restoreHost, listBackups } from "../src/shell/backup";
 
@@ -111,5 +111,22 @@ describe("shell integration: hub → fake remote (separate HOME)", () => {
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.error.kind).toBe("unreachable");
+  });
+});
+
+describe("pluginCellsFor", () => {
+  const cfg = parseConfig(`
+hosts: { local: {} }
+agents: [claude, codex]
+plugins:
+  off: { marketplace: claude-extras, enabled: false, agents: { only: [codex] } }
+  on: { marketplace: claude-extras }
+`);
+  test("enabled: false makes every cell unwanted, whatever the selectors say", () => {
+    expect(cfg.ok).toBe(true);
+    if (!cfg.ok) return;
+    const host = cfg.value.hosts[0]!;
+    const cells = pluginCellsFor(cfg.value, host, {});
+    expect(cells.map((c) => `${c.agent}:${c.name}=${c.wanted}`).sort()).toEqual(["claude:off=false", "claude:on=true", "codex:off=false", "codex:on=true"]);
   });
 });

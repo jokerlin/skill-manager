@@ -33,6 +33,7 @@ export type PluginPolicy = {
   readonly marketplace: Readonly<Record<string, string>>;   // agent id → marketplace name
   readonly hosts: Selector;
   readonly agents: Selector;
+  readonly enabled: boolean;                                // false ⇒ disable wherever it is present, whatever hosts/agents say
 };
 
 /** A skill written and refreshed by its own CLI (acme, …): skm defers to that tool where it exists. */
@@ -155,7 +156,7 @@ const parseHost = (id: string, v: unknown): Result<HostConfig, ConfigError> => {
 
 const parsePlugin = (name: string, v: unknown): Result<PluginPolicy, ConfigError> => {
   const path = `plugins.${name}`;
-  if (v === null || v === undefined) return ok({ name, marketplace: {}, hosts: ALL, agents: ALL });
+  if (v === null || v === undefined) return ok({ name, marketplace: {}, hosts: ALL, agents: ALL, enabled: true });
   if (!isRecord(v)) return err(shape(path, "plugin must be a map"));
   const mk = v["marketplace"];
   const marketplace: Result<Readonly<Record<string, string>>, ConfigError> =
@@ -168,7 +169,9 @@ const parsePlugin = (name: string, v: unknown): Result<PluginPolicy, ConfigError
   if (!hosts.ok) return hosts;
   const agents = parseSelector(v["agents"], `${path}.agents`);
   if (!agents.ok) return agents;
-  return ok({ name, marketplace: marketplace.value, hosts: hosts.value, agents: agents.value });
+  const en = v["enabled"];
+  if (en !== undefined && typeof en !== "boolean") return err(shape(`${path}.enabled`, "expected true or false"));
+  return ok({ name, marketplace: marketplace.value, hosts: hosts.value, agents: agents.value, enabled: en ?? true });
 };
 
 const parseOwned = (skill: string, v: unknown): Result<OwnedPolicy, ConfigError> => {
@@ -280,7 +283,7 @@ const ruleToRaw = (r: Rule): Raw => ({
 const pluginToRaw = (p: PluginPolicy): Raw => {
   const values = [...new Set(Object.values(p.marketplace))];
   const mk = Object.keys(p.marketplace).length === 0 ? {} : values.length === 1 && PLUGIN_AGENTS.every((a) => p.marketplace[a] === values[0]) ? { marketplace: values[0] } : { marketplace: { ...p.marketplace } };
-  return { ...mk, ...(p.hosts.kind === "all" ? {} : { hosts: selectorToRaw(p.hosts) }), ...(p.agents.kind === "all" ? {} : { agents: selectorToRaw(p.agents) }) };
+  return { ...mk, ...(p.hosts.kind === "all" ? {} : { hosts: selectorToRaw(p.hosts) }), ...(p.agents.kind === "all" ? {} : { agents: selectorToRaw(p.agents) }), ...(p.enabled ? {} : { enabled: false }) };
 };
 
 const ownedToRaw = (o: OwnedPolicy): Raw => ({ tool: o.tool, ...(o.ensure.some ? { ensure: o.ensure.value } : {}), ...(o.fallback === "store" ? {} : { fallback: o.fallback }) });

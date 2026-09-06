@@ -26,7 +26,7 @@ struct SkillsView: View {
         let q = filter.lowercased()
         let scoped = catalog.filter { scope.matches($0.group) }
         let list = q.isEmpty ? scoped : scoped.filter { $0.name.lowercased().contains(q) || $0.description.lowercased().contains(q) || $0.group.text.lowercased().contains(q) }
-        return sortByCost ? list.sorted { $0.listingChars > $1.listingChars } : list.sorted { ($0.group.order, $0.group.text, $0.name) < ($1.group.order, $1.group.text, $1.name) }
+        return sortByCost ? list.sorted { $0.listingTokens > $1.listingTokens } : list.sorted { ($0.group.order, $0.group.text, $0.name) < ($1.group.order, $1.group.text, $1.name) }
     }
 
     var body: some View {
@@ -46,13 +46,13 @@ struct SkillsView: View {
                         }
                     }.width(min: 140, ideal: 180)
                     TableColumn("Source") { i in Text(i.group.text).foregroundStyle(groupColor(i.group)).lineLimit(1) }.width(min: 90, ideal: 160)
-                    TableColumn("Listing") { i in Text("\(i.listingChars)c").monospacedDigit().foregroundStyle(i.listingChars > 1536 ? .orange : .secondary) }.width(55)
+                    TableColumn("Listing") { i in Text("\(i.listingTokens)t").monospacedDigit().foregroundStyle(i.listingChars > 1536 ? .orange : .secondary) }.width(55)
                     TableColumn("Body") { i in Text("\(i.bodyTokens)t").monospacedDigit().foregroundStyle(i.bodyTokens > 5000 ? .orange : .secondary) }.width(60)
                     TableColumn("Version") { i in Text(i.versions.joined(separator: " / ")).foregroundStyle(i.versions.count > 1 ? .red : .secondary).lineLimit(1) }.width(min: 60, ideal: 80)
                     TableColumn("Loaded on") { i in Text(i.loadsText).foregroundStyle(i.loads.isEmpty ? .orange : .secondary).lineLimit(1) }.width(min: 100, ideal: 150)
                     TableColumn("Description") { i in Text(i.description).lineLimit(1).foregroundStyle(.secondary) }
                 }
-                Text("\(visible.count) shown · store \(count(.store)) · plugin skills \(count(.plugins)) · builtin \(count(.builtin)) · unmanaged \(count(.other))   ·   listing = description chars paid every turn (orange > 1536c) · body = SKILL.md tokens paid on activation (orange > 5000t) · red version = differs across hosts")
+                Text("\(visible.count) shown · store \(count(.store)) · plugin skills \(count(.plugins)) · builtin \(count(.builtin)) · unmanaged \(count(.other))   ·   listing = description tokens paid every turn (orange = over Claude's 1536-char cap) · body = SKILL.md tokens paid on activation (orange > 5000t) · red version = differs across hosts")
                     .font(.caption).foregroundStyle(.secondary).padding(6)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -115,7 +115,7 @@ struct SkillDetail: View {
             Text("store skill · ~/.skm/skills/\(skill.name)").font(.callout).foregroundStyle(.green)
             Text(skill.description).textSelection(.enabled)
             HStack(spacing: 16) {
-                StatView(label: "listing", value: "\(skill.descChars)c ≈ \(skill.descTokens)t", warn: skill.descChars > 1536)
+                StatView(label: "listing", value: "\(skill.descTokens)t", warn: skill.descChars > 1536)
                 StatView(label: "body", value: "\(skill.bodyTokens)t / \(skill.bodyLines) lines", warn: skill.bodyTokens > 5000)
                 StatView(label: "files", value: "\(skill.files) · \(ByteCountFormatter.string(fromByteCount: Int64(skill.bytes), countStyle: .file))", warn: false)
             }
@@ -232,7 +232,7 @@ struct CatalogDetail: View {
                 }
                 Text(item.description.isEmpty ? "(no description)" : item.description).textSelection(.enabled)
                 HStack(spacing: 16) {
-                    StatView(label: "listing", value: "\(item.listingChars)c", warn: item.listingChars > 1536)
+                    StatView(label: "listing", value: "\(item.listingTokens)t", warn: item.listingChars > 1536)
                     StatView(label: "body", value: "\(item.bodyTokens)t", warn: item.bodyTokens > 5000)
                     StatView(label: "version", value: item.versions.isEmpty ? "–" : item.versions.joined(separator: " / "), warn: item.versions.count > 1)
                 }
@@ -413,8 +413,8 @@ struct AgentRow: View {
             Spacer()
             if let c = st.counts { Text("loads \(c.total)").monospacedDigit().foregroundStyle(.secondary) }
             if let b = st.budget {
-                if let budget = b.budgetChars { Chip(text: "\(b.usedChars)\(b.u) / \(budget)\(b.u)", color: b.overBy > 0 ? .red : .green) }
-                else { Chip(text: "\(b.usedChars)\(b.u)", color: .secondary) }
+                if let budget = b.budgetTokens { Chip(text: "\(b.usedTokens)t / \(budget)t", color: b.overBy > 0 ? .red : .green) }
+                else { Chip(text: "\(b.usedTokens)t", color: .secondary) }
             }
         }
         .padding(.vertical, 2)
@@ -458,12 +458,12 @@ struct AgentDetail: View {
                     }
                 }
                 if let b = st.budget {
-                    if let budget = b.budgetChars {
-                        ProgressView(value: min(1, Double(b.usedChars) / Double(max(1, budget)))).tint(b.overBy > 0 ? .red : .green)
-                        Text(b.overBy > 0 ? "listing \(b.usedChars)\(b.u) of a \(budget)\(b.u) budget — over by \(b.overBy)\(b.u), \(b.trimText)" : "listing \(b.usedChars)\(b.u) of a \(budget)\(b.u) budget — fits")
+                    if let budget = b.budgetTokens {
+                        ProgressView(value: min(1, Double(b.usedTokens) / Double(max(1, budget)))).tint(b.overBy > 0 ? .red : .green)
+                        Text(b.overBy > 0 ? "listing \(b.usedTokens)t of a \(budget)t budget — over by \(b.overBy)t, \(b.trimText)" : "listing \(b.usedTokens)t of a \(budget)t budget — fits")
                             .foregroundStyle(b.overBy > 0 ? .red : .green).monospacedDigit()
                     } else {
-                        Text("listing \(b.usedChars)\(b.u) — \(agent) documents no listing budget").foregroundStyle(.secondary)
+                        Text("listing \(b.usedTokens)t — \(agent) documents no listing budget").foregroundStyle(.secondary)
                     }
                     if !b.note.isEmpty { Text(b.note).font(.caption).foregroundStyle(.secondary) }
                 }
@@ -484,7 +484,7 @@ struct AgentDetail: View {
                     TableColumn("Storage") { e in Text(e.storage).foregroundStyle(.secondary).lineLimit(1) }.width(min: 80, ideal: 100)
                     TableColumn("Owner") { e in Text(e.owner).foregroundStyle(e.owner == "skm" ? .green : e.owner == "manual" ? .orange : .secondary).lineLimit(1) }.width(min: 90, ideal: 110)
                     TableColumn("Version") { e in Text(e.version ?? "–").foregroundStyle(.secondary).lineLimit(1) }.width(80)
-                    TableColumn("Listing") { e in Text("\(e.listingChars)c").monospacedDigit().foregroundStyle(e.listingChars > 1536 ? .orange : .secondary) }.width(60)
+                    TableColumn("Listing") { e in Text("\(e.listingTokens ?? 0)t").monospacedDigit().foregroundStyle(e.listingChars > 1536 ? .orange : .secondary) }.width(60)
                     TableColumn("Body") { e in Text("\(e.bodyTokens)t").monospacedDigit().foregroundStyle(e.bodyTokens > 5000 ? .orange : .secondary) }.width(65)
                 }
                 .frame(height: CGFloat(min(28, effective.count)) * 24 + 32)
@@ -597,16 +597,16 @@ struct InsightsView: View {
                         TableColumn("Host", value: \.host).width(90)
                         TableColumn("Agent", value: \.agent).width(80)
                         TableColumn("Skills") { Text("\($0.skills)") }.width(60)
-                        TableColumn("Listing") { r in Text(r.unit == "tokens" ? "\(r.usedChars)t" : (r.tokens.map { "\(r.usedChars)c ≈ \($0)t" } ?? "\(r.usedChars)c")).monospacedDigit() }.width(140)
-                        TableColumn("Budget") { r in Text(r.budgetChars.map { "\($0)\(r.u)" } ?? "—").monospacedDigit() }.width(80)
+                        TableColumn("Listing") { r in Text("\(r.usedTokens)t").monospacedDigit() }.width(140)
+                        TableColumn("Budget") { r in Text(r.budgetTokens.map { "\($0)t" } ?? "—").monospacedDigit() }.width(80)
                         TableColumn("Verdict") { r in
-                            if r.budgetChars == nil { Text("no documented budget").foregroundStyle(.secondary) }
-                            else if r.overBy > 0 { Text("over by \(r.overBy)\(r.u) → \(r.trimText)").foregroundStyle(.red) }
+                            if r.budgetTokens == nil { Text("no documented budget").foregroundStyle(.secondary) }
+                            else if r.overBy > 0 { Text("over by \(r.overBy)t → \(r.trimText)").foregroundStyle(.red) }
                             else { Text("fits").foregroundStyle(.green) }
                         }
                     }
                     .frame(height: CGFloat(min(12, d.budget.count)) * 26 + 30)
-                    Text("context window assumed \(d.contextTokens) tokens · counts every skill the agent loads (user dir, legacy dir, builtins, enabled plugins) · Claude: 1% listing budget, 1536c per skill · Codex: 2%").font(.caption).foregroundStyle(.secondary)
+                    Text("tokens by each agent's own accounting · counts every skill the agent loads (user dir, legacy dir, builtins, enabled plugins) · Claude: 1% of its model window (chars ÷ chars/token), 1536-char cap per skill · Codex: 2% of its model window · fallback window \(d.contextTokens) tokens when a model is unknown").font(.caption).foregroundStyle(.secondary)
                 }.padding(8)
                 if let f = d.findings, !f.isEmpty {
                     GroupBox("Cross-source findings (\(f.count))") {

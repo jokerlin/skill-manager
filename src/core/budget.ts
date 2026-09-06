@@ -1,34 +1,38 @@
+import { estimateTokens } from "../lib/tokens";
 import type { Agent, ListingRule } from "./agents";
 import { type Skill, listingOf } from "./skill";
 
+/**
+ * Every number here is in tokens, by the agent's own accounting:
+ *   Claude Code counts chars of `- name: desc` against chars = window × chars/token × 1%; both sides are divided by chars/token (4 for Opus/Sonnet ≤4.6 and Haiku, else 3).
+ *   Codex counts ⌈bytes/4⌉ of `- name: desc (file: path)` against window × 2% tokens.
+ *   Agents without a documented budget get an o200k estimate of each description and no limit.
+ */
 export type BudgetEntry = {
   readonly name: string;
   readonly chars: number;        // raw description + when_to_use length
   readonly cappedChars: number;  // after the agent's per-skill cap
-  /** What the listing line costs, in the report's `unit` (Claude: chars of `- name: desc`; Codex: ⌈bytes/4⌉ tokens of `- name: desc (file: path)`). */
-  readonly entryChars: number;
+  /** What the listing line costs in tokens. */
+  readonly entryTokens: number;
   /** Claude: the description survives (the name is always listed). Codex: the skill is not omitted (its description may still be shortened). */
   readonly kept: boolean;
 };
 
-/** The context window an agent budgets against. Claude: tokens × chars/token × fraction = chars. Codex: tokens × fraction = tokens, bytes/token converts line bytes to tokens. */
+/** The context window an agent budgets against. Claude: tokens × fraction = budget tokens, chars/token converts its char accounting. Codex: tokens × fraction = tokens, bytes/token converts line bytes to tokens. */
 export type ListingContext = { readonly contextTokens: number; readonly bytesPerToken: number; readonly reason: string };
 
-/** Unit of `budgetChars` / `usedChars` / `overBy`: Claude budgets in chars, Codex in tokens (unless its window is unknown). */
-export type BudgetUnit = "chars" | "tokens";
 /** What `droppedCount` counts: Claude drops whole descriptions; Codex shortens every description first and omits whole skills only as a last resort. */
 export type TrimKind = "dropped" | "shortened" | "omitted";
 
 export type BudgetReport = {
   readonly agentId: string;
   readonly context: ListingContext;
-  readonly unit: BudgetUnit;
-  readonly budgetChars: number;  // in `unit` (field name kept for the JSON consumers)
-  readonly usedChars: number;    // in `unit`: what the untrimmed listing costs
+  readonly budgetTokens: number; // Infinity when the agent documents no budget
+  readonly usedTokens: number;   // what the untrimmed listing costs
   readonly perSkill: readonly BudgetEntry[];
   readonly trim: TrimKind;
   readonly droppedCount: number; // how many `trim` events the simulation predicts
-  readonly overBy: number;       // usedChars - budgetChars, min 0, in `unit`
+  readonly overBy: number;       // usedTokens − budgetTokens, min 0 (0 whenever the char/byte accounting fits)
   readonly note: string;
 };
 
@@ -59,8 +63,6 @@ export const fallbackContext = (agent: Agent, contextTokens: number, reason: str
   }
 };
 
-export const unitSuffix = (b: { readonly unit: BudgetUnit }): "c" | "t" => (b.unit === "tokens" ? "t" : "c");
-
 export const trimText = (b: { readonly trim: TrimKind; readonly droppedCount: number }): string => {
   switch (b.trim) {
     case "dropped": return `~${b.droppedCount} descriptions dropped`;
@@ -69,79 +71,65 @@ export const trimText = (b: { readonly trim: TrimKind; readonly droppedCount: nu
   }
 };
 
-// ---------- Claude Code / plain agents: a char budget over `- name: desc` lines ----------
+// ---------- Claude Code: a char budget over `- name: desc` lines, reported in tokens at the model's chars/token ----------
 
-type CharRule = Extract<ListingRule, { kind: "claude" | "plain" }>;
+type ClaudeRule = Extract<ListingRule, { kind: "claude" }>;
 type CodexRule = Extract<ListingRule, { kind: "codex" }>;
-
-type Rules = {
-  readonly budget: number;
-  readonly cap: number;
-  readonly note: string;
-  readonly entryChars: (name: string, cappedChars: number) => number;
-  readonly separator: number;
-  /** Chars freed when this entry loses its description (Claude keeps `- name`). */
-  readonly dropSaves: (name: string, entryChars: number) => number;
-};
 
 const BUNDLED_NOTE = "Claude Code's own bundled skills are listed too but not counted here (see /context in Claude Code)";
 
-const budgetFor = (agent: Agent, rule: CharRule, ctx: ListingContext, o: BudgetOverrides): Rules => {
-  switch (rule.kind) {
-    case "claude": {
-      const fraction = o.fraction ?? rule.budgetFraction;
-      const cap = o.maxDescChars ?? rule.maxDescChars;
-      const fixed = o.fixedChars !== undefined && o.fixedChars > 0 ? o.fixedChars : undefined;
-      const budget = fixed ?? Math.max(1, Math.floor(ctx.contextTokens * ctx.bytesPerToken * fraction));
-      const formula = fixed !== undefined
-        ? `listing budget fixed at ${budget} chars by SLASH_COMMAND_TOOL_CHAR_BUDGET`
-        : `listing budget = ${ctx.contextTokens} tokens × ${ctx.bytesPerToken} chars/token × ${fraction} = ${budget} chars (${ctx.reason})`;
-      return {
-        budget,
-        cap,
-        note: `Claude Code: ${formula}; per-skill cap ${cap} chars; least-used descriptions dropped first; ${BUNDLED_NOTE}`,
-        entryChars: (name, capped) => name.length + 4 + capped,
-        separator: 1,
-        dropSaves: (name, entry) => entry - (name.length + 2),
-      };
-    }
-    case "plain":
-      return {
-        budget: Number.POSITIVE_INFINITY,
-        cap: Number.POSITIVE_INFINITY,
-        note: `${agent.name}: no documented listing budget`,
-        entryChars: (_name, capped) => capped,
-        separator: 0,
-        dropSaves: (_name, entry) => entry,
-      };
-  }
-};
+const toTokens = (chars: number, charsPerToken: number): number => Math.ceil(chars / charsPerToken);
 
 /** We do not know invocation frequency, so we drop the largest descriptions first — a conservative stand-in for "least used". */
-const simulateChars = (agent: Agent, rule: CharRule, items: readonly ListingItem[], ctx: ListingContext, overrides: BudgetOverrides): BudgetReport => {
-  const rules = budgetFor(agent, rule, ctx, overrides);
+const simulateClaude = (agent: Agent, rule: ClaudeRule, items: readonly ListingItem[], ctx: ListingContext, o: BudgetOverrides): BudgetReport => {
+  const fraction = o.fraction ?? rule.budgetFraction;
+  const cap = o.maxDescChars ?? rule.maxDescChars;
+  const fixed = o.fixedChars !== undefined && o.fixedChars > 0 ? o.fixedChars : undefined;
+  const budgetChars = fixed ?? Math.max(1, Math.floor(ctx.contextTokens * ctx.bytesPerToken * fraction));
+  const budget = toTokens(budgetChars, ctx.bytesPerToken);
   const entries = items.map((s) => {
+    const label = s.label ?? s.name;
     const chars = s.listing.length;
-    const cappedChars = Math.min(chars, rules.cap);
-    return { name: s.name, chars, cappedChars, entryChars: rules.entryChars(s.label ?? s.name, cappedChars) };
+    const cappedChars = Math.min(chars, cap);
+    return { name: s.name, label, chars, cappedChars, entryChars: label.length + 4 + cappedChars }; // `- name: desc`
   });
-  const used = entries.reduce((n, e) => n + e.entryChars, 0) + rules.separator * Math.max(0, entries.length - 1);
+  const usedChars = entries.reduce((n, e) => n + e.entryChars, 0) + Math.max(0, entries.length - 1); // newline-separated
+  const dropSaves = (label: string, entry: number) => entry - (label.length + 2); // `- name` stays listed
   const dropOrder = [...entries].sort((a, b) => b.entryChars - a.entryChars || b.name.localeCompare(a.name));
   const dropped = dropOrder.reduce<{ remaining: number; names: Set<string> }>(
-    (acc, e) => (acc.remaining > rules.budget ? { remaining: acc.remaining - rules.dropSaves(items.find((i) => i.name === e.name)?.label ?? e.name, e.entryChars), names: new Set([...acc.names, e.name]) } : acc),
-    { remaining: used, names: new Set() },
+    (acc, e) => (acc.remaining > budgetChars ? { remaining: acc.remaining - dropSaves(e.label, e.entryChars), names: new Set([...acc.names, e.name]) } : acc),
+    { remaining: usedChars, names: new Set() },
   ).names;
+  const formula = fixed !== undefined
+    ? `listing budget fixed at ${budgetChars} chars ≈ ${budget} tokens by SLASH_COMMAND_TOOL_CHAR_BUDGET (${ctx.bytesPerToken} chars/token)`
+    : `listing budget = ${ctx.contextTokens} tokens × ${fraction} = ${budget} tokens, which Claude Code counts as ${budgetChars} chars at ${ctx.bytesPerToken} chars/token (${ctx.reason})`;
   return {
     agentId: agent.id,
     context: ctx,
-    unit: "chars",
-    budgetChars: rules.budget,
-    usedChars: used,
-    perSkill: entries.map((e) => ({ ...e, kept: !dropped.has(e.name) })),
+    budgetTokens: budget,
+    usedTokens: toTokens(usedChars, ctx.bytesPerToken),
+    perSkill: entries.map((e) => ({ name: e.name, chars: e.chars, cappedChars: e.cappedChars, entryTokens: toTokens(e.entryChars, ctx.bytesPerToken), kept: !dropped.has(e.name) })),
     trim: "dropped",
     droppedCount: dropped.size,
-    overBy: Math.max(0, used - rules.budget),
-    note: rules.note,
+    overBy: usedChars > budgetChars ? Math.max(1, toTokens(usedChars - budgetChars, ctx.bytesPerToken)) : 0,
+    note: `Claude Code: ${formula}; per-skill cap ${cap} chars; least-used descriptions dropped first; ${BUNDLED_NOTE}`,
+  };
+};
+
+// ---------- agents without a documented budget: an o200k estimate of each description, no limit ----------
+
+const simulatePlain = (agent: Agent, items: readonly ListingItem[], ctx: ListingContext): BudgetReport => {
+  const perSkill = items.map((s): BudgetEntry => ({ name: s.name, chars: s.listing.length, cappedChars: s.listing.length, entryTokens: estimateTokens(s.listing), kept: true }));
+  return {
+    agentId: agent.id,
+    context: ctx,
+    budgetTokens: Number.POSITIVE_INFINITY,
+    usedTokens: perSkill.reduce((n, e) => n + e.entryTokens, 0),
+    perSkill,
+    trim: "dropped",
+    droppedCount: 0,
+    overBy: 0,
+    note: `${agent.name}: no documented listing budget; tokens are an o200k estimate of each description`,
   };
 };
 
@@ -196,7 +184,8 @@ const shorten = (plan: readonly AliasRoot[], locator: string): string => {
   return hit === undefined ? locator : `${hit.name}/${locator.slice(hit.value.replace(/\/+$/, "").length + 1)}`;
 };
 
-type CodexBudget = { readonly unit: BudgetUnit; readonly limit: number; readonly how: string };
+/** Codex's own unit: tokens, or chars when the window is unknown (reported ≈ tokens at bytes/token). */
+type CodexBudget = { readonly unit: "chars" | "tokens"; readonly limit: number; readonly how: string };
 
 /** skill_metadata_budget: configured tokens (capped) > 2% of the window in tokens > 8,000 chars when the window is unknown. */
 const codexBudget = (rule: CodexRule, ctx: ListingContext, o: BudgetOverrides): CodexBudget => {
@@ -222,12 +211,12 @@ type CodexLine = { readonly name: string; readonly chars: number; readonly cappe
 type Variant = { readonly overhead: number; readonly lines: readonly CodexLine[]; readonly rootsText: string };
 type Outcome = { readonly perSkill: readonly BudgetEntry[]; readonly trim: TrimKind; readonly droppedCount: number; readonly used: number };
 
-/** allocate_skill_lines against `limit - overhead`: phase 1 everything fits; phase 2 keep every skill, shorten descriptions; phase 3 omit skills whose empty-description line no longer fits. */
-const allocate = (v: Variant, limit: number): Outcome => {
+/** allocate_skill_lines against `limit - overhead`: phase 1 everything fits; phase 2 keep every skill, shorten descriptions; phase 3 omit skills whose empty-description line no longer fits. `t` converts Codex's unit to tokens. */
+const allocate = (v: Variant, limit: number, t: (n: number) => number): Outcome => {
   const budget = limit - v.overhead;
   const used = v.overhead + v.lines.reduce((n, l) => n + l.entryChars, 0);
   const minimum = v.lines.reduce((n, l) => n + l.minCost, 0);
-  const entry = (l: CodexLine, kept: boolean): BudgetEntry => ({ name: l.name, chars: l.chars, cappedChars: l.cappedChars, entryChars: l.entryChars, kept });
+  const entry = (l: CodexLine, kept: boolean): BudgetEntry => ({ name: l.name, chars: l.chars, cappedChars: l.cappedChars, entryTokens: t(l.entryChars), kept });
   if (used <= limit) return { perSkill: v.lines.map((l) => entry(l, true)), trim: "shortened", droppedCount: 0, used };
   if (minimum <= budget) return { perSkill: v.lines.map((l) => entry(l, true)), trim: "shortened", droppedCount: shortenedByWaterFill(v.lines.map((l) => l.entryChars - l.minCost), budget - minimum), used };
   const kept = v.lines.reduce<{ used: number; names: Set<string> }>(
@@ -248,6 +237,7 @@ const better = (a: Outcome, b: Outcome): boolean => {
 const simulateCodex = (agent: Agent, rule: CodexRule, items: readonly ListingItem[], ctx: ListingContext, overrides: BudgetOverrides): BudgetReport => {
   const b = codexBudget(rule, ctx, overrides);
   const cost = (text: string): number => (b.unit === "tokens" ? Math.ceil(utf8Bytes(text) / rule.bytesPerToken) : charCount(text));
+  const t = (n: number): number => (b.unit === "tokens" ? n : Math.ceil(n / rule.bytesPerToken));
   const locators = items.map((s) => s.locator ?? `${s.name}/SKILL.md`);
   const lines = (render: (locator: string) => string): CodexLine[] =>
     items.map((s, i) => {
@@ -262,21 +252,21 @@ const simulateCodex = (agent: Agent, rule: CodexRule, items: readonly ListingIte
   const rootLines = plan.map((a) => `- \`${a.name}\` = \`${a.value}\`\n`).join("");
   const overhead = Math.max(0, cost(`${"x".repeat(CODEX_INTRO_BYTES.aliased)}\n### Skill roots\n${rootLines}`) - cost(`${"x".repeat(CODEX_INTRO_BYTES.unaliased)}\n`));
   const aliased: Variant | undefined = plan.length === 0 || overhead >= b.limit ? undefined : { overhead, lines: lines((l) => shorten(plan, l)), rootsText: `${plan.length} skill root${plan.length === 1 ? "" : "s"} aliased (${plan.map((a) => a.name).join(" ")})` };
-  const abs = allocate(absolute, b.limit);
-  const ali = aliased === undefined ? undefined : allocate(aliased, b.limit);
+  const abs = allocate(absolute, b.limit, t);
+  const ali = aliased === undefined ? undefined : allocate(aliased, b.limit, t);
   const [chosen, variant] = ali !== undefined && aliased !== undefined && better(ali, abs) ? [ali, aliased] : [abs, absolute];
   const costText = b.unit === "tokens" ? `⌈bytes/${rule.bytesPerToken}⌉ tokens` : "its chars";
-  const note = `Codex: listing budget = ${b.how} = ${b.limit} ${b.unit}; each line "- name: description (file: path)" costs ${costText}${variant.rootsText === "" ? "" : `; ${variant.rootsText}, roots table costs ${variant.overhead} ${b.unit}`}; descriptions capped at ${rule.maxDescChars} chars; over budget → every description is shortened round-robin (all skills stay listed); skills are omitted only when even empty descriptions do not fit`;
+  const limitText = b.unit === "tokens" ? `${b.limit} tokens` : `${b.limit} chars ≈ ${t(b.limit)} tokens`;
+  const note = `Codex: listing budget = ${b.how} = ${limitText}; each line "- name: description (file: path)" costs ${costText}${variant.rootsText === "" ? "" : `; ${variant.rootsText}, roots table costs ${t(variant.overhead)} tokens`}; descriptions capped at ${rule.maxDescChars} chars; over budget → every description is shortened round-robin (all skills stay listed); skills are omitted only when even empty descriptions do not fit`;
   return {
     agentId: agent.id,
     context: ctx,
-    unit: b.unit,
-    budgetChars: b.limit,
-    usedChars: chosen.used,
+    budgetTokens: t(b.limit),
+    usedTokens: t(chosen.used),
     perSkill: chosen.perSkill,
     trim: chosen.trim,
     droppedCount: chosen.droppedCount,
-    overBy: Math.max(0, chosen.used - b.limit),
+    overBy: chosen.used > b.limit ? Math.max(1, t(chosen.used - b.limit)) : 0,
     note,
   };
 };
@@ -290,5 +280,9 @@ export const simulateListing = (agent: Agent, skills: readonly Skill[], ctx: Lis
 /** Simulate what an agent keeps at startup from any set of (name, listing text[, locator]) items — store skills, plugin skills, builtins alike. */
 export const simulateListingOf = (agent: Agent, items: readonly ListingItem[], ctx: ListingContext, overrides: BudgetOverrides = {}): BudgetReport => {
   const rule = agent.listing;
-  return rule.kind === "codex" ? simulateCodex(agent, rule, items, ctx, overrides) : simulateChars(agent, rule, items, ctx, overrides);
+  switch (rule.kind) {
+    case "claude": return simulateClaude(agent, rule, items, ctx, overrides);
+    case "codex": return simulateCodex(agent, rule, items, ctx, overrides);
+    case "plain": return simulatePlain(agent, items, ctx);
+  }
 };

@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import type { Agent } from "../core/agents";
 import type { HostConfig } from "../core/config";
 import { emptyInventory, type Inventory, parseProbeOutput } from "../core/inventory";
-import { PROBE_FILES, PROBE_TOOLS, probeScript } from "../core/scripts";
+import { PROBE_COMMANDS, PROBE_FILES, PROBE_TOOLS, probeScript } from "../core/scripts";
 import { type Result, err, mapErr } from "../lib/result";
 import { agentDirsRel, alsoReadsRel, builtinDirsRel, pluginCachesRel } from "./hosts";
 import { expandHome } from "./paths";
@@ -28,7 +28,7 @@ const asUnreachable = (host: string) => (e: RunError): HostError => ({ kind: "un
 
 export const probeHost = async (h: HostConfig, agents: readonly Agent[], runner: Runner): Promise<Result<Inventory, HostError>> => {
   const out = await runner.sh(
-    probeScript({ skm: h.skm, agentDirs: agentDirsRel(agents), alsoReads: alsoReadsRel(agents), pluginCaches: pluginCachesRel(agents), builtinDirs: builtinDirsRel(agents), files: PROBE_FILES, tools: PROBE_TOOLS }),
+    probeScript({ skm: h.skm, agentDirs: agentDirsRel(agents), alsoReads: alsoReadsRel(agents), pluginCaches: pluginCachesRel(agents), builtinDirs: builtinDirsRel(agents), files: PROBE_FILES, commands: PROBE_COMMANDS, tools: PROBE_TOOLS }),
     { timeoutMs: 90_000 },
   );
   if (!out.ok) return err(asUnreachable(h.id)(out.error));

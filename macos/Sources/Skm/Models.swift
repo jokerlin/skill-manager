@@ -40,6 +40,7 @@ struct EffectiveEntry: Codable, Hashable, Identifiable {
     let hash: String
     // v2.1 (optional so older CLIs still decode)
     let listing: String?
+    let listingTokens: Int?   // o200k estimate of the listing text
     let promptVisible: Bool?  // false = Codex loads it but hides it from the model-visible catalog
     let plugin: String?
     let marketplace: String?
@@ -73,8 +74,6 @@ struct PluginStatus: Codable, Hashable, Identifiable {
     let cachedVersions: [String]
 }
 
-/// "c" for char budgets (Claude), "t" for token budgets (Codex); older JSON without `unit` is chars.
-func budgetUnit(_ unit: String?) -> String { unit == "tokens" ? "t" : "c" }
 /// What the simulation predicts happens to the overflow, matching skm's `trimText`.
 func budgetTrimText(_ trim: String?, _ count: Int) -> String {
     switch trim {
@@ -84,15 +83,14 @@ func budgetTrimText(_ trim: String?, _ count: Int) -> String {
     }
 }
 
+/// Tokens by the agent's own accounting (Claude chars ÷ chars/token, Codex ⌈bytes/4⌉, others an o200k estimate).
 struct AgentBudget: Codable, Hashable {
-    let usedChars: Int
-    let budgetChars: Int?
+    let usedTokens: Int
+    let budgetTokens: Int?    // nil = no documented budget
     let droppedCount: Int
     let overBy: Int
     let note: String
-    let unit: String?
     let trim: String?
-    var u: String { budgetUnit(unit) }
     var trimText: String { budgetTrimText(trim, droppedCount) }
 }
 
@@ -147,14 +145,11 @@ struct BudgetRow: Codable, Identifiable, Hashable {
     let host: String
     let agent: String
     let skills: Int
-    let usedChars: Int
-    let tokens: Int?
-    let budgetChars: Int?
+    let usedTokens: Int
+    let budgetTokens: Int?
     let droppedCount: Int
     let overBy: Int
-    let unit: String?
     let trim: String?
-    var u: String { budgetUnit(unit) }
     var trimText: String { budgetTrimText(trim, droppedCount) }
 }
 
@@ -218,7 +213,8 @@ struct CatalogItem: Identifiable, Hashable {
     let name: String
     let group: Group
     let description: String
-    let listingChars: Int
+    let listingChars: Int     // for the 1536-char Claude cap warning
+    let listingTokens: Int
     let bodyTokens: Int
     let versions: [String]
     /// host → agent → the entry that agent loads
@@ -259,12 +255,12 @@ enum Catalog {
             }
         }
         let storeItems = skills.map { s in
-            CatalogItem(id: "store:\(s.name)", name: s.name, group: .store, description: s.description, listingChars: s.descChars, bodyTokens: s.bodyTokens, versions: [], loads: loads["store:\(s.name)"] ?? [:], store: s)
+            CatalogItem(id: "store:\(s.name)", name: s.name, group: .store, description: s.description, listingChars: s.descChars, listingTokens: s.descTokens, bodyTokens: s.bodyTokens, versions: [], loads: loads["store:\(s.name)"] ?? [:], store: s)
         }
         let rest = groups.filter { !$0.key.hasPrefix("store:") }.map { k, g -> CatalogItem in
             let entries = (loads[k] ?? [:]).values.flatMap { $0.values }
             let sample = entries.max { ($0.listing ?? "").count < ($1.listing ?? "").count }
-            return CatalogItem(id: k, name: g.name, group: g.group, description: sample?.listing ?? "", listingChars: sample?.listingChars ?? 0, bodyTokens: sample?.bodyTokens ?? 0, versions: Array(Set(entries.compactMap(\.version))).sorted(), loads: loads[k] ?? [:], store: nil)
+            return CatalogItem(id: k, name: g.name, group: g.group, description: sample?.listing ?? "", listingChars: sample?.listingChars ?? 0, listingTokens: sample?.listingTokens ?? 0, bodyTokens: sample?.bodyTokens ?? 0, versions: Array(Set(entries.compactMap(\.version))).sorted(), loads: loads[k] ?? [:], store: nil)
         }
         return storeItems + rest.sorted { $0.id < $1.id }
     }

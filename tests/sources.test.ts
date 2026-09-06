@@ -85,11 +85,12 @@ mcp_servers = {}
     expect(win.ok && win.value.modelContextWindow).toEqual({ some: true, value: 400000 });
   });
   test("models_cache.json → slug → context windows", () => {
-    const r = parseCodexModels(JSON.stringify({ fetched_at: 1, models: [{ slug: "gpt-6-astra", context_window: 272000, max_context_window: 872000 }, { slug: "odd", context_window: "x" }, { nope: true }] }));
+    const r = parseCodexModels(JSON.stringify({ fetched_at: 1, models: [{ slug: "gpt-6-astra", context_window: 272000, max_context_window: 872000, priority: 1, visibility: "list" }, { slug: "odd", context_window: "x", visibility: "hide" }, { nope: true }] }));
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.value["gpt-6-astra"]).toEqual({ contextWindow: { some: true, value: 272000 }, maxContextWindow: { some: true, value: 872000 } });
+    expect(r.value["gpt-6-astra"]).toEqual({ contextWindow: { some: true, value: 272000 }, maxContextWindow: { some: true, value: 872000 }, priority: { some: true, value: 1 }, listed: true });
     expect(r.value["odd"]?.contextWindow.some).toBe(false);
+    expect(r.value["odd"]).toMatchObject({ priority: { some: false }, listed: false });
     expect(Object.keys(r.value)).toEqual(["gpt-6-astra", "odd"]);
     expect(parseCodexModels("{}").ok).toBe(false);
   });

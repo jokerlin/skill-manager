@@ -28,7 +28,7 @@ export const SkillsView = ({ s, width, height }: { s: State; width: number; heig
             <Text key={k.name} inverse={active}>
               {`${active ? "▸" : " "} `}
               <Text {...(warn ? { color: "red" } : {})}>{k.name.padEnd(nameWidth).slice(0, nameWidth)}</Text>
-              <Text color="gray">{` ${String(k.cost.descChars).padStart(5)}c ${fmtK(k.cost.bodyTokens).padStart(5)}t`}</Text>
+              <Text color="gray">{` ${String(k.cost.descTokens).padStart(5)}t ${fmtK(k.cost.bodyTokens).padStart(5)}t`}</Text>
             </Text>
           );
         })}
@@ -51,11 +51,11 @@ const Detail = ({ s, skill }: { s: State; skill: NonNullable<ReturnType<typeof s
       <Text wrap="wrap">{descriptionOf(skill) || <Text color="red">(no description)</Text>}</Text>
       <Text> </Text>
       <Text>
-        <Text color="gray">listing </Text>{`${skill.cost.descChars}c ≈ ${skill.cost.descTokens}t`}
+        <Text color="gray">listing </Text>{`${skill.cost.descTokens}t`}
         <Text color="gray">  body </Text>{`${fmtK(skill.cost.bodyTokens)}t / ${skill.cost.bodyLines}L`}
         <Text color="gray">  files </Text>{`${skill.cost.fileCount}`}
         <Text color="gray">  size </Text>{`${(skill.cost.totalBytes / 1024).toFixed(0)}K`}
-        {skill.cost.descChars > 1536 ? <Text color="yellow">{"  ⚠ over Claude's 1536c cap"}</Text> : null}
+        {skill.cost.descChars > 1536 ? <Text color="yellow">{"  ⚠ description over Claude's 1536-char cap"}</Text> : null}
         {skill.cost.bodyTokens > 5000 ? <Text color="yellow">{"  ⚠ body >5k tokens"}</Text> : null}
       </Text>
       {skill.violations.length > 0 ? <Text color="red">{`spec: ${skill.violations.map((v) => `${v.field} ${v.kind}`).join(", ")}`}</Text> : null}

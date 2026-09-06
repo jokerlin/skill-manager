@@ -1,18 +1,19 @@
 import pc from "picocolors";
-import { type BudgetUnit, type TrimKind, fallbackContext, simulateListing, trimText, unitSuffix } from "../core/budget";
+import { type TrimKind, fallbackContext, simulateListing, trimText } from "../core/budget";
 import { type Finding, driftFindings, findingText } from "../core/effective";
 import { allInsights } from "../core/heuristics";
 import { isDesired } from "../core/scope";
 import { buildHostView } from "../core/view";
 import { agentsOn } from "../shell/hosts";
 import { hostErrorText, readInventoryCache } from "../shell/probe";
-import { fmtK, out, table, withApp } from "./common";
+import { out, table, withApp } from "./common";
 import { type HostSnapshot, snapshotHosts } from "./status";
 import { planFor } from "../shell/hosts";
 
 export type DoctorOpts = { json?: boolean; cached?: boolean; host?: string };
 
-type BudgetRow = { host: string; agent: string; skills: number; usedChars: number; tokens: number | null; budgetChars: number | null; droppedCount: number; overBy: number; source: "effective" | "config-only"; window: string; unit: BudgetUnit; trim: TrimKind };
+/** All numbers in tokens by the agent's own accounting (see core/budget.ts). */
+type BudgetRow = { host: string; agent: string; skills: number; usedTokens: number; budgetTokens: number | null; droppedCount: number; overBy: number; source: "effective" | "config-only"; window: string; trim: TrimKind };
 
 /** "1000000 tokens × 3 chars/token × 1% (fable → claude-fable-5-1, native 1M, 3 chars/token)" — only Claude has a model-derived window. */
 const windowText = (b: { agentId: string; context: { contextTokens: number; bytesPerToken: number; reason: string } } | undefined): string =>
@@ -26,12 +27,12 @@ const budgetRows = (app: Parameters<Parameters<typeof withApp>[0]>[0], snaps: re
       if (snap?.result.ok) {
         const b = snap.result.view.budget[a.id];
         const es = snap.result.view.effective[a.id] ?? [];
-        return { host: h.id, agent: a.id, skills: es.length, usedChars: b?.usedChars ?? 0, tokens: null, budgetChars: b && Number.isFinite(b.budgetChars) ? b.budgetChars : null, droppedCount: b?.droppedCount ?? 0, overBy: b?.overBy ?? 0, source: "effective", window: windowText(b), unit: b?.unit ?? "chars", trim: b?.trim ?? "dropped" };
+        return { host: h.id, agent: a.id, skills: es.length, usedTokens: b?.usedTokens ?? 0, budgetTokens: b && Number.isFinite(b.budgetTokens) ? b.budgetTokens : null, droppedCount: b?.droppedCount ?? 0, overBy: b?.overBy ?? 0, source: "effective", window: windowText(b), trim: b?.trim ?? "dropped" };
       }
       const linked = app.skills.filter((s) => isDesired(app.config, s.name, h.id, a.id));
       const ctx = fallbackContext(a, app.config.contextTokens, "host not probed → config contextTokens");
       const r = simulateListing(a, linked, ctx, a.id === "claude" ? app.claudeOverrides : {});
-      return { host: h.id, agent: a.id, skills: linked.length, usedChars: r.usedChars, tokens: linked.reduce((n, s) => n + s.cost.descTokens, 0), budgetChars: Number.isFinite(r.budgetChars) ? r.budgetChars : null, droppedCount: r.droppedCount, overBy: r.overBy, source: "config-only", window: windowText(r), unit: r.unit, trim: r.trim };
+      return { host: h.id, agent: a.id, skills: linked.length, usedTokens: r.usedTokens, budgetTokens: Number.isFinite(r.budgetTokens) ? r.budgetTokens : null, droppedCount: r.droppedCount, overBy: r.overBy, source: "config-only", window: windowText(r), trim: r.trim };
     }),
   );
 
@@ -50,10 +51,12 @@ const findingColor = (f: Finding): string => {
   switch (f.kind) {
     case "same-name": return pc.yellow(f.kind);
     case "linked-twice": return pc.yellow(f.kind);
+    case "shadowed": return pc.dim(f.kind);
     case "same-content": return pc.magenta(f.kind);
     case "version-drift": return pc.red(f.kind);
     case "stale-cache": return pc.dim(f.kind);
     case "disabled-cached": return pc.dim(f.kind);
+    case "unloaded-cache": return pc.dim(f.kind);
   }
 };
 
@@ -79,13 +82,12 @@ export const runDoctor = async (o: DoctorOpts = {}): Promise<void> =>
     out("");
     out(pc.bold("startup context per host × agent (listing = name + description of every skill the agent loads: user dir, legacy dir, builtins, enabled plugins)"));
     const rows = budget.map((r) => {
-      const u = unitSuffix(r);
-      const verdict = r.budgetChars === null ? pc.dim("no documented budget") : r.overBy > 0 ? pc.red(`over by ${r.overBy}${u} → ${trimText(r)}`) : pc.green("fits");
-      return [r.host, r.agent, String(r.skills), r.tokens === null || r.unit === "tokens" ? `${r.usedChars}${u}` : `${r.usedChars}${u} / ~${fmtK(r.tokens)}t`, r.budgetChars === null ? "—" : `${r.budgetChars}${u}`, verdict, r.source === "effective" ? "" : pc.dim("config-only")];
+      const verdict = r.budgetTokens === null ? pc.dim("no documented budget") : r.overBy > 0 ? pc.red(`over by ${r.overBy}t → ${trimText(r)}`) : pc.green("fits");
+      return [r.host, r.agent, String(r.skills), `${r.usedTokens}t`, r.budgetTokens === null ? "—" : `${r.budgetTokens}t`, verdict, r.source === "effective" ? "" : pc.dim("config-only")];
     });
     out(table(["host", "agent", "skills", "listing", "budget", "verdict", ""], rows));
     budget.filter((r) => (r.agent === "claude" || r.agent === "codex") && r.window !== "").forEach((r) => out(pc.dim(`  ${r.host}/${r.agent}: window ${r.window}`)));
-    out(pc.dim(`Claude: window from each host's ~/.claude/settings.json model/env, 1% of it in chars (chars/token: 4 for Opus/Sonnet ≤4.6 and Haiku, else 3); config contextTokens (${app.config.contextTokens}) is the fallback and Codex's window. Claude Code's own bundled skills are not counted. Codex: 2% of its model's window (config.toml model → ~/.codex/models_cache.json context_window, or model_context_window; config contextTokens when unknown) in tokens, ⌈bytes/4⌉ per "- name: desc (file: rN/path)" line plus the skill-roots table, or [skills] max_context_tokens (≤ 10,000); over budget it shortens every description before omitting any skill.`));
+    out(pc.dim(`All numbers are tokens by each agent's own accounting. Claude: 1% of its model window (from each host's ~/.claude/settings.json model/env); Claude Code counts chars of "- name: desc" at 4 chars/token for Opus/Sonnet ≤4.6 and Haiku, else 3 — shown ÷ that; its own bundled skills are not counted. Codex: 2% of its model window (config.toml model → ~/.codex/models_cache.json context_window, or model_context_window), ⌈bytes/4⌉ per "- name: desc (file: rN/path)" line plus the skill-roots table, or [skills] max_context_tokens (≤ 10,000); over budget it shortens every description before omitting any skill. Others: o200k estimate, no documented budget. config contextTokens (${app.config.contextTokens}) is the fallback window when a model is unknown.`));
     out("");
     if (findings.length > 0) {
       out(pc.bold(`${findings.length} cross-source findings`));

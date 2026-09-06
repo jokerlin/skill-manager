@@ -19,6 +19,7 @@ export type ProbeArgs = {
   readonly pluginCaches?: Readonly<Record<string, string>>;      // agent → ~/.claude/plugins/cache
   readonly builtinDirs?: Readonly<Record<string, string>>;       // agent → ~/.codex/skills/.system
   readonly files?: Readonly<Record<string, string>>;             // id → ~/path, shipped back base64
+  readonly commands?: Readonly<Record<string, string>>;          // id → shell command whose stdout is shipped instead of the file when it succeeds
   readonly tools?: readonly string[];                            // commands to locate on the host
 };
 
@@ -34,6 +35,11 @@ export const PROBE_FILES: Readonly<Record<string, string>> = {
   "codex-models": "~/.codex/models_cache.json",
   "acme-lock": "~/.local/share/acme/data/skill-lock.json",
   "agents-lock": "~/.agents/.skill-lock.json",
+};
+
+/** Commands preferred over the file of the same id: Codex renders its model catalog on any host with the CLI, models_cache.json is only a sometimes-present cache. */
+export const PROBE_COMMANDS: Readonly<Record<string, string>> = {
+  "codex-models": "codex debug models",
 };
 
 export const PROBE_TOOLS: readonly string[] = ["claude", "codex", "acme"];
@@ -54,6 +60,8 @@ export const probeScript = (a: ProbeArgs): string => {
     // emit_md FILE: prints the md line once per hash, leaves the hash in MD_HASH ("" when FILE is missing)
     `emit_md() { MD_HASH=""; [ -f "$1" ] || return 0; MD_HASH=$(skm_hash "$1"); case "$SEEN" in *" $MD_HASH "*) ;; *) SEEN="$SEEN$MD_HASH "; printf 'md\\t%s\\t%s\\t%s\\n' "$MD_HASH" "$(wc -c < "$1" | tr -d ' ')" "$(base64 < "$1" | tr -d '\\n')";; esac; return 0; }`,
     `emit_file() { [ -f "$2" ] || return 0; printf 'file\\t%s\\t%s\\n' "$1" "$(base64 < "$2" | tr -d '\\n')"; }`,
+    // emit_cmd ID CMD: ships CMD's stdout as file ID; fails (so the caller can fall back to emit_file) when CMD is missing, fails or prints nothing
+    `emit_cmd() { out=$(eval "$2" 2>/dev/null) && [ -n "$out" ] || return 1; printf 'file\\t%s\\t%s\\n' "$1" "$(printf '%s' "$out" | base64 | tr -d '\\n')"; return 0; }`,
     // emit_hidden AGENT SKILL_DIR: Codex keeps a skill out of the model-visible catalog when agents/openai.yaml sets policy.allow_implicit_invocation: false
     `emit_hidden() { [ -f "$2/agents/openai.yaml" ] || return 0; grep -Eqs '^[[:space:]]*allow_implicit_invocation:[[:space:]]*false' "$2/agents/openai.yaml" && printf 'hidden\\t%s\\t%s\\n' "$1" "$2"; return 0; }`,
     `printf 'meta\\thome\\t%s\\n' "$HOME"`,
@@ -88,7 +96,10 @@ export const probeScript = (a: ProbeArgs): string => {
     ...Object.entries(a.pluginCaches ?? {}).map(([agent, dir]) => `probe_plugins ${shQuote(agent)} ${shPath(dir)}`),
     ...Object.entries(a.builtinDirs ?? {}).map(([agent, dir]) => `probe_builtins ${shQuote(agent)} ${shPath(dir)}`),
     ...(a.tools ?? []).map((t) => `p=$(command -v ${shQuote(t)} 2>/dev/null || true); printf 'tool\\t%s\\t%s\\n' ${shQuote(t)} "\${p:--}"`),
-    ...Object.entries(a.files ?? {}).map(([id, p]) => `emit_file ${shQuote(id)} ${shPath(p)}`),
+    ...Object.entries(a.files ?? {}).map(([id, p]) => {
+      const cmd = a.commands?.[id];
+      return cmd === undefined ? `emit_file ${shQuote(id)} ${shPath(p)}` : `emit_cmd ${shQuote(id)} ${shQuote(cmd)} || emit_file ${shQuote(id)} ${shPath(p)}`;
+    }),
     "exit 0",
   ];
   return lines.join("\n") + "\n";

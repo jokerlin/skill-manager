@@ -34,7 +34,7 @@ export const runLs = async (o: LsOpts): Promise<void> =>
       const agents = o.agent === undefined ? app.config.agents : [o.agent];
       return hosts.some((h) => agents.some((a) => isDesired(app.config, s.name, h, a)));
     });
-    const sorted = [...filtered].sort((a, b) => (o.sort === "cost" ? b.cost.descChars - a.cost.descChars : a.name.localeCompare(b.name)));
+    const sorted = [...filtered].sort((a, b) => (o.sort === "cost" ? b.cost.descTokens - a.cost.descTokens : a.name.localeCompare(b.name)));
     if (o.json) {
       const dups = findDuplicates(app.skills);
       return out(JSON.stringify(sorted.map((s) => skillRow(s, targetsOf(app, s.name), [...lintSkill(s), ...dups.filter((d) => d.skill === s.name)].map((i) => `${i.kind}: ${i.detail}`))), null, 2));
@@ -43,7 +43,7 @@ export const runLs = async (o: LsOpts): Promise<void> =>
       const flags = [...s.violations.map(() => "!"), ...lintSkill(s).map(() => "?")].join("");
       return [
         s.violations.length > 0 ? pc.red(s.name) : s.name,
-        `${s.cost.descChars}c/${s.cost.descTokens}t`,
+        `${s.cost.descTokens}t`,
         `${fmtK(s.cost.bodyTokens)}t/${s.cost.bodyLines}L`,
         String(s.cost.fileCount),
         fmtBytes(s.cost.totalBytes),
@@ -52,5 +52,5 @@ export const runLs = async (o: LsOpts): Promise<void> =>
       ];
     });
     out(table(["skill", "listing", "body", "files", "size", "", "description"], rows));
-    out(pc.dim(`\n${sorted.length} skills  ·  listing = description chars/tokens (paid every turn)  ·  body = tokens/lines (paid on activation)  ·  ! spec violation  ? hint`));
+    out(pc.dim(`\n${sorted.length} skills  ·  listing = description tokens (paid every turn)  ·  body = tokens/lines (paid on activation)  ·  ! spec violation  ? hint`));
   });

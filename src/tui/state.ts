@@ -61,7 +61,7 @@ export type Action =
 export const visibleSkills = (s: State): readonly Skill[] => {
   const q = s.filter.toLowerCase();
   const filtered = q.length === 0 ? s.skills : s.skills.filter((k) => k.name.toLowerCase().includes(q) || descriptionLower(k).includes(q));
-  return [...filtered].sort((a, b) => (s.sortBy === "cost" ? b.cost.descChars - a.cost.descChars || a.name.localeCompare(b.name) : a.name.localeCompare(b.name)));
+  return [...filtered].sort((a, b) => (s.sortBy === "cost" ? b.cost.descTokens - a.cost.descTokens || a.name.localeCompare(b.name) : a.name.localeCompare(b.name)));
 };
 
 const descriptionLower = (k: Skill): string =>
