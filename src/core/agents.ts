@@ -50,9 +50,10 @@ export const AGENTS: readonly Agent[] = [
   {
     id: "pi",
     name: "Pi",
-    userDir: under(".pi/agent/skills"), // pi.dev/docs/skills: only this dir + project .pi/skills unless settings.skills adds more
+    userDir: under(".pi/agent/skills"), // pi docs/skills.md: ~/.pi/agent/skills, ~/.agents/skills, project .pi/skills and .agents/skills
     listing: { kind: "plain" },
-    alsoReads: [],
+    alsoReads: [under(".agents/skills")], // pi ≥0.8x also scans the shared Codex dir; nested SKILL.md only, root .md files ignored there
+    duplicates: "user-dir-first", // loadSkills() keeps the first copy by name (user dir loads first) and reports the other as a "collision" at startup
   },
   {
     id: "dsh",

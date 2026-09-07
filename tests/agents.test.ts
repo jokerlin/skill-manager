@@ -2,12 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { AGENTS, agentById } from "../src/core/agents";
 
 describe("agent directory table", () => {
-  test("pi loads user skills from ~/.pi/agent/skills", () => {
+  test("pi loads user skills from ~/.pi/agent/skills and also scans ~/.agents/skills, user dir winning a name collision (pi docs/skills.md)", () => {
     const pi = agentById("pi");
     expect(pi.some).toBe(true);
     if (!pi.some) return;
     expect(pi.value.userDir("/Users/me")).toBe("/Users/me/.pi/agent/skills");
-    expect(pi.value.alsoReads).toEqual([]);
+    expect(pi.value.alsoReads.map((f) => f("/Users/me"))).toEqual(["/Users/me/.agents/skills"]);
+    expect(pi.value.duplicates).toBe("user-dir-first");
   });
 
   test("opencode also reads the claude and codex user dirs (vendor docs: opencode.ai/docs/skills)", () => {
