@@ -16,8 +16,8 @@ export type Agent = {
   /** Other directories this agent also reads (legacy / duplicate sources) — reported, never managed. */
   readonly alsoReads: readonly ((home: string) => string)[];
   /**
-   * What happens when a skill name is present in `userDir` and an `alsoReads` dir. Absent (Codex, OpenCode): every copy loads.
-   * `"user-dir-first"` (dsh): the registry keeps the first root's copy by name — the user-dir copy — and the alsoReads copy is skipped (shadowed).
+   * What happens when a skill name is present in `userDir` and an `alsoReads` dir. Absent (Codex): every copy loads.
+   * `"user-dir-first"` (Pi): the registry keeps the first root's copy by name — the user-dir copy — and the alsoReads copy is skipped (shadowed).
    */
   readonly duplicates?: "user-dir-first";
   /** Plugin system, when the agent has one: cache root holding <marketplace>/<plugin>/<version>/skills/*. */
@@ -28,7 +28,7 @@ export type Agent = {
 
 const under = (rel: string) => (home: string) => `${home}/${rel}`;
 
-// Directory table follows the Vercel `skills` CLI agent map (user-level) and vendor docs.
+// Supported products and their user-level skill directories.
 export const AGENTS: readonly Agent[] = [
   {
     id: "claude",
@@ -55,35 +55,6 @@ export const AGENTS: readonly Agent[] = [
     alsoReads: [under(".agents/skills")], // pi ≥0.8x also scans the shared Codex dir; nested SKILL.md only, root .md files ignored there
     duplicates: "user-dir-first", // loadSkills() keeps the first copy by name (user dir loads first) and reports the other as a "collision" at startup
   },
-  {
-    id: "dsh",
-    name: "DeepSeek Harness",
-    userDir: under(".dsh/skills"), // $DSH_HOME/skills (root rank 400); skill-filesystem also scans $DSH_AGENTS_HOME/skills (~/.agents, rank 500)
-    listing: { kind: "plain" },
-    alsoReads: [under(".agents/skills")],
-    duplicates: "user-dir-first", // dsh-skill registry dedupes by name, first root by rank wins: a name in both dirs loads once, from ~/.dsh/skills
-  },
-  { id: "cursor", name: "Cursor", userDir: under(".cursor/skills"), listing: { kind: "plain" }, alsoReads: [] },
-  { id: "gemini", name: "Gemini CLI", userDir: under(".gemini/skills"), listing: { kind: "plain" }, alsoReads: [] },
-  { id: "antigravity", name: "Antigravity", userDir: under(".gemini/antigravity/skills"), listing: { kind: "plain" }, alsoReads: [] },
-  {
-    id: "opencode",
-    name: "OpenCode",
-    userDir: under(".config/opencode/skills"),
-    listing: { kind: "plain" },
-    // opencode.ai/docs/skills: also scans ~/.claude/skills and ~/.agents/skills — linking here would load skills a third time
-    alsoReads: [under(".claude/skills"), under(".agents/skills")],
-  },
-  { id: "copilot", name: "GitHub Copilot", userDir: under(".copilot/skills"), listing: { kind: "plain" }, alsoReads: [] },
-  { id: "windsurf", name: "Windsurf", userDir: under(".codeium/windsurf/skills"), listing: { kind: "plain" }, alsoReads: [] },
-  { id: "kiro", name: "Kiro CLI", userDir: under(".kiro/skills"), listing: { kind: "plain" }, alsoReads: [] },
-  { id: "droid", name: "Droid", userDir: under(".factory/skills"), listing: { kind: "plain" }, alsoReads: [] },
-  { id: "goose", name: "Goose", userDir: under(".config/goose/skills"), listing: { kind: "plain" }, alsoReads: [] },
-  { id: "crush", name: "Crush", userDir: under(".config/crush/skills"), listing: { kind: "plain" }, alsoReads: [] },
-  { id: "qwen", name: "Qwen Code", userDir: under(".qwen/skills"), listing: { kind: "plain" }, alsoReads: [] },
-  { id: "trae", name: "Trae", userDir: under(".trae/skills"), listing: { kind: "plain" }, alsoReads: [] },
-  { id: "roo", name: "Roo Code", userDir: under(".roo/skills"), listing: { kind: "plain" }, alsoReads: [] },
-  { id: "kilo", name: "Kilo Code", userDir: under(".kilocode/skills"), listing: { kind: "plain" }, alsoReads: [] },
 ];
 
 export const agentById = (id: string): Option<Agent> => {

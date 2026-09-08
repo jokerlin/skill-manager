@@ -4,7 +4,7 @@ import { desiredFor, scopeOf, selects, setScope } from "../src/core/scope";
 
 const yamlText = `
 store: ~/.skm/skills
-agents: [claude, codex, cursor]
+agents: [claude, codex, pi]
 hosts:
   local: {}
   mini: { ssh: mini }
@@ -69,8 +69,8 @@ describe("scope", () => {
     expect(desiredFor(cfg, skills, "local", "claude")).toEqual(["kb-doc", "kb-im", "plain"]);
     expect(desiredFor(cfg, skills, "local", "codex")).toEqual(["hatch-pet", "kb-doc", "kb-im", "plain"]);
     expect(desiredFor(cfg, skills, "devbox", "claude")).toEqual(["corp-x", "plain"]);
-    expect(desiredFor(cfg, skills, "devbox", "cursor")).toEqual([]); // cursor not enabled on devbox
-    expect(desiredFor(cfg, skills, "mini", "cursor")).toEqual(["corp-x", "kb-doc", "kb-im", "plain"]);
+    expect(desiredFor(cfg, skills, "devbox", "pi")).toEqual([]); // pi not enabled on devbox
+    expect(desiredFor(cfg, skills, "mini", "pi")).toEqual(["corp-x", "kb-doc", "kb-im", "plain"]);
     expect(desiredFor(cfg, skills, "nowhere", "claude")).toEqual([]);
   });
   test("setScope toggles a single cell and is idempotent", () => {

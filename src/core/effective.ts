@@ -303,7 +303,7 @@ export const hostFindings = (
 ): Finding[] => {
   const perAgent = Object.entries(effective).flatMap(([agent, es]): Finding[] => {
     const byName = [...groupBy(es, (e) => e.name).entries()].filter(([, g]) => new Set(g.map((e) => e.path)).size > 1);
-    // the same store skill linked from two dirs the agent scans (e.g. ~/.dsh/skills + ~/.agents/skills): one finding, not one per skill
+    // the same store skill linked from two dirs the agent scans (e.g. ~/.pi/agent/skills + ~/.agents/skills): one finding, not one per skill
     const twice = byName.filter(([, g]) => g.every((e) => e.storage.kind === "store-link"));
     const distinct = byName.filter(([, g]) => !g.every((e) => e.storage.kind === "store-link"));
     const namePathSets = new Set(byName.map(([, g]) => g.map((e) => e.path).sort().join("|")));

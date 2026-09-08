@@ -77,7 +77,7 @@ const Detail = ({ s, skill }: { s: State; skill: NonNullable<ReturnType<typeof s
           })}
         </Text>
       ))}
-      <Text color="gray">● linked  ◌ wanted, not linked  ○ not wanted  ▣ real dir  ↗ foreign link  ✗ broken  ? unreachable</Text>
+      <Text color="gray">✓ loaded  ◌ pending  ○ off  ✗ broken  ? unreachable · green on target · yellow pending/outside target</Text>
       {insights.length > 0 ? (
         <Box flexDirection="column" marginTop={1}>
           <Text bold>insights</Text>

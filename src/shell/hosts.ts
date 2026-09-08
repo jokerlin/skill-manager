@@ -1,6 +1,6 @@
 import { type Agent, agentById } from "../core/agents";
 import { type Config, type HostConfig, PLUGIN_AGENTS, defaultEnsure, defaultOwnedAgents, hostAgents, marketplaceFor } from "../core/config";
-import { type HostFacts, type PluginState, hostFacts, pluginStates } from "../core/effective";
+import { type HostFacts, type PluginState, effectiveFor, hostFacts, pluginStates } from "../core/effective";
 import { type Inventory } from "../core/inventory";
 import { type Op, type OwnedRule, type PluginCell, planHost } from "../core/plan";
 import { desiredFor, selects } from "../core/scope";
@@ -57,18 +57,36 @@ export const marketplacesOn = (facts: HostFacts): Record<string, Readonly<Record
 export const planFor = (c: Config, skills: readonly Skill[], h: HostConfig, inv: Inventory, hubMarketplaces: Readonly<Record<string, string>> = {}): Op[] => {
   const facts = hostFacts(inv);
   const states = pluginStatesOn(c, h, inv, facts);
+  const agents = agentsOn(c, h);
+  const owned = ownedRules(c);
+  const desired = desiredOn(c, skills, h);
+  // A CLI-owned skill can already reach a reader through a writer's shared directory.
+  // Keep the target wanted, but do not install a second store copy over that CLI version.
+  const toInstall = Object.fromEntries(agents.map((a) => {
+    const provided = new Set(effectiveFor(inv, facts, a).filter((e) => {
+      if (e.source.kind !== "legacy" || e.storage.kind !== "real-dir") return false;
+      if (inv.agentDirs[a.id]?.entries.some((entry) => entry.name === e.name)) return false;
+      const dir = e.source.dir;
+      return owned.some((o) => o.skill === e.name && inv.tools[o.tool] !== undefined && o.agents.some
+        && !o.agents.value.includes(a.id) && o.agents.value.some((id) => {
+          const writer = agentById(id);
+          return writer.some && writer.value.userDir(inv.home) === dir;
+        }));
+    }).map((e) => e.name));
+    return [a.id, (desired[a.id] ?? []).filter((name) => !provided.has(name))];
+  }));
   return planHost({
     hostId: h.id,
     isLocal: !h.ssh.some,
-    desired: desiredOn(c, skills, h),
+    desired: toInstall,
     inventory: inv,
     hubSkills: skills.map((s) => ({ name: s.name, hash: s.contentHash })),
-    agentDirs: agentDirsRel(agentsOn(c, h)),
+    agentDirs: agentDirsRel(agents),
     plugins: pluginCellsFor(c, h, states),
     pluginStates: states,
     marketplaces: marketplacesOn(facts),
     hubMarketplaces,
-    owned: ownedRules(c),
+    owned,
     tools: inv.tools,
   });
 };

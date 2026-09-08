@@ -1,12 +1,12 @@
 # skm — 多机、多 Agent 的 Skill 管理器
 
-一个 store，处处软链，跨机器 rsync。
+专注 Claude Code、Codex 和 Pi。一个 store，处处软链，跨机器 rsync。
 
 ```
 ~/.skm/skills/<name>/SKILL.md     ← 单一事实源（store）
-~/.claude/skills/<name>  ─┐
-~/.agents/skills/<name>  ─┼─→ 软链到 store（Claude Code / Codex / Cursor / Gemini …）
-~/.cursor/skills/<name>  ─┘
+~/.claude/skills/<name>    ─┐
+~/.agents/skills/<name>    ─┼─→ 软链到 store（Claude Code / Codex / Pi）
+~/.pi/agent/skills/<name>  ─┘
 mini:~/.skm/skills  devbox:~/.skm/skills   ← rsync 镜像，远端再本地软链
 ```
 
@@ -27,7 +27,7 @@ cp dist/skm ~/.local/bin/skm
 
 ```sh
 skm init                                   # 建 ~/.skm/{config.yaml,skills}，列出各 agent 目录里未纳管的 skill
-skm adopt --from claude codex cursor       # 把真实目录搬进 store，原位置留软链（链式软链会被改成直链）
+skm adopt --from claude codex pi       # 把真实目录搬进 store，原位置留软链（链式软链会被改成直链）
 skm status                                 # 探测每台主机：每个 agent 实际消费了哪些 skill、有无漂移/冲突
 skm pull mini --all                        # 把远端有而 hub 没有的 skill 拉回 store
 skm rules infer --write                    # 按"每台机器现在有什么"自动生成范围规则
@@ -40,7 +40,7 @@ skm                                        # TUI
 
 ```yaml
 store: ~/.skm/skills
-agents: [claude, codex, pi, dsh]           # 可用 id 见 src/core/agents.ts（claude/codex/pi/dsh/opencode/cursor/gemini/…）
+agents: [claude, codex, pi]                # 仅支持这三个 id；可按主机启用子集
 hosts:
   local: {}
   mini: { ssh: mini }                       # ~/.ssh/config 里的别名
@@ -59,13 +59,17 @@ plugins:                                    # v2：期望状态扩展到 plugin�
   linear-cli: { marketplace: { claude: linear-cli, codex: linear-cli }, hosts: { except: [home-mini] } }
   humanizer: { marketplace: claude-extras, enabled: false }   # enabled: false：凡是装了的主机都关掉，不看 hosts/agents 选择器；把"禁用"记在 skm 里而不是手改 config.toml
 owned:                                      # v2：某个 CLI 自带的 skill（真实目录），skm 在它写的目录里不软链，只核对
-  acme: { tool: acme, agents: [claude, codex] }   # agents = 这个 CLI 自己会写的目录（acme 默认就是 claude/codex），其余 agent（pi/dsh）由 skm 链接 store 副本；ensure 默认 `acme self skill install -g -s acme`；fallback: store|none
+  acme: { tool: acme, agents: [claude, codex] }   # agents = 这个 CLI 自己会写的目录；Pi 已从该 CLI 的共享目录加载时，目标也算满足，不再链接 store 副本；ensure 默认 `acme self skill install -g -s acme`；fallback: store|none
 eval: { agent: claude }                     # 或 codex；model 可选
 contextTokens: 1000000                      # 预算模拟的兜底上下文：Claude 按各主机 settings.json 的 model、Codex 按 config.toml 的 model 在 `codex debug models` 目录里的窗口（没写 model 时取目录的默认预设）推断，认不出时才用它
 backupBeforeApply: true
 ```
 
+旧配置中不支持的 agent 会被忽略，并由 CLI 提示；不会出现在 App/TUI 的目标列中，也不会参与探测、同步或新备份。
+
 求值：`desired(skill, host, agent) = hosts选择器(host) ∧ agents选择器(agent)`，再按顺序套用 `on/off` 单元格覆盖，最后要求 agent 在该主机启用。
+
+目标矩阵显示启用与实际加载状态：`✓` 表示已加载，绿色表示符合目标；橙色表示待加载或当前仍会加载但目标未启用。真实目录、store 链接、共享目录均使用同样的状态标记，悬停桌面端单元格可查看存储方式和来源路径。Pi 从 CLI 自己维护的共享目录加载 acme 时，用 `skm scope acme local/pi on` 启用目标即可；同步会保留该机 CLI 的版本。
 
 ## 命令
 
@@ -89,10 +93,10 @@ backupBeforeApply: true
 
 每个 agent 启动时会把下面这些地方的 SKILL.md 全部列进上下文，skm 按这个顺序探测并合并成「有效清单」：
 
-| 来源 | Claude Code | Codex | pi / dsh | owner |
+| 来源 | Claude Code | Codex | Pi | owner |
 |---|---|---|---|---|
-| 用户目录 | `~/.claude/skills` | `~/.agents/skills` | `~/.pi/agent/skills` / `~/.dsh/skills` | skm（软链）、acme / skills-cli（真实目录）、manual |
-| 旧目录 / 兼容目录 | — | `~/.codex/skills` | dsh 还读 `~/.agents/skills`（同名以 `~/.dsh/skills` 为准，另一份被遮蔽、不加载） | 同上 |
+| 用户目录 | `~/.claude/skills` | `~/.agents/skills` | `~/.pi/agent/skills` | skm（软链）、acme / skills-cli（真实目录）、manual |
+| 旧目录 / 兼容目录 | — | `~/.codex/skills` | Pi 还读 `~/.agents/skills`（同名以 `~/.pi/agent/skills` 为准，另一份被遮蔽、不加载） | 同上 |
 | 内置 | — | `~/.codex/skills/.system` | — | codex-builtin |
 | plugin 缓存 | `~/.claude/plugins/cache/<mk>/<plugin>/<ver>/skills/*`，启用状态看 `settings.json` `enabledPlugins`，生效版本看 `installed_plugins.json` | `~/.codex/plugins/cache/...`，`config.toml` `[plugins."name@mk"] enabled`；缓存了但没写 config 的 Codex 不会加载，不计入（2026-09-06 用真实会话核对） | — | claude-plugins / codex-plugins |
 
@@ -100,7 +104,7 @@ backupBeforeApply: true
 
 - `same-name`：同一 agent 从两个来源加载同名 skill（如 Codex 内置 `skill-creator` 与 plugin 版）。
 - `linked-twice`：两个目录都软链到 store，同一批 skill 被加载两次（Codex 的 `~/.agents/skills` + `~/.codex/skills`）。
-- `shadowed`：agent 按名字去重时（dsh：`~/.dsh/skills` 先于 `~/.agents/skills`），另一目录里的同名副本不会加载，也不计入预算；只是提示，若两份内容不同会单独列出。
+- `shadowed`：agent 按名字去重时（Pi：`~/.pi/agent/skills` 先于 `~/.agents/skills`），另一目录里的同名副本不会加载，也不计入预算；只是提示，若两份内容不同会单独列出。
 - `same-content`：不同名但 SKILL.md 完全相同。
 - `owned-drift`：CLI 自己写的目录（如 acme 升级后重写的 `~/.agents/skills/acme`）和链接给其他 agent 的 store 副本内容不一致，提示把 store 副本刷新成 CLI 版本。
 - `stale-cache` / `disabled-cached` / `unloaded-cache`：plugin 缓存里有未生效的旧版本 / 配置里明确关掉但仍占磁盘 / 配置里根本没提（Codex：config.toml 没有 `[plugins."id"]`，多半 marketplace 也没配；Claude：不在 `enabledPlugins` 也不在 `installed_plugins.json`），agent 从不加载的纯缓存残留，例如 Codex 桌面端遗留的 openai-templates、gmail、finances。
@@ -110,7 +114,7 @@ backupBeforeApply: true
 
 ## 上下文占用怎么算
 
-- **listing**（每轮都付）：一律显示 token。store 视图（`ls / show` / App 的 Skills）用 o200k 估算 `description + when_to_use`；每主机×agent 的预算按各 agent 自己的记账换算成 token：Claude = 字符 ÷ 每 token 字符数，Codex = ⌈字节/4⌉，pi/dsh 等没有文档预算的用 o200k 估算、不设上限。v2 的 `status / inventory / doctor` 按有效清单（含 plugin、内置、旧目录）算，主机不可达时才退回只按 store 估。
+- **listing**（每轮都付）：一律显示 token。store 视图（`ls / show` / App 的 Skills）用 o200k 估算 `description + when_to_use`；每主机×agent 的预算按各 agent 自己的记账换算成 token：Claude = 字符 ÷ 每 token 字符数，Codex = ⌈字节/4⌉，Pi 没有文档预算，用 o200k 估算、不设上限。v2 的 `status / inventory / doctor` 按有效清单（含 plugin、内置、旧目录）算，主机不可达时才退回只按 store 估。
   - Claude Code：总预算（字符）= 模型上下文 token 数 × 每 token 字符数 × `skillListingBudgetFraction`（默认 1%），每 token 字符数对 Opus/Sonnet ≤4.6 与 Haiku 4.5 取 4、其余（Fable、Opus 4.7+、Sonnet 5）取 3；上下文来自各主机 `~/.claude/settings.json` 的 `model`（Fable/Opus 4.7+/Sonnet 5 原生 1M，老模型 200K，`[1m]` 后缀升 1M，`env.CLAUDE_CODE_DISABLE_1M_CONTEXT` 压回 200K），与 `autoCompactWindow` 无关；`env.SLASH_COMMAND_TOOL_CHAR_BUDGET` 直接定死预算。例：Fable 1M × 3 × 1% = 30,000 字符，显示为 1M × 1% = 10,000 token；Opus 4.6 200K × 4 × 1% = 8,000 字符 = 2,000 token。单个 skill 上限 `skillListingMaxDescChars`（默认 1536）；超预算时按调用频率丢描述，名字永远保留。listing 字符按 Claude Code 的 `- name: description` 行计；Claude Code 自带的内置 skill（code-review、simplify 等十余个）不在 skm 清单里，看真实数字用 Claude Code 的 `/context`。（公式来自 Claude Code 2.1.263 二进制，见 `docs/reports/2026-09-06-listing-budget-fix.md`）
   - Codex：总预算（token）= 模型上下文窗口 × 2%，窗口来自各主机 `~/.codex/config.toml` 的 `model` 在模型目录里的 `context_window`（目录由探测时的 `codex debug models` 给出，没有 codex CLI 时退回 `~/.codex/models_cache.json`；config.toml 没写 `model` 时按 Codex 自己的规则取目录里 priority 最小的可见预设，例如 home-mini 没写 model 也算 gpt-6-astra 的 272K；`model_context_window` 可覆盖，封顶 `max_context_window`；目录都没有时才用 config `contextTokens`）；`[skills] max_context_tokens` 直接定死（封顶 10,000）；窗口未知时 8,000 字符（显示 ≈ 2,000 token）。每条 `- name: description (file: rN/path)` 按 ⌈字节/4⌉ 计 token（路径经 `### Skill roots` 别名表压缩，表本身也计费；plugin 技能名带 `plugin:` 前缀；只列 `description`，不含 `when_to_use`；单条 ≤1,024 字符）。超预算时先把所有描述按轮询缩短（技能都还在），连空描述都放不下才整条省略。例：gpt-6-astra 272K × 2% = 5,440 token（它的 `context_window` 就是 272K，真实会话报 `model_context_window: 258400` = 272K × 95%；872K 的 `max_context_window` 只在 config.toml 写了 `model_context_window` 时才用得上，所以 Claude 10,000t 与 Codex 5,440t 的差距是真的：1M × 1% 对 272K × 2%）。（公式来自 codex-rs/ext/skills/src/render.rs，并用 codex 0.153.4 真实会话核对，见 `docs/reports/2026-09-06-listing-budget-fix.md`）
 - **body**（激活时付）：SKILL.md 正文 token 与行数；规范建议 <5000 token、<500 行。

@@ -77,14 +77,16 @@ export const loadWith = async (skm: string, configPath: string, config: Config):
   const scan = await loadStore(storeDir);
   if (!scan.ok) return err({ kind: "store", error: scan.error });
   const resolved = config.agents.map((id) => ({ id, agent: agentById(id) }));
+  const agents = resolved.flatMap((r) => (r.agent.some ? [r.agent.value] : []));
   return ok({
     skmHome: skm,
     configPath,
-    config,
+    // All clients (CLI, TUI, macOS) use this list for their target columns.
+    config: { ...config, agents: agents.map((a) => a.id) },
     storeDir,
     skills: scan.value.skills,
     ignoredDirs: scan.value.ignored,
-    agents: resolved.flatMap((r) => (r.agent.some ? [r.agent.value] : [])),
+    agents,
     unknownAgents: resolved.flatMap((r) => (r.agent.some ? [] : [r.id])),
     claudeOverrides: await readClaudeOverrides(),
     hubMarketplaces: await readHubMarketplaces(),

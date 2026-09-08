@@ -11,7 +11,7 @@ export type HostView = {
   readonly facts: HostFacts;
   readonly states: Readonly<Record<string, readonly PluginState[]>>;
   readonly effective: Readonly<Record<string, readonly Effective[]>>;
-  /** alsoReads copies an agent skips because its user dir already has the name (dsh) — not loaded, not budgeted */
+  /** alsoReads copies an agent skips because its user dir already has the name (Pi) — not loaded, not budgeted */
   readonly shadowed: Readonly<Record<string, readonly Shadowed[]>>;
   readonly budget: Readonly<Record<string, BudgetReport>>;
   readonly counts: Readonly<Record<string, Record<Source["kind"], number>>>;

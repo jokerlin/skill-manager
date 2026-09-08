@@ -1,4 +1,4 @@
-import { emptyInventory } from "../src/core/inventory";
+import { emptyInventory, type Entry } from "../src/core/inventory";
 import { describe, expect, test } from "bun:test";
 import React from "react";
 import { render } from "ink-testing-library";
@@ -12,7 +12,7 @@ import type { AppState } from "../src/shell/app";
 import { inferRules, compressGlobs } from "../src/cli/rules";
 import { pullCandidates } from "../src/cli/pull";
 import { HostsView, clampOffset, hostLines } from "../src/tui/views/Hosts";
-import { initialState, reduce, visibleSkills } from "../src/tui/state";
+import { cellGlyph, initialState, reduce, visibleSkills } from "../src/tui/state";
 import { buildHostView } from "../src/core/view";
 
 const mk = (name: string, desc: string) => buildSkill(name, `/s/${name}`, `---\nname: ${name}\ndescription: ${desc}\n---\n# ${name}\nbody\n`, [{ rel: "SKILL.md", bytes: 10 }]);
@@ -22,7 +22,7 @@ const app = (): AppState => {
   const claude = agentById("claude"); const codex = agentById("codex");
   if (!claude.some || !codex.some) throw new Error();
   return {
-    skmHome: "/tmp/skm", configPath: "/tmp/skm/config.yaml", config: { ...defaultConfig(), hosts: [{ id: "local", ssh: none, agents: none, skm: "~/.skm" }, { id: "dev", ssh: some("dev"), agents: none, skm: "~/.skm" }] },
+    skmHome: "/tmp/skm", configPath: "/tmp/skm/config.yaml", config: { ...defaultConfig(), agents: ["claude", "codex"], hosts: [{ id: "local", ssh: none, agents: none, skm: "~/.skm" }, { id: "dev", ssh: some("dev"), agents: none, skm: "~/.skm" }] },
     storeDir: "/tmp/skm/skills", skills, ignoredDirs: [], agents: [claude.value, codex.value], unknownAgents: [], claudeOverrides: {}, hubMarketplaces: {},
   };
 };
@@ -38,6 +38,43 @@ const io: TuiIo = {
 };
 
 const tick = () => new Promise((r) => setTimeout(r, 30));
+
+test("target cells show a loaded shared skill instead of absent or pending", () => {
+  const pi = agentById("pi");
+  if (!pi.some) throw new Error("missing Pi");
+  const inv = {
+    ...emptyInventory("/h"),
+    agentDirs: { pi: { exists: true, entries: [] } },
+    alsoReads: { pi: [{ kind: "dir" as const, name: "acme", hash: "shared-acme" }] },
+    alsoDirs: { pi: { acme: "/h/.agents/skills" } },
+    docs: { "shared-acme": "---\nname: acme\ndescription: Use corp tools.\n---\n" },
+  };
+  const view = buildHostView("local", [pi.value], inv, 1_000_000);
+  const s = { ...initialState(defaultConfig(), [], [], {}), hosts: { local: { kind: "ready" as const, inventory: inv, ops: [], view } } };
+  expect(cellGlyph(s, "acme", "local", "pi", true)).toEqual({ glyph: "✓", color: "green" });
+  expect(cellGlyph(s, "acme", "local", "pi", false)).toEqual({ glyph: "✓", color: "yellow" });
+  expect(cellGlyph(s, "missing", "local", "pi", true)).toEqual({ glyph: "◌", color: "yellow" });
+  expect(cellGlyph(s, "missing", "local", "pi", false)).toEqual({ glyph: "○", color: "gray" });
+});
+
+test("target availability uses the same checkmark for real directories and links, and requires a loaded skill", () => {
+  const claude = agentById("claude");
+  if (!claude.some) throw new Error("missing Claude");
+  const cases: { entry: Entry; glyph: string; color: "green" | "yellow" | "red" }[] = [
+    { entry: { kind: "dir", name: "acme", hash: "available-acme" }, glyph: "✓", color: "green" },
+    { entry: { kind: "managed", name: "acme", direct: true, hash: "available-acme" }, glyph: "✓", color: "green" },
+    { entry: { kind: "foreign-link", name: "acme", target: "/cli/acme", hash: "available-acme" }, glyph: "✓", color: "green" },
+    { entry: { kind: "dir", name: "acme" }, glyph: "◌", color: "yellow" },
+    { entry: { kind: "broken-link", name: "acme", target: "/gone" }, glyph: "✗", color: "red" },
+  ];
+  for (const { entry, glyph, color } of cases) {
+    const inv = { ...emptyInventory("/h"), agentDirs: { claude: { exists: true, entries: [entry] } }, docs: { "available-acme": "---\nname: acme\ndescription: Use corp tools.\n---\n" } };
+    const view = buildHostView("local", [claude.value], inv, 1_000_000);
+    const s = { ...initialState(defaultConfig(), [], [], {}), hosts: { local: { kind: "ready" as const, inventory: inv, ops: [], view } } };
+    expect(cellGlyph(s, "acme", "local", "claude", true)).toEqual({ glyph, color });
+    if (color === "green") expect(cellGlyph(s, "acme", "local", "claude", false)).toEqual({ glyph: "✓", color: "yellow" });
+  }
+});
 
 describe("TUI sort", () => {
   test("o cycles name → listing → body (costs descending first); O flips the direction; ties break by name", () => {

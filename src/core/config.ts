@@ -70,7 +70,7 @@ export const ALL: Selector = { kind: "all" };
 
 export const defaultConfig = (): Config => ({
   store: "~/.skm/skills",
-  agents: ["claude", "codex"],
+  agents: ["claude", "codex", "pi"],
   hosts: [{ id: "local", ssh: none, agents: none, skm: "~/.skm" }],
   defaults: { hosts: ALL, agents: ALL },
   rules: [],
@@ -335,7 +335,7 @@ export const marketplaceFor = (p: PluginPolicy, agentId: string): Option<string>
 export const defaultEnsure = (tool: string, skill: string): Option<string> =>
   tool === "acme" ? some(`acme self skill install -g -s ${skill}`) : none;
 
-/** Agent dirs a known CLI writes by itself (acme 0.144: ~/.claude/skills, ~/.agents/skills, ~/.cursor/skills); none ⇒ assume every agent. */
+/** Agent dirs a known CLI writes by itself (acme: ~/.claude/skills and ~/.agents/skills for the supported products); none ⇒ assume every agent. */
 export const defaultOwnedAgents = (tool: string): Option<readonly string[]> =>
   tool === "acme" ? some(["claude", "codex"]) : none;
 

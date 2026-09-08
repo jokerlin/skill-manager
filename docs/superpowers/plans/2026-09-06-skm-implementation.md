@@ -126,7 +126,7 @@ selects(sel: Selector, id: string): boolean
 desiredFor(config, skillNames: string[], hostId, agentId): string[]  // sorted; respects host.agents
 setScope(config, skillName, host, agent, on: boolean): Config       // rewrites rules: appends/merges an exact rule for that skill
 ```
-- [ ] Tests: YAML from spec §3.2 parses; `kb-doc` excluded on devbox; `corp-x` only mini/devbox; host `devbox` agents [claude,codex] hides cursor; setScope toggles and is idempotent; serialize→parse round-trips
+- [ ] Tests: YAML from spec §3.2 parses; `kb-doc` excluded on devbox; `corp-x` only mini/devbox; host `devbox` agents [claude,codex] hides pi; setScope toggles and is idempotent; serialize→parse round-trips
 - [ ] Implement; commit
 
 ### Task 5: Agents registry + budget simulation
@@ -137,7 +137,7 @@ setScope(config, skillName, host, agent, on: boolean): Config       // rewrites 
 ```ts
 type ListingRule = { kind:'claude'; budgetFraction:number; maxDescChars:number } | { kind:'codex'; budgetFraction:number; fallbackChars:number } | { kind:'plain' }
 type Agent = { id: string; name: string; userDir: (home: string) => string; listing: ListingRule }
-AGENTS: Agent[]  // claude ~/.claude/skills; codex ~/.agents/skills; cursor ~/.cursor/skills; gemini ~/.gemini/skills; opencode ~/.config/opencode/skills; copilot ~/.copilot/skills; windsurf ~/.codeium/windsurf/skills; antigravity ~/.gemini/antigravity/skills; kiro ~/.kiro/skills; universal ~/.agents/skills(alias)
+AGENTS: Agent[]  // claude ~/.claude/skills; codex ~/.agents/skills; pi ~/.pi/agent/skills
 agentById(id): Option<Agent>
 type BudgetReport = { agentId; budgetChars: number; usedChars: number; perSkill: { name; chars; cappedChars; kept: boolean }[]; droppedCount: number; overBy: number }
 simulateListing(agent: Agent, skills: Skill[], contextTokens: number, overrides?: { fraction?: number; maxDescChars?: number }): BudgetReport

@@ -186,29 +186,29 @@ describe("effectiveFor: directories without SKILL.md", () => {
   });
 });
 
-describe("effectiveFor: agents that dedupe by name (dsh: ~/.dsh/skills wins over ~/.agents/skills)", () => {
-  const dsh: Inventory = {
+describe("effectiveFor: agents that dedupe by name (pi: ~/.pi/agent/skills wins over ~/.agents/skills)", () => {
+  const pi: Inventory = {
     ...emptyInventory("/h"),
     storeSkills: [{ name: "check", hash: "H-check" }, { name: "hunt", hash: "H-hunt" }, { name: "learn", hash: "H-learn" }],
-    agentDirs: { dsh: { exists: true, entries: [{ kind: "managed", name: "check", direct: true, hash: "H-check" }, { kind: "managed", name: "hunt", direct: true, hash: "H-hunt" }, { kind: "broken-link", name: "gone", target: "/x" }] } },
-    alsoReads: { dsh: [{ kind: "managed", name: "check", direct: true, hash: "H-check" }, { kind: "managed", name: "learn", direct: true, hash: "H-learn" }, { kind: "dir", name: "hunt", hash: "H-hunt-other" }, { kind: "managed", name: "gone", direct: true, hash: "H-gone" }] },
-    alsoDirs: { dsh: { check: "/h/.agents/skills", learn: "/h/.agents/skills", hunt: "/h/.agents/skills", gone: "/h/.agents/skills" } },
+    agentDirs: { pi: { exists: true, entries: [{ kind: "managed", name: "check", direct: true, hash: "H-check" }, { kind: "managed", name: "hunt", direct: true, hash: "H-hunt" }, { kind: "broken-link", name: "gone", target: "/x" }] } },
+    alsoReads: { pi: [{ kind: "managed", name: "check", direct: true, hash: "H-check" }, { kind: "managed", name: "learn", direct: true, hash: "H-learn" }, { kind: "dir", name: "hunt", hash: "H-hunt-other" }, { kind: "managed", name: "gone", direct: true, hash: "H-gone" }] },
+    alsoDirs: { pi: { check: "/h/.agents/skills", learn: "/h/.agents/skills", hunt: "/h/.agents/skills", gone: "/h/.agents/skills" } },
     docs: { "H-check": md("check"), "H-hunt": md("hunt"), "H-hunt-other": md("hunt", "a different hunt"), "H-learn": md("learn"), "H-gone": md("gone") },
   };
-  const f = hostFacts(dsh);
-  const es = effectiveFor(dsh, f, agent("dsh"));
+  const f = hostFacts(pi);
+  const es = effectiveFor(pi, f, agent("pi"));
   test("a name present in the user dir loads once; the ~/.agents copy is shadowed and not part of the effective list", () => {
     expect(es.map((e) => `${e.source.kind}:${e.name}`)).toEqual(["user:check", "user:hunt", "legacy:gone", "legacy:learn"]);
     expect(sourceCounts(es)).toEqual({ user: 2, legacy: 2, builtin: 0, plugin: 0 });
   });
   test("shadowed copies are reported once as a `shadowed` finding (content-differing copies named), never as linked-twice or same-name", () => {
-    const shadowed = shadowedFor(dsh, f, agent("dsh"));
+    const shadowed = shadowedFor(pi, f, agent("pi"));
     expect(shadowed.map((x) => `${x.name}:${x.sameContent}`)).toEqual(["check:true", "hunt:false"]);
-    const fs = hostFindings("local", { dsh: es }, {}, { dsh: shadowed });
-    expect(fs).toEqual([{ kind: "shadowed", host: "local", agent: "dsh", names: ["check", "hunt"], differing: ["hunt"], winner: "/h/.dsh/skills", dir: "/h/.agents/skills" }]);
+    const fs = hostFindings("local", { pi: es }, {}, { pi: shadowed });
+    expect(fs).toEqual([{ kind: "shadowed", host: "local", agent: "pi", names: ["check", "hunt"], differing: ["hunt"], winner: "/h/.pi/agent/skills", dir: "/h/.agents/skills" }]);
   });
   test("codex still loads every copy (no dedupe), so the same inventory shape keeps its linked-twice finding", () => {
-    const codex: Inventory = { ...dsh, agentDirs: { codex: dsh.agentDirs["dsh"]! }, alsoReads: { codex: [{ kind: "managed", name: "check", direct: true, hash: "H-check" }] }, alsoDirs: { codex: { check: "/h/.codex/skills" } } };
+    const codex: Inventory = { ...pi, agentDirs: { codex: pi.agentDirs["pi"]! }, alsoReads: { codex: [{ kind: "managed", name: "check", direct: true, hash: "H-check" }] }, alsoDirs: { codex: { check: "/h/.codex/skills" } } };
     const f2 = hostFacts(codex);
     const es2 = effectiveFor(codex, f2, agent("codex"));
     expect(es2.map((e) => `${e.source.kind}:${e.name}`)).toEqual(["user:check", "user:hunt", "legacy:check"]);
