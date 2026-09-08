@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeAll } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readlinkSync, symlinkSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readlinkSync, symlinkSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { none, some } from "../src/lib/result";
@@ -8,12 +8,85 @@ import { agentById } from "../src/core/agents";
 import { loadStore } from "../src/shell/store";
 import { localRunner } from "../src/shell/runner";
 import { probeHost } from "../src/shell/probe";
-import { planFor, agentsOn, agentDirsRel, backupPathsFor, pluginCellsFor } from "../src/shell/hosts";
+import { planFor, agentsOn, agentDirsRel, backupPathsFor, pluginCellsFor, desiredOn } from "../src/shell/hosts";
 import { executePlan } from "../src/shell/sync";
 import { backupHost, restoreHost, listBackups } from "../src/shell/backup";
+import { loadApp } from "../src/shell/app";
+import { emptyInventory, type Inventory } from "../src/core/inventory";
+import { buildSkill } from "../src/core/skill";
 
 const SCRATCH = process.env["CLAUDE_SCRATCHPAD"] ?? tmpdir();
 const skillMd = (n: string) => `---\nname: ${n}\ndescription: ${n} does things. Use when ${n}.\n---\n# ${n}\n`;
+
+describe("CLI-owned skills loaded through a shared directory", () => {
+  const parsed = parseConfig(`agents: [claude, codex, pi]\nhosts: { local: {}, mini: { ssh: mini } }\nowned: { acme: { tool: acme, agents: [claude, codex] } }`);
+  if (!parsed.ok) throw new Error("invalid fixture");
+  const c = parsed.value;
+  const host = c.hosts[1]!;
+  const skill = buildSkill("acme", "/store/acme", skillMd("acme"), []);
+  const inv: Inventory = {
+    ...emptyInventory("/h"),
+    storeSkills: [{ name: "acme", hash: "old-store-copy" }],
+    agentDirs: {
+      claude: { exists: true, entries: [{ kind: "dir", name: "acme", hash: "cli-version" }] },
+      codex: { exists: true, entries: [{ kind: "dir", name: "acme", hash: "cli-version" }] },
+      pi: { exists: false, entries: [] },
+    },
+    alsoReads: { pi: [{ kind: "dir", name: "acme", hash: "cli-version" }] },
+    alsoDirs: { pi: { acme: "/h/.agents/skills" } },
+    tools: { acme: "/bin/acme" },
+    docs: { "cli-version": skillMd("acme") },
+  };
+  test("Pi can want the skill without creating a duplicate or replacing the CLI version with the store copy", () => {
+    expect(desiredOn(c, [skill], host).pi).toEqual(["acme"]);
+    expect(planFor(c, [skill], host, inv)).toEqual([]);
+  });
+  test("missing, broken, or non-owner shared sources still require a fallback link", () => {
+    const variants: Inventory[] = [
+      { ...inv, alsoReads: {} },
+      { ...inv, alsoReads: { pi: [{ kind: "broken-link", name: "acme", target: "/gone" }] } },
+      { ...inv, alsoReads: { pi: [{ kind: "dir", name: "acme" }] } },
+      { ...inv, alsoReads: { pi: [{ kind: "foreign-link", name: "acme", hash: "cli-version", target: "/other/acme" }] } },
+      { ...inv, alsoDirs: { pi: { acme: "/h/.another/skills" } } },
+      { ...inv, tools: {} },
+    ];
+    for (const inventory of variants) {
+      expect(planFor(c, [skill], host, inventory)).toContainEqual({ op: "link", host: "mini", agent: "pi", skill: "acme" });
+    }
+  });
+});
+
+describe("supported product agents", () => {
+  test("old config cannot add unsupported columns, probe dirs, or sync targets", async () => {
+    const skm = mkdtempSync(join(SCRATCH, "skm-agents-"));
+    try {
+      mkdirSync(join(skm, "skills/alpha"), { recursive: true });
+      writeFileSync(join(skm, "skills/alpha/SKILL.md"), skillMd("alpha"));
+      writeFileSync(join(skm, "config.yaml"), `store: ${skm}/skills\nagents: [claude, codex, pi, dsh, cursor, unknown]\nhosts: { local: {}, dev: { ssh: dev, agents: [pi, dsh, cursor] } }\n`);
+      const loaded = await loadApp(skm);
+      if (!loaded.ok) throw new Error(JSON.stringify(loaded.error));
+      const app = loaded.value;
+      expect(app.config.agents).toEqual(["claude", "codex", "pi"]);
+      expect(app.unknownAgents).toEqual(["dsh", "cursor", "unknown"]);
+      const h = app.config.hosts[1]!;
+      expect(agentDirsRel(agentsOn(app.config, h))).toEqual({ pi: "~/.pi/agent/skills" });
+      const inv = await probeHost(h, agentsOn(app.config, h), localRunner(skm));
+      if (!inv.ok) throw new Error(JSON.stringify(inv.error));
+      const ops = planFor(app.config, app.skills, h, inv.value);
+      expect(ops.filter(o => o.op === "link").map(o => o.agent)).toEqual(["pi"]);
+      expect(backupPathsFor(h, agentsOn(app.config, h))).toEqual(["~/.skm/skills", "~/.pi/agent/skills", "~/.agents/skills"]);
+    } finally {
+      rmSync(skm, { recursive: true, force: true });
+    }
+  });
+
+  test("fresh config plans skills for Claude Code, Codex, and Pi", () => {
+    const c = defaultConfig();
+    expect(agentDirsRel(agentsOn(c, c.hosts[0]!))).toEqual({
+      claude: "~/.claude/skills", codex: "~/.agents/skills", pi: "~/.pi/agent/skills",
+    });
+  });
+});
 
 describe("shell integration: hub → fake remote (separate HOME)", () => {
   let hub = ""; let remote = "";

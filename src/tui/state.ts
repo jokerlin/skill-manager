@@ -140,12 +140,10 @@ export const cellGlyph = (s: State, skill: string, hostId: string, agentId: stri
   if (!h || h.kind === "probing") return { glyph: desired ? "◌" : "○", color: "gray" };
   if (h.kind === "error") return { glyph: "?", color: "gray" };
   const e = h.inventory.agentDirs[agentId]?.entries.find((x) => x.name === skill);
-  if (e === undefined) return desired ? { glyph: "◌", color: "yellow" } : { glyph: "○", color: "gray" };
-  return match(e)
-    .with({ kind: "managed" }, () => (desired ? { glyph: "●", color: "green" as const } : { glyph: "●", color: "yellow" as const }))
-    .with({ kind: "dir" }, () => ({ glyph: "▣", color: "yellow" as const }))
-    .with({ kind: "foreign-link" }, () => ({ glyph: "↗", color: "magenta" as const }))
-    .with({ kind: "broken-link" }, () => ({ glyph: "✗", color: "red" as const }))
-    .with({ kind: "file" }, () => ({ glyph: "·", color: "gray" as const }))
-    .exhaustive();
+  const loaded = h.view
+    ? h.view.effective[agentId]?.some((entry) => entry.name === skill && (entry.source.kind === "user" || entry.source.kind === "legacy"))
+    : e !== undefined && (e.kind === "managed" || e.kind === "dir" || e.kind === "foreign-link");
+  if (loaded) return { glyph: "✓", color: desired ? "green" : "yellow" };
+  if (e?.kind === "broken-link") return { glyph: "✗", color: "red" };
+  return desired ? { glyph: "◌", color: "yellow" } : { glyph: "○", color: "gray" };
 };

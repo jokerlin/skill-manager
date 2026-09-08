@@ -92,9 +92,6 @@ struct SkillDetail: View {
 
     private var hosts: [String] { model.config?.hosts ?? Array(skill.targets.keys).sorted() }
     private var agents: [String] { model.config?.agents ?? [] }
-    private func liveKind(host: String, agent: String) -> String? {
-        model.hosts.first { $0.host == host }?.agents?[agent]?.consumed.first { $0.name == skill.name }?.kind
-    }
 
     var body: some View {
         ScrollView {
@@ -140,7 +137,7 @@ struct SkillDetail: View {
                     }
                 }
             }
-            Text("● linked to store  ◌ wanted, not linked yet  ○ not wanted  ▣ real dir (unmanaged)  ↗ link elsewhere  ✗ broken link").font(.caption).foregroundStyle(.secondary)
+            Text("✓ loaded  ◌ pending  ○ off  ✗ broken  ? unreachable · Green: on target. Orange: pending or outside target.").font(.caption).foregroundStyle(.secondary)
         }
     }
 
@@ -202,13 +199,20 @@ struct SkillDetail: View {
     private func verdictColor(_ v: String) -> Color { v == "keep" ? .green : v == "drop" ? .red : .orange }
 
     private func cell(host: String, agent: String, wanted: Bool) -> some View {
-        let kind = liveKind(host: host, agent: agent)
-        let glyph: String = kind == "managed" ? "●" : kind == "dir" ? "▣" : kind == "foreign-link" ? "↗" : kind == "broken-link" ? "✗" : wanted ? "◌" : "○"
-        let color: Color = kind == "managed" ? (wanted ? .green : .orange) : kind == nil ? (wanted ? .orange : .secondary) : .orange
+        let hostState = model.hosts.first { $0.host == host }
+        let status = hostState?.agents?[agent]
+        let kind = status?.consumed.first { $0.name == skill.name }?.kind
+        let entry = item.loads[host]?[agent]
+        let loaded = entry != nil || (status?.effective == nil && ["managed", "dir", "foreign-link"].contains(kind ?? ""))
+        let unreachable = hostState?.reachable == false
+        let broken = !loaded && kind == "broken-link"
+        let glyph = unreachable ? "?" : loaded ? "✓" : broken ? "✗" : wanted ? "◌" : "○"
+        let color: Color = hostState == nil || unreachable ? .secondary : loaded ? (wanted ? .green : .orange) : broken ? .red : wanted ? .orange : .secondary
+        let storage = entry.map { " · \($0.storage) · \($0.path)" } ?? kind.map { " · \($0)" } ?? ""
         return Button(glyph) { Task { await model.setScope(skill: skill.name, host: host, agent: agent, on: !wanted) } }
             .buttonStyle(.plain).foregroundStyle(color).font(.title3)
             .frame(width: 52, alignment: .leading)
-            .help("\(host)/\(agent): \(wanted ? "wanted" : "not wanted")\(kind.map { " · currently \($0)" } ?? "")")
+            .help("\(host)/\(agent): \(wanted ? "wanted" : "not wanted")\(storage)")
     }
 }
 

@@ -59,13 +59,17 @@ plugins:                                    # v2：期望状态扩展到 plugin�
   linear-cli: { marketplace: { claude: linear-cli, codex: linear-cli }, hosts: { except: [home-mini] } }
   humanizer: { marketplace: claude-extras, enabled: false }   # enabled: false：凡是装了的主机都关掉，不看 hosts/agents 选择器；把"禁用"记在 skm 里而不是手改 config.toml
 owned:                                      # v2：某个 CLI 自带的 skill（真实目录），skm 在它写的目录里不软链，只核对
-  acme: { tool: acme, agents: [claude, codex] }   # agents = 这个 CLI 自己会写的目录（acme 默认就是 claude/codex），其余 agent（pi/dsh）由 skm 链接 store 副本；ensure 默认 `acme self skill install -g -s acme`；fallback: store|none
+  acme: { tool: acme, agents: [claude, codex] }   # agents = 这个 CLI 自己会写的目录；Pi 已从该 CLI 的共享目录加载时，目标也算满足，不再链接 store 副本；ensure 默认 `acme self skill install -g -s acme`；fallback: store|none
 eval: { agent: claude }                     # 或 codex；model 可选
 contextTokens: 1000000                      # 预算模拟的兜底上下文：Claude 按各主机 settings.json 的 model、Codex 按 config.toml 的 model 在 `codex debug models` 目录里的窗口（没写 model 时取目录的默认预设）推断，认不出时才用它
 backupBeforeApply: true
 ```
 
+旧配置中不支持的 agent 会被忽略，并由 CLI 提示；不会出现在 App/TUI 的目标列中，也不会参与探测、同步或新备份。
+
 求值：`desired(skill, host, agent) = hosts选择器(host) ∧ agents选择器(agent)`，再按顺序套用 `on/off` 单元格覆盖，最后要求 agent 在该主机启用。
+
+目标矩阵显示启用与实际加载状态：`✓` 表示已加载，绿色表示符合目标；橙色表示待加载或当前仍会加载但目标未启用。真实目录、store 链接、共享目录均使用同样的状态标记，悬停桌面端单元格可查看存储方式和来源路径。Pi 从 CLI 自己维护的共享目录加载 acme 时，用 `skm scope acme local/pi on` 启用目标即可；同步会保留该机 CLI 的版本。
 
 ## 命令
 
