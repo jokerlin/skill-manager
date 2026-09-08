@@ -1,7 +1,7 @@
 {
   "name": "skm",
   "version": "0.1.0",
-  "description": "Multi-host, multi-agent skill manager: one store, symlinks everywhere, rsync across machines.",
+  "description": "Multi-host skill manager for Claude Code, Codex, and Pi: one store, symlinks, rsync across machines.",
   "type": "module",
   "bin": {
     "skm": "bin/skm.ts"

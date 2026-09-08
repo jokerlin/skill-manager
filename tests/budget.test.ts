@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { AGENTS, agentById } from "../src/core/agents";
+import { agentById } from "../src/core/agents";
 import { sharedAliasRoots, simulateListing, simulateListingOf } from "../src/core/budget";
 import { buildSkill } from "../src/core/skill";
 import { estimateTokens } from "../src/lib/tokens";
@@ -14,7 +14,6 @@ describe("agents registry", () => {
     expect(claude.some && claude.value.userDir("/home/u")).toBe("/home/u/.claude/skills");
     expect(codex.some && codex.value.userDir("/home/u")).toBe("/home/u/.agents/skills");
     expect(agentById("nope").some).toBe(false);
-    expect(AGENTS.length).toBeGreaterThan(5);
   });
 });
 

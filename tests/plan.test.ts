@@ -139,11 +139,11 @@ describe("planHost v2: plugins and owned skills", () => {
   });
   test("owned.agents: the tool writes only those dirs; other agents get the store copy linked like any skill", () => {
     const owned = [{ skill: "acme", tool: "acme", command: some("acme self skill install -g -s acme"), fallback: "store" as const, agents: some(["claude", "codex"]) }];
-    const dirs = { ...base.agentDirs, pi: "/h/.pi/agent/skills", dsh: "/h/.dsh/skills" };
-    const present = inv({ claude: { exists: true, entries: [{ kind: "dir", name: "acme" }] }, codex: { exists: true, entries: [{ kind: "dir", name: "acme" }] }, pi: { exists: true, entries: [] }, dsh: { exists: true, entries: [] } }, { acme: "/bin/acme" });
-    const ops = planHost({ ...base, agentDirs: dirs, desired: { claude: ["acme"], codex: ["acme"], pi: ["acme"], dsh: ["acme"] }, inventory: present, owned });
-    // writers are satisfied (no ensure); pi and dsh get plain links to the store copy
-    expect(ops.map((o) => (o.op === "link" ? `link:${o.agent}` : o.op)).sort()).toEqual(["link:dsh", "link:pi"]);
+    const dirs = { ...base.agentDirs, pi: "/h/.pi/agent/skills" };
+    const present = inv({ claude: { exists: true, entries: [{ kind: "dir", name: "acme" }] }, codex: { exists: true, entries: [{ kind: "dir", name: "acme" }] }, pi: { exists: true, entries: [] } }, { acme: "/bin/acme" });
+    const ops = planHost({ ...base, agentDirs: dirs, desired: { claude: ["acme"], codex: ["acme"], pi: ["acme"] }, inventory: present, owned });
+    // writers are satisfied (no ensure); pi gets a plain link to the store copy
+    expect(ops.map((o) => (o.op === "link" ? `link:${o.agent}` : o.op)).sort()).toEqual(["link:pi"]);
     // a writer missing its real dir still triggers exactly one ensure, and never a link
     const half = inv({ ...present.agentDirs, codex: { exists: true, entries: [] } }, { acme: "/bin/acme" });
     const ops2 = planHost({ ...base, agentDirs: dirs, desired: { claude: ["acme"], codex: ["acme"], pi: ["acme"] }, inventory: half, owned });

@@ -1,11 +1,11 @@
 # skm — 多机多 Agent 的 Skill 管理器 设计文档
 
 日期：2026-09-06
-状态：已定稿（用户授权自主实现）
+状态：已定稿（用户授权自主实现），2026-09-08 收窄为 Claude Code / Codex / Pi
 
 ## 1. 目标
 
-管理 coding agent（Claude Code、Codex、Cursor、Gemini CLI 等）的 skill，覆盖本机与多台 SSH 主机：
+管理 coding agent（Claude Code、Codex、Pi）的 skill，覆盖本机与多台 SSH 主机：
 
 1. TUI 界面。
 2. 多机（本机 / mini / home-mini / devbox）的 skill 查看、同步、个性化：大部分 skill 相同，同时支持 **agent × 主机** 的个性化范围。
@@ -29,8 +29,8 @@
 - Agent Skills 规范：`name` ≤64 字符小写连字符且须与目录名一致；`description` 1–1024 字符；推荐 SKILL.md 正文 <5000 token、<500 行。
 - Claude Code：listing 字符预算 = 模型上下文 token × 每 token 字符数（老模型 4、Fable/Opus 4.7+/Sonnet 5 为 3）× `skillListingBudgetFraction`（默认 0.01）；上下文由 `settings.json` 的 `model` 决定（Fable 原生 1M），不是 `autoCompactWindow`；`env.SLASH_COMMAND_TOOL_CHAR_BUDGET` 可定死预算。单个 skill `description + when_to_use` 上限 `skillListingMaxDescChars`（默认 1536）；超预算时按调用频率丢弃描述。用户级目录 `~/.claude/skills`。（2026-09-06 修正：此前按「上下文 × 1% 直接当字符」低估 4–15 倍，见 `docs/reports/2026-09-06-listing-budget-fix.md`）UI 一律显示 token：Claude 把两边都除以每 token 字符数（Fable 1M → 10,000 token），Codex 本来就是 token，其余 agent 用 o200k 估算且无上限。
 - Codex：用户级目录 `~/.agents/skills`（跟随软链），listing 预算 = 上下文 2% 或未知时 8000 字符，超出先压缩描述。旧目录 `~/.codex/skills` 中的副本会造成重复加载。
-- dsh：`~/.dsh/skills`（rank 400）与 `~/.agents/skills`（rank 500）按名字去重，先到先得；同名副本在 skm 里记为 shadowed（`Agent.duplicates: "user-dir-first"`），不计加载、不计预算，只出一条 `shadowed` 发现。
-- Vercel `skills` CLI 的 agent → 目录映射表（见 `src/core/agents.ts`）。
+- Pi：`~/.pi/agent/skills` 与 `~/.agents/skills`按名字去重，先到先得；同名副本在 skm 里记为 shadowed（`Agent.duplicates: "user-dir-first"`），不计加载、不计预算，只出一条 `shadowed` 发现。
+- 三个受支持产品的 agent → 目录映射表（见 `src/core/agents.ts`）。
 
 ## 3. 架构
 
@@ -59,7 +59,7 @@ store 扫描 ──┼─► Model(Skill[], Host[], Agent[]) ─► desired(host
 ### 3.1 领域模型（ADT）
 
 ```ts
-type AgentId = 'claude' | 'codex' | 'cursor' | 'gemini' | 'opencode' | 'copilot' | 'windsurf' | ...
+type AgentId = 'claude' | 'codex' | 'pi'
 type Agent = { id: AgentId; name: string; userDir: (home: string) => string; listing: ListingRule }
 type ListingRule =
   | { kind: 'claude'; budgetFraction: number; maxDescChars: number; contextTokens: number }
@@ -107,7 +107,7 @@ hosts:
   mini:      { ssh: mini }
   home-mini: { ssh: home-mini }
   devbox:    { ssh: devbox, agents: [claude, codex] }   # 主机级 agent 列表（默认用全局 agents）
-agents: [claude, codex, cursor, gemini]
+agents: [claude, codex, pi]
 defaults: { hosts: all, agents: all }                   # 未命中规则的 skill 默认去向
 rules:                                                  # 从上到下，后者覆盖前者；glob 匹配 skill 名
   - skills: ["kb-*"]         ; hosts: { except: [devbox] }
@@ -177,7 +177,7 @@ skm eval [--agent claude|codex] [skills...]
 │ Skills (41)   filter: /kb        │ kb-doc                                 │
 │ ▸ kb-doc     desc 312c/78t  body 1.1kt │ 飞书云文档（Docx / Wiki）内容操作… │
 │   kb-drive   desc 288c/70t  body 4.0kt │ files 18  bytes 596K  refs 16      │
-│   acme     desc 1.9kc ⚠   body 12kt ⚠│ ── targets ──  claude codex cursor │
+│   acme     desc 1.9kc ⚠   body 12kt ⚠│ ── targets ──  claude codex pi     │
 │   …                                       │   local        ●      ●      ○     │
 │                                           │   mini         ●      ●      ○     │
 │                                           │   devbox       ○      ○      ○     │

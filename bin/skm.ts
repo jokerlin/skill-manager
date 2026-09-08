@@ -17,7 +17,7 @@ import { runConfigShow, runScope } from "../src/cli/scope";
 const program = new Command();
 program
   .name("skm")
-  .description("skill manager: one store, symlinks into every agent, rsync across machines")
+  .description("skill manager for Claude Code, Codex, and Pi: one store, symlinks, rsync across machines")
   .version("0.1.0")
   .action(async () => {
     const { runTui } = await import("../src/tui/main");

@@ -75,19 +75,19 @@ describe("buildHostView budget", () => {
     const v = buildHostView("h", [agent("claude")], withSettings({ model: "fable" }), 200_000);
     expect(v.budget["claude"]?.usedTokens).toBe(Math.ceil(("alpha".length + 4 + 100) / 3));
   });
-  test("dsh: a ~/.agents copy shadowed by ~/.dsh/skills is not loaded, not budgeted, and surfaces as a `shadowed` finding", () => {
+  test("pi: a ~/.agents copy shadowed by ~/.pi/agent/skills is not loaded, not budgeted, and surfaces as a `shadowed` finding", () => {
     const inv: Inventory = {
       ...emptyInventory("/h"),
-      agentDirs: { dsh: { exists: true, entries: [{ kind: "managed", name: "alpha", direct: true, hash: "H-a" }] } },
-      alsoReads: { dsh: [{ kind: "managed", name: "alpha", direct: true, hash: "H-a" }, { kind: "managed", name: "beta", direct: true, hash: "H-b" }] },
-      alsoDirs: { dsh: { alpha: "/h/.agents/skills", beta: "/h/.agents/skills" } },
+      agentDirs: { pi: { exists: true, entries: [{ kind: "managed", name: "alpha", direct: true, hash: "H-a" }] } },
+      alsoReads: { pi: [{ kind: "managed", name: "alpha", direct: true, hash: "H-a" }, { kind: "managed", name: "beta", direct: true, hash: "H-b" }] },
+      alsoDirs: { pi: { alpha: "/h/.agents/skills", beta: "/h/.agents/skills" } },
       docs: { "H-a": md("alpha", "x".repeat(100)), "H-b": md("beta", "y".repeat(100)) },
     };
-    const v = buildHostView("h", [agent("dsh")], inv, 1_000_000);
-    expect(v.effective["dsh"]?.map((e) => `${e.source.kind}:${e.name}`)).toEqual(["user:alpha", "legacy:beta"]);
-    expect(v.counts["dsh"]).toEqual({ user: 1, legacy: 1, builtin: 0, plugin: 0 });
-    expect(v.budget["dsh"]?.perSkill.map((e) => e.name)).toEqual(["alpha", "beta"]);
-    expect(v.shadowed["dsh"]?.map((x) => x.name)).toEqual(["alpha"]);
-    expect(v.findings).toEqual([{ kind: "shadowed", host: "h", agent: "dsh", names: ["alpha"], differing: [], winner: "/h/.dsh/skills", dir: "/h/.agents/skills" }]);
+    const v = buildHostView("h", [agent("pi")], inv, 1_000_000);
+    expect(v.effective["pi"]?.map((e) => `${e.source.kind}:${e.name}`)).toEqual(["user:alpha", "legacy:beta"]);
+    expect(v.counts["pi"]).toEqual({ user: 1, legacy: 1, builtin: 0, plugin: 0 });
+    expect(v.budget["pi"]?.perSkill.map((e) => e.name)).toEqual(["alpha", "beta"]);
+    expect(v.shadowed["pi"]?.map((x) => x.name)).toEqual(["alpha"]);
+    expect(v.findings).toEqual([{ kind: "shadowed", host: "h", agent: "pi", names: ["alpha"], differing: [], winner: "/h/.pi/agent/skills", dir: "/h/.agents/skills" }]);
   });
 });
