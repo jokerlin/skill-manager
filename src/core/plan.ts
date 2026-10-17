@@ -1,6 +1,7 @@
 import type { Option } from "../lib/result";
 import type { PluginState } from "./effective";
 import type { Entry, Inventory } from "./inventory";
+import { type MarketplaceSource, marketplaceSourceText } from "./sources";
 
 export type Op =
   | { readonly op: "mkdir"; readonly host: string; readonly path: string }
@@ -48,9 +49,9 @@ export type PlanInput = {
   readonly plugins?: readonly PluginCell[];
   readonly pluginStates?: Readonly<Record<string, readonly PluginState[]>>;
   /** agent id → marketplaces configured on this host (name → source) */
-  readonly marketplaces?: Readonly<Record<string, Readonly<Record<string, string>>>>;
-  /** marketplaces the hub knows a source for (name → source) */
-  readonly hubMarketplaces?: Readonly<Record<string, string>>;
+  readonly marketplaces?: Readonly<Record<string, Readonly<Record<string, MarketplaceSource>>>>;
+  /** marketplaces the hub knows a source for (name → source); a local-dir source only works on the hub itself */
+  readonly hubMarketplaces?: Readonly<Record<string, MarketplaceSource>>;
   readonly owned?: readonly OwnedRule[];
   readonly tools?: Readonly<Record<string, string>>;
   readonly excludes?: readonly ExcludeCell[];
@@ -115,8 +116,8 @@ const ownedAdjust = (
   );
 
 const pluginOps = (
-  host: string, cells: readonly PluginCell[], states: Readonly<Record<string, readonly PluginState[]>>,
-  marketplaces: Readonly<Record<string, Readonly<Record<string, string>>>>, hubMarketplaces: Readonly<Record<string, string>>, tools: Readonly<Record<string, string>>,
+  host: string, isLocal: boolean, cells: readonly PluginCell[], states: Readonly<Record<string, readonly PluginState[]>>,
+  marketplaces: Readonly<Record<string, Readonly<Record<string, MarketplaceSource>>>>, hubMarketplaces: Readonly<Record<string, MarketplaceSource>>, tools: Readonly<Record<string, string>>,
 ): Op[] =>
   cells.flatMap((c): Op[] => {
     const id = `${c.name}@${c.marketplace}`;
@@ -130,8 +131,12 @@ const pluginOps = (
       if (!present) {
         const known = marketplaces[c.agent]?.[c.marketplace] !== undefined;
         const source = hubMarketplaces[c.marketplace];
-        if (!known && source === undefined) return [blocked(`marketplace ${c.marketplace} is not configured for ${c.agent} on ${host} and the hub knows no source`)];
-        return [...(known ? [] : [{ op: "marketplace-add", host, agent: c.agent, marketplace: c.marketplace, source: source ?? "" } as const]), { op: "plugin-install", host, agent: c.agent, plugin: id }];
+        const install: Op = { op: "plugin-install", host, agent: c.agent, plugin: id };
+        if (known) return [install];
+        if (source === undefined) return [blocked(`marketplace ${c.marketplace} is not configured for ${c.agent} on ${host} and the hub knows no source`)];
+        // a directory on the hub does not exist on another host; adding it there would only fail
+        if (source.kind === "local-dir" && !isLocal) return [blocked(`marketplace ${c.marketplace} is not configured for ${c.agent} on ${host}; the hub only has it as a local directory (${source.path}), so add it on ${host} by hand`)];
+        return [{ op: "marketplace-add", host, agent: c.agent, marketplace: c.marketplace, source: marketplaceSourceText(source) }, install];
       }
       return enabled === "off" ? [{ op: "plugin-enable", host, agent: c.agent, plugin: id }] : [];
     }
@@ -180,7 +185,7 @@ export const planHost = (input: PlanInput): Op[] => {
     return [...unlinkOps(hostId, a, new Set(wanted), inventory, hubNames), ...linkOps(hostId, a, wanted, inventory)];
   });
 
-  const plugins = pluginOps(hostId, input.plugins ?? [], input.pluginStates ?? {}, input.marketplaces ?? {}, input.hubMarketplaces ?? {}, tools);
+  const plugins = pluginOps(hostId, isLocal, input.plugins ?? [], input.pluginStates ?? {}, input.marketplaces ?? {}, input.hubMarketplaces ?? {}, tools);
 
   const remoteOnly: Op[] = isLocal
     ? []

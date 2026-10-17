@@ -3,7 +3,7 @@ import { type Agent, agentById } from "../core/agents";
 import { type Config, type ConfigError, configErrorText, parseConfig } from "../core/config";
 import type { Skill } from "../core/skill";
 import type { BudgetOverrides } from "../core/budget";
-import { parseClaudeMarketplaces, parseClaudeSettings, parseCodexConfig } from "../core/sources";
+import { type MarketplaceSource, parseClaudeMarketplaces, parseClaudeSettings, parseCodexConfig } from "../core/sources";
 import { type Result, err, ok } from "../lib/result";
 import { expandHome, homeDir, skmHome } from "./paths";
 import { type StoreError, loadStore } from "./store";
@@ -20,7 +20,7 @@ export type AppState = {
   /** overrides read from ~/.claude/settings.json, if any */
   readonly claudeOverrides: BudgetOverrides;
   /** marketplace name → source, from the hub's own claude/codex config (used to add marketplaces on hosts that lack them) */
-  readonly hubMarketplaces: Readonly<Record<string, string>>;
+  readonly hubMarketplaces: Readonly<Record<string, MarketplaceSource>>;
 };
 
 export type AppError =
@@ -52,7 +52,7 @@ export const readClaudeOverrides = async (home: string = homeDir()): Promise<App
 };
 
 /** Marketplaces the hub machine knows, from both agents' config files. Codex entries win on name clashes (they carry full URLs). */
-export const readHubMarketplaces = async (home: string = homeDir()): Promise<Readonly<Record<string, string>>> => {
+export const readHubMarketplaces = async (home: string = homeDir()): Promise<Readonly<Record<string, MarketplaceSource>>> => {
   const claudeText = await readFile(`${home}/.claude/plugins/known_marketplaces.json`, "utf8").catch(() => undefined);
   const codexText = await readFile(`${home}/.codex/config.toml`, "utf8").catch(() => undefined);
   const claude = claudeText === undefined ? undefined : parseClaudeMarketplaces(claudeText);

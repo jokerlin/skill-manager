@@ -4,6 +4,7 @@ import { type HostFacts, type PluginState, effectiveFor, hostFacts, pluginStates
 import { type Inventory, entryHash } from "../core/inventory";
 import { type ExcludeCell, type Op, type OwnedRule, type PluginCell, planHost } from "../core/plan";
 import { desiredFor, selects } from "../core/scope";
+import type { MarketplaceSource } from "../core/sources";
 import type { Skill } from "../core/skill";
 import { type Runner, localRunner, sshRunner } from "./runner";
 import { homeDir } from "./paths";
@@ -52,7 +53,7 @@ export const ownedRules = (c: Config): OwnedRule[] =>
   c.owned.map((o) => ({ skill: o.skill, tool: o.tool, command: o.ensure.some ? o.ensure : defaultEnsure(o.tool, o.skill), fallback: o.fallback, agents: o.agents.some ? o.agents : defaultOwnedAgents(o.tool) }));
 
 /** agent id → marketplaces configured on the host, from the files the probe shipped. */
-export const marketplacesOn = (facts: HostFacts): Record<string, Readonly<Record<string, string>>> => ({ claude: facts.claudeMarketplaces, codex: facts.codex.marketplaces });
+export const marketplacesOn = (facts: HostFacts): Record<string, Readonly<Record<string, MarketplaceSource>>> => ({ claude: facts.claudeMarketplaces, codex: facts.codex.marketplaces });
 
 /**
  * Agents that read another agent's user dir (pi ← ~/.agents/skills, Codex's dir) load whatever lands there.
@@ -80,7 +81,7 @@ export const excludeCellsFor = (
     });
   });
 
-export const planFor = (c: Config, skills: readonly Skill[], h: HostConfig, inv: Inventory, hubMarketplaces: Readonly<Record<string, string>> = {}): Op[] => {
+export const planFor = (c: Config, skills: readonly Skill[], h: HostConfig, inv: Inventory, hubMarketplaces: Readonly<Record<string, MarketplaceSource>> = {}): Op[] => {
   const facts = hostFacts(inv);
   const states = pluginStatesOn(c, h, inv, facts);
   const agents = agentsOn(c, h);

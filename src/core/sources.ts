@@ -103,8 +103,16 @@ export const parseClaudeInstalled = (text: string): Result<ClaudeInstalled, Pars
   );
 };
 
-/** ~/.claude/plugins/known_marketplaces.json → name → source usable by `claude plugin marketplace add`. */
-export const parseClaudeMarketplaces = (text: string): Result<Readonly<Record<string, string>>, ParseError> => {
+/**
+ * Where a marketplace comes from. `portable` (git repo / URL) can be added on any host;
+ * `local-dir` is a directory on the machine whose config named it, meaningless on another host.
+ */
+export type MarketplaceSource = { readonly kind: "portable"; readonly source: string } | { readonly kind: "local-dir"; readonly path: string };
+
+export const marketplaceSourceText = (s: MarketplaceSource): string => (s.kind === "portable" ? s.source : s.path);
+
+/** ~/.claude/plugins/known_marketplaces.json → name → source (`directory` / `file` entries are local dirs). */
+export const parseClaudeMarketplaces = (text: string): Result<Readonly<Record<string, MarketplaceSource>>, ParseError> => {
   const r = json("known_marketplaces.json", text);
   if (!r.ok) return r;
   if (!isRecord(r.value)) return err({ kind: "bad-shape", file: "known_marketplaces.json", message: "not an object" });
@@ -113,8 +121,11 @@ export const parseClaudeMarketplaces = (text: string): Result<Readonly<Record<st
       Object.entries(r.value).flatMap(([name, v]) => {
         const src = isRecord(v) ? v["source"] : undefined;
         if (!isRecord(src)) return [];
-        const s = src["repo"] ?? src["url"] ?? src["path"];
-        return typeof s === "string" ? [[name, s] as const] : [];
+        const local = src["source"] === "directory" || src["source"] === "file";
+        const s = local ? src["path"] : src["repo"] ?? src["url"];
+        if (typeof s !== "string") return [];
+        const source: MarketplaceSource = local ? { kind: "local-dir", path: s } : { kind: "portable", source: s };
+        return [[name, source] as const];
       }),
     ),
   );
@@ -124,7 +135,7 @@ export const parseClaudeMarketplaces = (text: string): Result<Readonly<Record<st
 
 export type CodexConfig = {
   readonly plugins: Readonly<Record<string, boolean>>;        // "name@mk" → enabled
-  readonly marketplaces: Readonly<Record<string, string>>;    // name → source
+  readonly marketplaces: Readonly<Record<string, MarketplaceSource>>; // name → source (`source_type = "local"` ⇒ local dir)
   readonly pluginsFeature: boolean;                            // [features] plugins (default true)
   /** top-level `model` — named in budget notes; skm does not read the model's context window */
   readonly model: Option<string>;
@@ -163,7 +174,10 @@ export const parseCodexConfig = (text: string): Result<CodexConfig, ParseError> 
     ? Object.fromEntries(Object.entries(doc["plugins"]).map(([id, v]) => [id, isRecord(v) && v["enabled"] === false ? false : true] as const))
     : {};
   const marketplaces = isRecord(doc["marketplaces"])
-    ? Object.fromEntries(Object.entries(doc["marketplaces"]).flatMap(([name, v]) => (isRecord(v) && typeof v["source"] === "string" ? [[name, v["source"]] as const] : [])))
+    ? Object.fromEntries(Object.entries(doc["marketplaces"]).flatMap(([name, v]): [string, MarketplaceSource][] => {
+        if (!isRecord(v) || typeof v["source"] !== "string") return [];
+        return [[name, v["source_type"] === "local" ? { kind: "local-dir", path: v["source"] } : { kind: "portable", source: v["source"] }]];
+      }))
     : {};
   const features = doc["features"];
   const pluginsFeature = isRecord(features) && features["plugins"] === false ? false : true;

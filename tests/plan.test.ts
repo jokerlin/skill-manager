@@ -109,10 +109,20 @@ describe("planHost v2: plugins and owned skills", () => {
   test("wanted plugin: install (+marketplace add when unknown but hub knows source), enable when off, nothing when on", () => {
     const cells = [{ agent: "claude", name: "superpowers", marketplace: "mk", wanted: true }, { agent: "codex", name: "superpowers", marketplace: "mk", wanted: true }];
     const ops = planHost({ ...base, desired: {}, inventory: inv(both, { claude: "/bin/claude", codex: "/bin/codex" }), plugins: cells,
-      pluginStates: { claude: [state("claude", "superpowers@mk", "off", "6.3.0")], codex: [] }, marketplaces: { claude: { mk: "x" } }, hubMarketplaces: { mk: "anthropics/x" } });
+      pluginStates: { claude: [state("claude", "superpowers@mk", "off", "6.3.0")], codex: [] }, marketplaces: { claude: { mk: { kind: "portable", source: "x" } } }, hubMarketplaces: { mk: { kind: "portable", source: "anthropics/x" } } });
     expect(kinds(ops)).toEqual(["marketplace-add:codex:mk", "plugin-install:codex:superpowers@mk", "plugin-enable:claude:superpowers@mk"]);
     const quiet = planHost({ ...base, desired: {}, inventory: inv(both, { claude: "/bin/claude" }), plugins: [cells[0]!], pluginStates: { claude: [state("claude", "superpowers@mk", "on", "6.3.0")] } });
     expect(quiet).toEqual([]);
+  });
+  test("a marketplace the hub only has as a local directory is added on the hub itself, blocked on other hosts", () => {
+    const cells = [{ agent: "codex", name: "tc", marketplace: "rt", wanted: true }];
+    const hubMarketplaces = { rt: { kind: "local-dir" as const, path: "/Users/me/.cache/codex-runtimes/rt" } };
+    const args = { ...base, desired: {}, inventory: inv(both, { codex: "/bin/codex" }), plugins: cells, pluginStates: { codex: [] }, hubMarketplaces };
+    expect(planHost(args)).toEqual([{ op: "blocked", host: "mini", agent: "codex", what: "plugin tc@rt", reason: "marketplace rt is not configured for codex on mini; the hub only has it as a local directory (/Users/me/.cache/codex-runtimes/rt), so add it on mini by hand" }]);
+    expect(kinds(planHost({ ...args, hostId: "local", isLocal: true }))).toEqual(["marketplace-add:codex:rt", "plugin-install:codex:tc@rt"]);
+    expect(planHost({ ...args, hostId: "local", isLocal: true })[0]).toMatchObject({ source: "/Users/me/.cache/codex-runtimes/rt" });
+    // configured on the host already: the hub's source does not matter
+    expect(kinds(planHost({ ...args, marketplaces: { codex: { rt: { kind: "local-dir", path: "/elsewhere/rt" } } } }))).toEqual(["plugin-install:codex:tc@rt"]);
   });
   test("blocked when the agent CLI is missing or no marketplace source is known; an on plugin with an empty marketplace is quiet", () => {
     const cells = [{ agent: "claude", name: "p", marketplace: "mk", wanted: true }, { agent: "codex", name: "q", marketplace: "mk2", wanted: true }, { agent: "codex", name: "r", marketplace: "", wanted: true }];

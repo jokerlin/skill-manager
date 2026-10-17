@@ -113,7 +113,7 @@ Pi 也读 Codex 的 `~/.agents/skills`，所以只给 Codex 的 skill 会被 Pi 
 - `stale-cache` / `disabled-cached` / `unloaded-cache`：plugin 缓存里有未生效的旧版本 / 配置里明确关掉但仍占磁盘 / 配置里根本没提（Codex：config.toml 没有 `[plugins."id"]`，多半 marketplace 也没配；Claude：不在 `enabledPlugins` 也不在 `installed_plugins.json`），agent 从不加载的纯缓存残留，例如 Codex 桌面端遗留的 openai-templates、gmail、finances。
 - `version-drift`：同一 plugin 在不同 主机×agent 生效版本不一致。
 
-期望状态扩展到 plugin 与 owner 自带 skill 之后，`plan/sync` 多了几类不搬文件的 op：`marketplace-add`、`plugin-install`、`plugin-enable`、`plugin-disable`（走 `claude plugin …` / `codex plugin …`，Codex 没有 enable/disable 子命令时直接改 `config.toml` 的 `enabled`）、`owned-ensure`（调 owner CLI 安装）；主机上找不到对应 CLI 时给出 `blocked`，不会退化成拷文件。备份范围同时包含 `~/.claude/settings.json`、`~/.claude/plugins/installed_plugins.json`、`~/.codex/config.toml`。
+期望状态扩展到 plugin 与 owner 自带 skill 之后，`plan/sync` 多了几类不搬文件的 op：`marketplace-add`、`plugin-install`、`plugin-enable`、`plugin-disable`（走 `claude plugin …` / `codex plugin …`，Codex 没有 enable/disable 子命令时直接改 `config.toml` 的 `enabled`）、`owned-ensure`（调 owner CLI 安装）；主机上找不到对应 CLI 时给出 `blocked`，不会退化成拷文件。主机缺 marketplace 时，`marketplace-add` 用 hub 配置里的来源；若 hub 上它只是本地目录（Codex `source_type = "local"`、Claude `directory` / `file`，如 Codex 桌面端的 `openai-primary-runtime`），对其他主机给出 `blocked`，需要在该机手动添加，或用 `hosts` 选择器排除该机。备份范围同时包含 `~/.claude/settings.json`、`~/.claude/plugins/installed_plugins.json`、`~/.codex/config.toml`。
 
 ## 上下文占用怎么算
 

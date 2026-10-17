@@ -44,7 +44,7 @@ describe("claude files", () => {
   });
   test("known_marketplaces.json sources", () => {
     const r = parseClaudeMarketplaces(JSON.stringify({ "claude-plugins-official": { source: { source: "github", repo: "anthropics/claude-plugins-official" } }, local: { source: { source: "directory", path: "/tmp/mk" } }, junk: 1 }));
-    expect(r.ok && r.value).toEqual({ "claude-plugins-official": "anthropics/claude-plugins-official", local: "/tmp/mk" });
+    expect(r.ok && r.value).toEqual({ "claude-plugins-official": { kind: "portable", source: "anthropics/claude-plugins-official" }, local: { kind: "local-dir", path: "/tmp/mk" } });
   });
 });
 
@@ -56,6 +56,9 @@ plugins = true
 [marketplaces.claude-plugins-official]
 source_type = "git"
 source = "https://github.com/anthropics/claude-plugins-official.git"
+[marketplaces.openai-primary-runtime]
+source_type = "local"
+source = "/Users/me/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime"
 [plugins."superpowers@claude-plugins-official"]
 enabled = true
 [plugins."documents@openai-primary-runtime"]
@@ -68,7 +71,10 @@ mcp_servers = {}
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.value.plugins).toEqual({ "superpowers@claude-plugins-official": true, "documents@openai-primary-runtime": false, "implicit@x": true });
-    expect(r.value.marketplaces).toEqual({ "claude-plugins-official": "https://github.com/anthropics/claude-plugins-official.git" });
+    expect(r.value.marketplaces).toEqual({
+      "claude-plugins-official": { kind: "portable", source: "https://github.com/anthropics/claude-plugins-official.git" },
+      "openai-primary-runtime": { kind: "local-dir", path: "/Users/me/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime" },
+    });
     expect(r.value.pluginsFeature).toBe(true);
     expect(r.value.model).toEqual({ some: true, value: "gpt-6" });
     expect(r.value.skillsMaxContextTokens.some).toBe(false);
