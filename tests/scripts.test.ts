@@ -223,3 +223,46 @@ describe("commandsScript: codex config.toml switch + per-op ok/fail lines", () =
     expect(await Bun.file(join(home, ".codex/config.toml")).text()).toBe(text);
   });
 });
+
+describe("commandsScript: pi settings.json skills exclusions", () => {
+  test("add keeps other keys and entries, is idempotent, remove drops the array when emptied; a missing file is created", async () => {
+    const { commandsScript, parseCommandOutput } = await import("../src/core/scripts");
+    const home = mkdtempSync(join(SCRATCH, "skm-pi-"));
+    try {
+      mkdirSync(join(home, ".pi/agent"), { recursive: true });
+      const f = join(home, ".pi/agent/settings.json");
+      writeFileSync(f, JSON.stringify({ theme: "light", skills: ["~/.agents/skills/acme"] }, null, 2));
+      const add = commandsScript([{ op: "exclude", host: "h", agent: "pi", skill: "humanizer" }]);
+      const r1 = await sh(add, home);
+      expect(parseCommandOutput(r1.out)).toEqual([{ label: "pi: exclude humanizer", ok: true, detail: "" }]);
+      const text = await Bun.file(f).text();
+      expect(JSON.parse(text)).toEqual({ theme: "light", skills: ["~/.agents/skills/acme", "-skills/humanizer"] });
+      expect(text).toBe(JSON.stringify(JSON.parse(text), null, 2));
+      await sh(add, home);
+      expect(await Bun.file(f).text()).toBe(text);
+      await sh(commandsScript([{ op: "unexclude", host: "h", agent: "pi", skill: "humanizer" }]), home);
+      expect(JSON.parse(await Bun.file(f).text())).toEqual({ theme: "light", skills: ["~/.agents/skills/acme"] });
+      writeFileSync(f, JSON.stringify({ skills: ["-skills/humanizer"] }));
+      await sh(commandsScript([{ op: "unexclude", host: "h", agent: "pi", skill: "humanizer" }]), home);
+      expect(JSON.parse(await Bun.file(f).text())).toEqual({});
+      rmSync(join(home, ".pi"), { recursive: true });
+      await sh(add, home);
+      expect(JSON.parse(await Bun.file(f).text())).toEqual({ skills: ["-skills/humanizer"] });
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+  test("a settings file that is not a JSON object fails that op and is left as it was", async () => {
+    const { commandsScript, parseCommandOutput } = await import("../src/core/scripts");
+    const home = mkdtempSync(join(SCRATCH, "skm-pi-"));
+    try {
+      mkdirSync(join(home, ".pi/agent"), { recursive: true });
+      writeFileSync(join(home, ".pi/agent/settings.json"), "[1]");
+      const r = await sh(commandsScript([{ op: "exclude", host: "h", agent: "pi", skill: "x" }]), home);
+      expect(parseCommandOutput(r.out).map((c) => c.ok)).toEqual([false]);
+      expect(await Bun.file(join(home, ".pi/agent/settings.json")).text()).toBe("[1]");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+});

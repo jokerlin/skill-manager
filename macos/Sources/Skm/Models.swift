@@ -197,7 +197,7 @@ struct ConfigSummary: Codable {
 }
 
 /// Ops that change a host: file ops plus the v2 plugin / owner-CLI commands. Everything else is a report.
-let mutationOps: Set<String> = ["mkdir", "rsync-skill", "link", "unlink", "marketplace-add", "plugin-install", "plugin-enable", "plugin-disable", "owned-ensure"]
+let mutationOps: Set<String> = ["mkdir", "rsync-skill", "link", "unlink", "marketplace-add", "plugin-install", "plugin-enable", "plugin-disable", "owned-ensure", "exclude", "unexclude"]
 
 /// One row of the skills catalog: the union of the hub store and everything any agent on any host actually loads.
 struct CatalogItem: Identifiable, Hashable {

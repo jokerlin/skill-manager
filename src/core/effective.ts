@@ -24,6 +24,7 @@ import {
   parseClaudeSettings,
   parseCodexConfig,
   parseErrorText,
+  parsePiSettings,
 } from "./sources";
 
 /**
@@ -43,6 +44,8 @@ export type HostFacts = {
   readonly codexModels: CodexModels;
   readonly locks: Locks;
   readonly acmeVersions: Readonly<Record<string, string>>;
+  /** agent id → skill names its settings force-exclude (pi: `-skills/<name>` in ~/.pi/agent/settings.json); the agent skips them in every dir it scans */
+  readonly excluded: Readonly<Record<string, ReadonlySet<string>>>;
   readonly errors: readonly string[];
 };
 
@@ -76,6 +79,7 @@ export const hostFacts = (inv: Inventory): HostFacts => {
     codexModels: use("codex-models", parseCodexModels, {}),
     locks: { acme: new Set(Object.keys(acme)), skillsCli: new Set(Object.keys(agentsLock)) },
     acmeVersions: acme,
+    excluded: { pi: use("pi-settings", parsePiSettings, new Set<string>()) },
     errors,
   };
 };
@@ -233,11 +237,13 @@ const partition = <T>(xs: readonly T[], keep: (x: T) => boolean): [T[], T[]] =>
 /** What `agent` loads on this host (source order, then name) and the alsoReads copies it skips. Pure. */
 export const loadedFor = (inv: Inventory, facts: HostFacts, agent: Agent): { readonly loaded: Effective[]; readonly shadowed: Shadowed[] } => {
   const home = inv.home;
-  const user = (inv.agentDirs[agent.id]?.entries ?? []).flatMap((e) => {
+  const excluded = facts.excluded[agent.id] ?? new Set<string>();
+  const kept = (es: readonly Entry[]): Entry[] => es.filter((e) => !excluded.has(e.name));
+  const user = kept(inv.agentDirs[agent.id]?.entries ?? []).flatMap((e) => {
     const x = fromEntry(inv, facts, agent.id, e, `${agent.userDir(home)}/${e.name}`, { kind: "user" });
     return x ? [x] : [];
   });
-  const alsoRead = (inv.alsoReads[agent.id] ?? []).flatMap((e) => {
+  const alsoRead = kept(inv.alsoReads[agent.id] ?? []).flatMap((e) => {
     const dir = inv.alsoDirs[agent.id]?.[e.name] ?? agent.alsoReads[0]?.(home) ?? "";
     const x = fromEntry(inv, facts, agent.id, e, `${dir}/${e.name}`, { kind: "legacy", dir });
     return x ? [x] : [];
