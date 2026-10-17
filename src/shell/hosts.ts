@@ -1,8 +1,8 @@
 import { type Agent, agentById } from "../core/agents";
 import { type Config, type HostConfig, PLUGIN_AGENTS, defaultEnsure, defaultOwnedAgents, hostAgents, marketplaceFor } from "../core/config";
 import { type HostFacts, type PluginState, effectiveFor, hostFacts, pluginStates } from "../core/effective";
-import { type Inventory } from "../core/inventory";
-import { type Op, type OwnedRule, type PluginCell, planHost } from "../core/plan";
+import { type Inventory, entryHash } from "../core/inventory";
+import { type ExcludeCell, type Op, type OwnedRule, type PluginCell, planHost } from "../core/plan";
 import { desiredFor, selects } from "../core/scope";
 import type { Skill } from "../core/skill";
 import { type Runner, localRunner, sshRunner } from "./runner";
@@ -54,6 +54,32 @@ export const ownedRules = (c: Config): OwnedRule[] =>
 /** agent id → marketplaces configured on the host, from the files the probe shipped. */
 export const marketplacesOn = (facts: HostFacts): Record<string, Readonly<Record<string, string>>> => ({ claude: facts.claudeMarketplaces, codex: facts.codex.marketplaces });
 
+/**
+ * Agents that read another agent's user dir (pi ← ~/.agents/skills, Codex's dir) load whatever lands there.
+ * A managed skill that will sit there after this sync, and is not wanted for the reader, gets excluded in the reader's settings;
+ * a skm-form exclusion of a managed skill that no longer applies is removed. Exclusions of other names are the user's and stay untouched.
+ */
+export const excludeCellsFor = (
+  agents: readonly Agent[], desired: Readonly<Record<string, readonly string[]>>, inv: Inventory, facts: HostFacts, hubNames: ReadonlySet<string>, managed: readonly string[],
+): ExcludeCell[] =>
+  agents.flatMap((a) => {
+    if (a.excludes === undefined) return [];
+    const now = facts.excluded[a.id] ?? new Set<string>();
+    const shared = a.alsoReads.map((f) => f(inv.home));
+    const writers = agents.filter((w) => w.id !== a.id && shared.includes(w.userDir(inv.home)));
+    const writerDir = (dir: string): boolean => writers.some((w) => w.userDir(inv.home) === dir);
+    // an entry stays unless it is a store link skm is about to unlink from a writer's dir; entries without SKILL.md never load
+    const stays = (name: string): boolean =>
+      (inv.alsoReads[a.id] ?? []).some((e) => e.name === name && entryHash(e) !== ""
+        && !(e.kind === "managed" && hubNames.has(name) && writerDir(inv.alsoDirs[a.id]?.[name] ?? shared[0] ?? "") && !writers.some((w) => (desired[w.id] ?? []).includes(name))));
+    const lands = (name: string): boolean => writers.some((w) => (desired[w.id] ?? []).includes(name)) || stays(name);
+    return [...new Set(managed)].sort().flatMap((skill): ExcludeCell[] => {
+      const wanted = !(desired[a.id] ?? []).includes(skill) && lands(skill);
+      const present = now.has(skill);
+      return wanted || present ? [{ agent: a.id, skill, wanted, present }] : [];
+    });
+  });
+
 export const planFor = (c: Config, skills: readonly Skill[], h: HostConfig, inv: Inventory, hubMarketplaces: Readonly<Record<string, string>> = {}): Op[] => {
   const facts = hostFacts(inv);
   const states = pluginStatesOn(c, h, inv, facts);
@@ -88,6 +114,7 @@ export const planFor = (c: Config, skills: readonly Skill[], h: HostConfig, inv:
     hubMarketplaces,
     owned,
     tools: inv.tools,
+    excludes: excludeCellsFor(agents, desired, inv, facts, new Set(skills.map((s) => s.name)), [...skills.map((s) => s.name), ...c.owned.map((o) => o.skill)]),
   });
 };
 
@@ -99,4 +126,5 @@ export const backupPathsFor = (h: HostConfig, agents: readonly Agent[]): string[
   // v2: the plugin switches sync may flip
   ...(agents.some((a) => a.id === "claude") ? ["~/.claude/settings.json", "~/.claude/plugins/installed_plugins.json"] : []),
   ...(agents.some((a) => a.id === "codex") ? ["~/.codex/config.toml"] : []),
+  ...agents.flatMap((a) => (a.excludes ? [a.excludes.file("~")] : [])),
 ];

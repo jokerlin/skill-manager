@@ -71,6 +71,8 @@ backupBeforeApply: true
 
 目标矩阵显示启用与实际加载状态：`✓` 表示已加载，绿色表示符合目标；橙色表示待加载或当前仍会加载但目标未启用。真实目录、store 链接、共享目录均使用同样的状态标记，悬停桌面端单元格可查看存储方式和来源路径。Pi 从 CLI 自己维护的共享目录加载 acme 时，用 `skm scope acme local/pi on` 启用目标即可；同步会保留该机 CLI 的版本。
 
+Pi 也读 Codex 的 `~/.agents/skills`，所以只给 Codex 的 skill 会被 Pi 一起加载。sync 处理这种情况：同步后会出现在 `~/.agents/skills`、但 Pi 不在目标里的 store / owned skill，会在该机 `~/.pi/agent/settings.json` 的 `skills` 数组写入 `-skills/<name>`（`pi: exclude <name>`）。Pi 重新成为目标，或 skill 离开该目录时，sync 删除这条排除项（`pi: unexclude <name>`）。skm 只管这种精确写法、且名字属于 store 或 owned 的条目；其他条目（glob、`!pattern`、手写的其他名字）不动。编辑用主机上的 node 完成，找不到 node 时显示为 blocked。
+
 ## 命令
 
 | 命令 | 作用 |
@@ -97,6 +99,7 @@ backupBeforeApply: true
 |---|---|---|---|---|
 | 用户目录 | `~/.claude/skills` | `~/.agents/skills` | `~/.pi/agent/skills` | skm（软链）、acme / skills-cli（真实目录）、manual |
 | 旧目录 / 兼容目录 | — | `~/.codex/skills` | Pi 还读 `~/.agents/skills`（同名以 `~/.pi/agent/skills` 为准，另一份被遮蔽、不加载） | 同上 |
+| 设置排除 | — | — | `~/.pi/agent/settings.json` 的 `skills` 里写 `-skills/<name>`，Pi 在两个目录都跳过该 skill | skm（sync 维护） |
 | 内置 | — | `~/.codex/skills/.system` | — | codex-builtin |
 | plugin 缓存 | `~/.claude/plugins/cache/<mk>/<plugin>/<ver>/skills/*`，启用状态看 `settings.json` `enabledPlugins`，生效版本看 `installed_plugins.json` | `~/.codex/plugins/cache/...`，`config.toml` `[plugins."name@mk"] enabled`；缓存了但没写 config 的 Codex 不会加载，不计入（2026-09-06 用真实会话核对） | — | claude-plugins / codex-plugins |
 

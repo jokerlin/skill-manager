@@ -56,6 +56,59 @@ describe("CLI-owned skills loaded through a shared directory", () => {
   });
 });
 
+describe("pi exclusions for skills that land in the shared ~/.agents/skills", () => {
+  const parsed = parseConfig(`agents: [claude, codex, pi]\nhosts: { local: {}, mini: { ssh: mini } }\nrules:\n  - { skills: [solo], agents: { only: [codex] } }\n  - { skills: [gone], agents: { only: [claude] } }`);
+  if (!parsed.ok) throw new Error("invalid fixture");
+  const c = parsed.value;
+  const host = c.hosts[1]!;
+  const skills = ["both", "solo", "gone"].map((n) => buildSkill(n, `/store/${n}`, skillMd(n), []));
+  const link = (name: string) => ({ kind: "managed" as const, name, direct: true, hash: `H-${name}` });
+  const base: Inventory = {
+    ...emptyInventory("/h"),
+    storeSkills: skills.map((s) => ({ name: s.name, hash: s.contentHash })),
+    agentDirs: {
+      claude: { exists: true, entries: [link("both"), link("gone")] },
+      codex: { exists: true, entries: [link("both"), link("solo")] },
+      pi: { exists: true, entries: [link("both")] },
+    },
+    alsoReads: { pi: [link("both"), link("solo")] },
+    alsoDirs: { pi: { both: "/h/.agents/skills", solo: "/h/.agents/skills" } },
+    tools: { node: "/bin/node" },
+    docs: Object.fromEntries(["both", "solo", "gone"].map((n) => [`H-${n}`, skillMd(n)])),
+  };
+  const piSettings = (skills: string[]) => ({ "pi-settings": JSON.stringify({ theme: "light", skills }) });
+  const excl = (inv: Inventory) => planFor(c, skills, host, inv).filter((o) => o.op === "exclude" || o.op === "unexclude" || o.op === "blocked");
+
+  test("a codex-only skill linked in ~/.agents/skills is excluded for pi; nothing else is touched", () => {
+    expect(excl(base)).toEqual([{ op: "exclude", host: "mini", agent: "pi", skill: "solo" }]);
+  });
+  test("a codex-only skill this sync is about to link is excluded in the same sync", () => {
+    const fresh: Inventory = { ...base, agentDirs: { ...base.agentDirs, codex: { exists: true, entries: [link("both")] } }, alsoReads: { pi: [link("both")] } };
+    const ops = planFor(c, skills, host, fresh);
+    expect(ops).toContainEqual({ op: "link", host: "mini", agent: "codex", skill: "solo" });
+    expect(ops).toContainEqual({ op: "exclude", host: "mini", agent: "pi", skill: "solo" });
+  });
+  test("already excluded ⇒ no op; skm-form exclusions of managed skills that no longer apply are removed; the user's own entries stay", () => {
+    expect(excl({ ...base, files: piSettings(["-skills/solo", "-skills/mine", "~/.agents/skills/x"]) })).toEqual([]);
+    // both: pi wants it again; gone: claude-only, never lands in ~/.agents/skills
+    expect(excl({ ...base, files: piSettings(["-skills/solo", "-skills/both", "-skills/gone", "-skills/mine"]) })).toEqual([
+      { op: "unexclude", host: "mini", agent: "pi", skill: "both" },
+      { op: "unexclude", host: "mini", agent: "pi", skill: "gone" },
+    ]);
+  });
+  test("a store link codex no longer wants is unlinked this sync, so its exclusion goes with it", () => {
+    const stale: Inventory = { ...base, agentDirs: { ...base.agentDirs, codex: { exists: true, entries: [link("both"), link("solo"), link("gone")] } }, alsoReads: { pi: [link("both"), link("solo"), link("gone")] }, alsoDirs: { pi: { ...base.alsoDirs["pi"], gone: "/h/.agents/skills" } }, files: piSettings(["-skills/solo", "-skills/gone"]) };
+    const ops = planFor(c, skills, host, stale);
+    expect(ops).toContainEqual({ op: "unlink", host: "mini", agent: "codex", skill: "gone" });
+    expect(excl(stale)).toEqual([{ op: "unexclude", host: "mini", agent: "pi", skill: "gone" }]);
+  });
+  test("a real dir someone else wrote into ~/.agents/skills stays, so it stays excluded; without node the edit is blocked", () => {
+    const real: Inventory = { ...base, agentDirs: { ...base.agentDirs, codex: { exists: true, entries: [link("both"), { kind: "dir", name: "gone", hash: "H-gone" }, link("solo")] } }, alsoReads: { pi: [link("both"), link("solo"), { kind: "dir", name: "gone", hash: "H-gone" }] }, alsoDirs: { pi: { ...base.alsoDirs["pi"], gone: "/h/.agents/skills" } } };
+    expect(excl(real).map((o) => (o.op === "exclude" ? o.skill : o.op))).toEqual(["gone", "solo"]);
+    expect(excl({ ...base, tools: {} })).toEqual([{ op: "blocked", host: "mini", agent: "pi", what: "exclude solo", reason: "node not found on mini; cannot edit pi settings" }]);
+  });
+});
+
 describe("supported product agents", () => {
   test("old config cannot add unsupported columns, probe dirs, or sync targets", async () => {
     const skm = mkdtempSync(join(SCRATCH, "skm-agents-"));
@@ -74,7 +127,7 @@ describe("supported product agents", () => {
       if (!inv.ok) throw new Error(JSON.stringify(inv.error));
       const ops = planFor(app.config, app.skills, h, inv.value);
       expect(ops.filter(o => o.op === "link").map(o => o.agent)).toEqual(["pi"]);
-      expect(backupPathsFor(h, agentsOn(app.config, h))).toEqual(["~/.skm/skills", "~/.pi/agent/skills", "~/.agents/skills"]);
+      expect(backupPathsFor(h, agentsOn(app.config, h))).toEqual(["~/.skm/skills", "~/.pi/agent/skills", "~/.agents/skills", "~/.pi/agent/settings.json"]);
     } finally {
       rmSync(skm, { recursive: true, force: true });
     }

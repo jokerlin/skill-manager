@@ -198,6 +198,22 @@ export const parseAgentsLock = (text: string): Result<Readonly<Record<string, st
   return ok(Object.fromEntries(Object.entries(skills).map(([name, v]) => [name, isRecord(v) && typeof v["source"] === "string" ? v["source"] : ""] as const)));
 };
 
+/**
+ * ~/.pi/agent/settings.json `skills` → names force-excluded by skm's exact form (`-skills/<name>`, see agents.excludePattern).
+ * Other entries (globs, `!pattern`, absolute paths) are left to pi and not modelled.
+ */
+export const parsePiSettings = (text: string): Result<ReadonlySet<string>, ParseError> => {
+  const r = json("settings.json", text.replace(/^﻿/, ""));
+  if (!r.ok) return r;
+  if (!isRecord(r.value)) return err({ kind: "bad-shape", file: "settings.json", message: "not an object" });
+  const skills = r.value["skills"];
+  if (!Array.isArray(skills)) return ok(new Set());
+  return ok(new Set(skills.flatMap((s) => {
+    const m = typeof s === "string" ? /^-(?:\.\/)?skills\/([^/]+)(?:\/SKILL\.md)?$/.exec(s) : null;
+    return m?.[1] ? [m[1]] : [];
+  })));
+};
+
 // ---------- helpers ----------
 
 const NUMERIC = /^\d+(\.\d+)*$/;

@@ -24,6 +24,11 @@ export type Agent = {
   readonly plugins?: { readonly cache: (home: string) => string };
   /** Directory of vendor-shipped skills the agent always loads (e.g. ~/.codex/skills/.system). */
   readonly builtinDir?: (home: string) => string;
+  /**
+   * Settings file whose `skills` array can switch off a skill the agent auto-discovers (`fileId` = the probe file id).
+   * Lets a shared dir (~/.agents/skills) feed one agent and not another: skm writes `excludePattern(name)` there.
+   */
+  readonly excludes?: { readonly fileId: string; readonly file: (home: string) => string };
 };
 
 const under = (rel: string) => (home: string) => `${home}/${rel}`;
@@ -54,8 +59,13 @@ export const AGENTS: readonly Agent[] = [
     listing: { kind: "plain" },
     alsoReads: [under(".agents/skills")], // pi ≥0.8x also scans the shared Codex dir; nested SKILL.md only, root .md files ignored there
     duplicates: "user-dir-first", // loadSkills() keeps the first copy by name (user dir loads first) and reports the other as a "collision" at startup
+    // pi ≥0.87 package-manager isEnabledByOverrides: a `-path` entry force-excludes an exact path, relative to ~/.agents for that dir and ~/.pi/agent for the user dir
+    excludes: { fileId: "pi-settings", file: under(".pi/agent/settings.json") },
   },
 ];
+
+/** The `skills` entry that force-excludes one skill by name; `skills/<name>` matches in ~/.agents/skills and ~/.pi/agent/skills alike, on any $HOME. */
+export const excludePattern = (name: string): string => `-skills/${name}`;
 
 export const agentById = (id: string): Option<Agent> => {
   const a = AGENTS.find((x) => x.id === id);

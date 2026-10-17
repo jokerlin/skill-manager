@@ -1,4 +1,5 @@
 import { shQuote } from "../lib/sh";
+import { agentById, excludePattern } from "./agents";
 import type { Op } from "./plan";
 
 /**
@@ -35,6 +36,7 @@ export const PROBE_FILES: Readonly<Record<string, string>> = {
   "codex-models": "~/.codex/models_cache.json",
   "acme-lock": "~/.local/share/acme/data/skill-lock.json",
   "agents-lock": "~/.agents/.skill-lock.json",
+  "pi-settings": "~/.pi/agent/settings.json",
 };
 
 /** Commands preferred over the file of the same id: Codex renders its model catalog on any host with the CLI, models_cache.json is only a sometimes-present cache. */
@@ -42,7 +44,7 @@ export const PROBE_COMMANDS: Readonly<Record<string, string>> = {
   "codex-models": "codex debug models",
 };
 
-export const PROBE_TOOLS: readonly string[] = ["claude", "codex", "acme"];
+export const PROBE_TOOLS: readonly string[] = ["claude", "codex", "acme", "node"];
 
 /**
  * Emits TSV (see inventory.parseProbeOutput):
@@ -147,6 +149,8 @@ const opLine = (a: ApplyArgs, o: Op): string[] => {
     case "plugin-enable":
     case "plugin-disable":
     case "owned-ensure":
+    case "exclude":
+    case "unexclude":
       return []; // command ops run in commandsScript, after apply.sh
   }
 };
@@ -167,6 +171,10 @@ export const commandLabel = (o: Op): string => {
       return `${o.agent}: plugin disable ${o.plugin}`;
     case "owned-ensure":
       return `${o.tool}: ensure ${o.skill}`;
+    case "exclude":
+      return `${o.agent}: exclude ${o.skill}`;
+    case "unexclude":
+      return `${o.agent}: unexclude ${o.skill}`;
     case "mkdir":
     case "rsync-skill":
     case "link":
@@ -193,6 +201,12 @@ const commandArgv = (o: Op): string | undefined => {
       return o.agent === "claude" ? `claude plugin disable ${shQuote(o.plugin)}` : o.agent === "codex" ? `codex_set ${shQuote(o.plugin)} false` : undefined;
     case "owned-ensure":
       return `sh -c ${shQuote(o.command)}`;
+    case "exclude":
+    case "unexclude": {
+      const a = agentById(o.agent);
+      const ex = a.some ? a.value.excludes : undefined;
+      return ex === undefined ? undefined : `skills_exclude ${o.op === "exclude" ? "add" : "remove"} ${shPath(ex.file("~"))} ${shQuote(excludePattern(o.skill))}`;
+    }
     case "mkdir":
     case "rsync-skill":
     case "link":
@@ -213,6 +227,22 @@ export const CODEX_SET_FN = [
 ].join("\n");
 
 /**
+ * Shell function that adds / removes one exact entry in a JSON settings file's `skills` array (pi's ~/.pi/agent/settings.json).
+ * Other keys and entries are kept; an emptied array is dropped; written as pi writes it (2-space JSON) via tmp + rename.
+ */
+export const SKILLS_EXCLUDE_FN = [
+  `skills_exclude() { node -e '`,
+  `const fs = require("fs"), path = require("path"); const [mode, f, pat] = process.argv.slice(1);`,
+  `const text = fs.existsSync(f) ? fs.readFileSync(f, "utf8").replace(/^\uFEFF/, "") : "{}";`,
+  `const j = JSON.parse(text); if (typeof j !== "object" || j === null || Array.isArray(j)) throw new Error(f + ": not a JSON object");`,
+  `const xs = Array.isArray(j.skills) ? j.skills : []; const has = xs.includes(pat);`,
+  `if (mode === "add" ? has : !has) process.exit(0);`,
+  `const ys = mode === "add" ? [...xs, pat] : xs.filter((x) => x !== pat); if (ys.length > 0) j.skills = ys; else delete j.skills;`,
+  `fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f + ".skm.tmp", JSON.stringify(j, null, 2)); fs.renameSync(f + ".skm.tmp", f);`,
+  `' -- "$@"; }`,
+].join("\n");
+
+/**
  * Runs every command op through the owning CLI on the host. Each op prints `ok<TAB>label` or
  * `fail<TAB>label<TAB>last lines`; one failure never stops the others. stdin is /dev/null so CLIs cannot eat the script.
  */
@@ -222,6 +252,7 @@ export const commandsScript = (ops: readonly Op[]): string =>
     "set -u",
     HOST_PATH,
     CODEX_SET_FN,
+    SKILLS_EXCLUDE_FN,
     `TMP=$(mktemp)`,
     `run() { label=$1; shift; if "$@" </dev/null >"$TMP" 2>&1; then printf 'ok\\t%s\\n' "$label"; else printf 'fail\\t%s\\t%s\\n' "$label" "$(tail -n 3 "$TMP" | tr '\\n\\t' '  ')"; fi; }`,
     ...ops.flatMap((o) => { const argv = commandArgv(o); return argv === undefined ? [] : [`run ${shQuote(commandLabel(o))} ${argv}`]; }),

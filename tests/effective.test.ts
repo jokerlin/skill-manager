@@ -216,3 +216,25 @@ describe("effectiveFor: agents that dedupe by name (pi: ~/.pi/agent/skills wins 
     expect(hostFindings("local", { codex: es2 }, {}, { codex: [] }).map((x) => x.kind)).toEqual(["linked-twice"]);
   });
 });
+
+describe("effectiveFor: skills pi's settings force-exclude", () => {
+  test("`-skills/<name>` drops the name from both dirs pi scans; codex, reading the same dir, still loads it", () => {
+    const base: Inventory = {
+      ...emptyInventory("/h"),
+      agentDirs: { pi: { exists: true, entries: [{ kind: "managed", name: "check", direct: true, hash: "H-check" }] }, codex: { exists: true, entries: [{ kind: "managed", name: "solo", direct: true, hash: "H-solo" }] } },
+      alsoReads: { pi: [{ kind: "managed", name: "solo", direct: true, hash: "H-solo" }, { kind: "managed", name: "learn", direct: true, hash: "H-learn" }] },
+      alsoDirs: { pi: { solo: "/h/.agents/skills", learn: "/h/.agents/skills" } },
+      files: { "pi-settings": JSON.stringify({ skills: ["~/.agents/skills/learn", "-skills/solo", "-skills/check/SKILL.md", "!skills/learn*"] }) },
+      docs: { "H-check": md("check"), "H-solo": md("solo"), "H-learn": md("learn") },
+    };
+    const f = hostFacts(base);
+    expect([...(f.excluded["pi"] ?? [])].sort()).toEqual(["check", "solo"]);
+    expect(effectiveFor(base, f, agent("pi")).map((e) => e.name)).toEqual(["learn"]);
+    expect(effectiveFor(base, f, agent("codex")).map((e) => e.name)).toEqual(["solo"]);
+  });
+  test("a broken settings file is an error, not a crash, and excludes nothing", () => {
+    const f = hostFacts({ ...emptyInventory("/h"), files: { "pi-settings": "{nope" } });
+    expect(f.errors.some((e) => e.startsWith("pi-settings:"))).toBe(true);
+    expect(f.excluded["pi"]?.size).toBe(0);
+  });
+});

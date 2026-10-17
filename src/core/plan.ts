@@ -15,10 +15,16 @@ export type Op =
   | { readonly op: "plugin-enable"; readonly host: string; readonly agent: string; readonly plugin: string }
   | { readonly op: "plugin-disable"; readonly host: string; readonly agent: string; readonly plugin: string }
   | { readonly op: "owned-ensure"; readonly host: string; readonly skill: string; readonly tool: string; readonly command: string }
+  // an agent that reads another agent's dir (pi ← ~/.agents/skills) switches a skill off / back on in its own settings
+  | { readonly op: "exclude"; readonly host: string; readonly agent: string; readonly skill: string }
+  | { readonly op: "unexclude"; readonly host: string; readonly agent: string; readonly skill: string }
   | { readonly op: "blocked"; readonly host: string; readonly agent: string; readonly what: string; readonly reason: string };
 
 /** One plugin's desired state for one agent on this host (marketplace resolved by the shell). */
 export type PluginCell = { readonly agent: string; readonly name: string; readonly marketplace: string; readonly wanted: boolean };
+
+/** One skill's exclusion state in an agent's settings on this host: `wanted` = it should be excluded, `present` = it is now. */
+export type ExcludeCell = { readonly agent: string; readonly skill: string; readonly wanted: boolean; readonly present: boolean };
 
 /** A CLI-owned skill as it applies to this host. */
 export type OwnedRule = {
@@ -47,12 +53,13 @@ export type PlanInput = {
   readonly hubMarketplaces?: Readonly<Record<string, string>>;
   readonly owned?: readonly OwnedRule[];
   readonly tools?: Readonly<Record<string, string>>;
+  readonly excludes?: readonly ExcludeCell[];
 };
 
 const ORDER: Record<Op["op"], number> = {
   mkdir: 0, "rsync-skill": 1, unlink: 2, link: 3,
-  "marketplace-add": 4, "plugin-install": 5, "plugin-enable": 6, "plugin-disable": 7, "owned-ensure": 8,
-  conflict: 9, blocked: 10, "remote-only": 11,
+  "marketplace-add": 4, "plugin-install": 5, "plugin-enable": 6, "plugin-disable": 7, "owned-ensure": 8, exclude: 9, unexclude: 10,
+  conflict: 11, blocked: 12, "remote-only": 13,
 };
 
 const entryFor = (inv: Inventory, agent: string, skill: string): Entry | undefined =>
@@ -133,6 +140,17 @@ const pluginOps = (
     return [{ op: "plugin-disable", host, agent: c.agent, plugin: id }];
   });
 
+/** Settings edits run through node on the host (it is there wherever pi is, but say so when it is not). */
+const excludeOps = (host: string, cells: readonly ExcludeCell[], tools: Readonly<Record<string, string>>): Op[] =>
+  cells
+    .filter((c) => c.wanted !== c.present)
+    .map((c): Op => {
+      const op = c.wanted ? "exclude" : "unexclude";
+      return tools["node"] === undefined
+        ? { op: "blocked", host, agent: c.agent, what: `${op} ${c.skill}`, reason: `node not found on ${host}; cannot edit ${c.agent} settings` }
+        : { op, host, agent: c.agent, skill: c.skill };
+    });
+
 /** Diff desired state against a host inventory. Pure; deterministic order. */
 export const planHost = (input: PlanInput): Op[] => {
   const { hostId, isLocal, inventory, hubSkills, agentDirs } = input;
@@ -168,7 +186,9 @@ export const planHost = (input: PlanInput): Op[] => {
     ? []
     : inventory.storeSkills.filter((s) => !hubNames.has(s.name)).map((s): Op => ({ op: "remote-only", host: hostId, skill: s.name }));
 
-  return [...mkdirs, ...rsyncs, ...perAgent, ...plugins, ...adjusted.ops, ...remoteOnly].sort((a, b) => ORDER[a.op] - ORDER[b.op]);
+  const excludes = excludeOps(hostId, input.excludes ?? [], tools);
+
+  return [...mkdirs, ...rsyncs, ...perAgent, ...plugins, ...adjusted.ops, ...excludes, ...remoteOnly].sort((a, b) => ORDER[a.op] - ORDER[b.op]);
 };
 
 export const opText = (o: Op): string => {
@@ -195,6 +215,10 @@ export const opText = (o: Op): string => {
       return `${o.agent}: plugin disable ${o.plugin}`;
     case "owned-ensure":
       return `${o.tool}: ensure ${o.skill} (${o.command})`;
+    case "exclude":
+      return `${o.agent}: exclude ${o.skill} (settings)`;
+    case "unexclude":
+      return `${o.agent}: unexclude ${o.skill} (settings)`;
     case "blocked":
       return `blocked ${o.agent} ${o.what}: ${o.reason}`;
   }
@@ -206,7 +230,7 @@ export const isMutation = (o: Op): boolean => isFileOp(o) || isCommandOp(o);
 export const isFileOp = (o: Op): boolean => o.op === "mkdir" || o.op === "rsync-skill" || o.op === "link" || o.op === "unlink";
 
 export const isCommandOp = (o: Op): boolean =>
-  o.op === "marketplace-add" || o.op === "plugin-install" || o.op === "plugin-enable" || o.op === "plugin-disable" || o.op === "owned-ensure";
+  o.op === "marketplace-add" || o.op === "plugin-install" || o.op === "plugin-enable" || o.op === "plugin-disable" || o.op === "owned-ensure" || o.op === "exclude" || o.op === "unexclude";
 
 /** Informational ops: nothing is executed for these. */
 export const isReport = (o: Op): boolean => o.op === "conflict" || o.op === "blocked" || o.op === "remote-only";
