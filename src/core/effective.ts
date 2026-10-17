@@ -11,6 +11,7 @@ import {
   EMPTY_CODEX,
   type Enabled,
   type Locks,
+  type MarketplaceSource,
   type Owner,
   type Source,
   type Storage,
@@ -34,7 +35,7 @@ import {
 export type HostFacts = {
   readonly claudeEnabled: Readonly<Record<string, boolean>>;
   readonly claudeInstalled: ClaudeInstalled;
-  readonly claudeMarketplaces: Readonly<Record<string, string>>;
+  readonly claudeMarketplaces: Readonly<Record<string, MarketplaceSource>>;
   readonly claudeOverrides: { readonly fraction?: number; readonly maxDescChars?: number; readonly fixedChars?: number };
   /** `model` from settings.json — sizes the window the listing budget is 1% of. */
   readonly claudeModel: Option<string>;
