@@ -1,5 +1,5 @@
 import { type Agent, agentById } from "../core/agents";
-import { type Config, type HostConfig, PLUGIN_AGENTS, defaultEnsure, defaultOwnedAgents, hostAgents, marketplaceFor } from "../core/config";
+import { type Config, type HostConfig, PLUGIN_AGENTS, hostAgents, marketplaceFor } from "../core/config";
 import { type HostFacts, type PluginState, effectiveFor, hostFacts, pluginStates } from "../core/effective";
 import { type Inventory, entryHash } from "../core/inventory";
 import { type ExcludeCell, type Op, type OwnedRule, type PluginCell, planHost } from "../core/plan";
@@ -36,7 +36,7 @@ export const desiredOn = (c: Config, skills: readonly Skill[], h: HostConfig): R
 };
 
 /** agent id → plugin states on this host (agents with a plugin system only). */
-export const pluginStatesOn = (c: Config, h: HostConfig, inv: Inventory, facts: HostFacts = hostFacts(inv)): Record<string, PluginState[]> =>
+export const pluginStatesOn = (c: Config, h: HostConfig, inv: Inventory, facts: HostFacts = hostFacts(inv, c.owned)): Record<string, PluginState[]> =>
   Object.fromEntries(agentsOn(c, h).filter((a) => PLUGIN_AGENTS.includes(a.id)).map((a) => [a.id, pluginStates(inv, facts, a.id)]));
 
 /** Desired plugin cells for this host; marketplace from the policy, else whatever marketplace the host already has the plugin from. `enabled: false` makes every cell unwanted. */
@@ -50,7 +50,7 @@ export const pluginCellsFor = (c: Config, h: HostConfig, states: Readonly<Record
   );
 
 export const ownedRules = (c: Config): OwnedRule[] =>
-  c.owned.map((o) => ({ skill: o.skill, tool: o.tool, command: o.ensure.some ? o.ensure : defaultEnsure(o.tool, o.skill), fallback: o.fallback, agents: o.agents.some ? o.agents : defaultOwnedAgents(o.tool) }));
+  c.owned.map((o) => ({ skill: o.skill, tool: o.tool, command: o.ensure, fallback: o.fallback, agents: o.agents }));
 
 /** agent id → marketplaces configured on the host, from the files the probe shipped. */
 export const marketplacesOn = (facts: HostFacts): Record<string, Readonly<Record<string, MarketplaceSource>>> => ({ claude: facts.claudeMarketplaces, codex: facts.codex.marketplaces });
@@ -82,7 +82,7 @@ export const excludeCellsFor = (
   });
 
 export const planFor = (c: Config, skills: readonly Skill[], h: HostConfig, inv: Inventory, hubMarketplaces: Readonly<Record<string, MarketplaceSource>> = {}): Op[] => {
-  const facts = hostFacts(inv);
+  const facts = hostFacts(inv, c.owned);
   const states = pluginStatesOn(c, h, inv, facts);
   const agents = agentsOn(c, h);
   const owned = ownedRules(c);

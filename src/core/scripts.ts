@@ -24,17 +24,16 @@ export type ProbeArgs = {
   readonly tools?: readonly string[];                            // commands to locate on the host
 };
 
-/** Extra PATH entries so `claude`/`codex`/`acme` resolve under a non-login `sh -s`. Also used by the command phase of sync. */
+/** Extra PATH entries so `claude`/`codex`/owned-skill tools resolve under a non-login `sh -s`. Also used by the command phase of sync. */
 export const HOST_PATH = `PATH="$HOME/.local/bin:$HOME/.bun/bin:$HOME/.npm-global/bin:$HOME/.local/share/mise/shims:/opt/homebrew/bin:/usr/local/bin:$PATH"; export PATH`;
 
-/** Files every probe brings back (home-relative). */
+/** Files every probe brings back (home-relative); owned: lock files are added per config (config.ownedProbe). */
 export const PROBE_FILES: Readonly<Record<string, string>> = {
   "claude-settings": "~/.claude/settings.json",
   "claude-installed": "~/.claude/plugins/installed_plugins.json",
   "claude-marketplaces": "~/.claude/plugins/known_marketplaces.json",
   "codex-config": "~/.codex/config.toml",
   "codex-models": "~/.codex/models_cache.json",
-  "acme-lock": "~/.local/share/acme/data/skill-lock.json",
   "agents-lock": "~/.agents/.skill-lock.json",
   "pi-settings": "~/.pi/agent/settings.json",
 };
@@ -44,7 +43,8 @@ export const PROBE_COMMANDS: Readonly<Record<string, string>> = {
   "codex-models": "codex debug models",
 };
 
-export const PROBE_TOOLS: readonly string[] = ["claude", "codex", "acme", "node"];
+/** Commands every probe locates; owned: tools are added per config (config.ownedProbe). */
+export const PROBE_TOOLS: readonly string[] = ["claude", "codex", "node"];
 
 /**
  * Emits TSV (see inventory.parseProbeOutput):

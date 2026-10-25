@@ -40,7 +40,7 @@ export const App = ({ app, io, evals, autoProbe = true }: AppProps): React.React
           type: "host",
           id: hostId,
           status: r.ok
-            ? { kind: "ready", inventory: r.value, ops: io.plan(stateRef.current.config, app.skills, host, r.value), view: buildHostView(host.id, agentsOn(stateRef.current.config, host), r.value, stateRef.current.config.contextTokens, app.claudeOverrides) }
+            ? { kind: "ready", inventory: r.value, ops: io.plan(stateRef.current.config, app.skills, host, r.value), view: buildHostView(host.id, agentsOn(stateRef.current.config, host), r.value, stateRef.current.config.contextTokens, app.claudeOverrides, stateRef.current.config.owned) }
             : { kind: "error", error: r.error },
         }),
       );

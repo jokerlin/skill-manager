@@ -1,6 +1,7 @@
 import type { Agent } from "./agents";
 import { type BudgetOverrides, type BudgetReport, type ListingContext, type ListingItem, fallbackContext, simulateListingOf } from "./budget";
 import { resolveClaudeWindow } from "./claude-model";
+import type { OwnedPolicy } from "./config";
 import { resolveCodexWindow } from "./codex-model";
 import { type Effective, type Finding, type HostFacts, type PluginState, type Shadowed, hostFacts, hostFindings, loadedFor, pluginStates, sourceCounts } from "./effective";
 import type { Inventory } from "./inventory";
@@ -48,8 +49,8 @@ export const contextFor = (agent: Agent, facts: HostFacts, fallbackTokens: numbe
   return { contextTokens: fallbackTokens, bytesPerToken: 3, reason: `${why} → config contextTokens, 3 chars/token` };
 };
 
-export const buildHostView = (hostId: string, agents: readonly Agent[], inv: Inventory, contextTokens: number, hubOverrides: BudgetOverrides = {}): HostView => {
-  const facts = hostFacts(inv);
+export const buildHostView = (hostId: string, agents: readonly Agent[], inv: Inventory, contextTokens: number, hubOverrides: BudgetOverrides = {}, owned: readonly OwnedPolicy[] = []): HostView => {
+  const facts = hostFacts(inv, owned);
   const states = Object.fromEntries(agents.filter((a) => a.plugins !== undefined).map((a) => [a.id, pluginStates(inv, facts, a.id)]));
   const loaded = agents.map((a) => [a.id, loadedFor(inv, facts, a)] as const);
   const effective = Object.fromEntries(loaded.map(([id, l]) => [id, l.loaded]));

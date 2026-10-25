@@ -35,7 +35,7 @@ export const runPull = async (hostId: string, skills: string[], all: boolean, fo
     if (!h.value.ssh.some) return die("pull only makes sense for ssh hosts (use `skm adopt` locally)");
     const runner = runnerFor(h.value);
     const agents = agentsOn(app.config, h.value);
-    const inv = await probeHost(h.value, agents, runner);
+    const inv = await probeHost(h.value, agents, app.config.owned, runner);
     if (!inv.ok) return die(hostErrorText(inv.error));
     const hub = new Set(app.skills.map((s) => s.name));
     const candidates = pullCandidates(inv.value, agents, h.value.skm, force ? new Set() : hub);

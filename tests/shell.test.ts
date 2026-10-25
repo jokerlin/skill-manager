@@ -123,7 +123,7 @@ describe("supported product agents", () => {
       expect(app.unknownAgents).toEqual(["dsh", "cursor", "unknown"]);
       const h = app.config.hosts[1]!;
       expect(agentDirsRel(agentsOn(app.config, h))).toEqual({ pi: "~/.pi/agent/skills" });
-      const inv = await probeHost(h, agentsOn(app.config, h), localRunner(skm));
+      const inv = await probeHost(h, agentsOn(app.config, h), app.config.owned, localRunner(skm));
       if (!inv.ok) throw new Error(JSON.stringify(inv.error));
       const ops = planFor(app.config, app.skills, h, inv.value);
       expect(ops.filter(o => o.op === "link").map(o => o.agent)).toEqual(["pi"]);
@@ -186,7 +186,7 @@ describe("shell integration: hub → fake remote (separate HOME)", () => {
     const store = await loadStore(join(hub, ".skm/skills"));
     if (!store.ok) throw new Error();
     const c = cfg(); const h = devHost(); const agents = agentsOn(c, h); const runner = fakeSsh();
-    const inv1 = await probeHost(h, agents, runner);
+    const inv1 = await probeHost(h, agents, c.owned, runner);
     expect(inv1.ok).toBe(true);
     if (!inv1.ok) return;
     const ops = planFor(c, store.value.skills, h, inv1.value);
@@ -205,7 +205,7 @@ describe("shell integration: hub → fake remote (separate HOME)", () => {
     expect(readlinkSync(join(remote, ".claude/skills/alpha"))).toBe(join(remote, ".skm/skills/alpha"));
     expect(readlinkSync(join(remote, ".agents/skills/beta"))).toBe(join(remote, ".skm/skills/beta"));
     expect(existsSync(join(remote, ".claude/skills/gamma"))).toBe(false);
-    const inv2 = await probeHost(h, agents, runner);
+    const inv2 = await probeHost(h, agents, c.owned, runner);
     if (!inv2.ok) throw new Error();
     const ops2 = planFor(c, store.value.skills, h, inv2.value);
     expect(ops2.filter((o) => o.op !== "remote-only")).toEqual([]);
@@ -233,7 +233,7 @@ describe("shell integration: hub → fake remote (separate HOME)", () => {
     const h: HostConfig = { id: "ghost", ssh: some("ghost"), agents: none, skm: "~/.skm" };
     const bad = { id: "ghost", kind: "ssh" as const, sh: async () => ({ ok: false as const, error: { kind: "exit" as const, code: 255, stdout: "", stderr: "ssh: no route" } }), rsyncPath: (p: string) => p };
     const a = agentById("claude"); if (!a.some) throw new Error();
-    const r = await probeHost(h, [a.value], bad);
+    const r = await probeHost(h, [a.value], [], bad);
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.error.kind).toBe("unreachable");
