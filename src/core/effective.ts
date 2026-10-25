@@ -2,6 +2,7 @@ import { type Option, none, some } from "../lib/result";
 import { estimateTokens } from "../lib/tokens";
 import type { Agent } from "./agents";
 import type { CodexModels } from "./codex-model";
+import { type OwnedPolicy, lockFileId } from "./config";
 import { descriptionText, listingText, parseSkillMd } from "./frontmatter";
 import { type Entry, type Inventory, entryHash } from "./inventory";
 import {
@@ -17,8 +18,8 @@ import {
   type Storage,
   highestVersion,
   ownerOf,
+  lockVersion,
   parseAgentsLock,
-  parseAcmeLock,
   parseClaudeInstalled,
   parseClaudeMarketplaces,
   parseCodexModels,
@@ -44,7 +45,8 @@ export type HostFacts = {
   /** ~/.codex/models_cache.json — slug → context window, sizes the Codex skills budget */
   readonly codexModels: CodexModels;
   readonly locks: Locks;
-  readonly acmeVersions: Readonly<Record<string, string>>;
+  /** owned: skill → version read from its policy's lock file (absent when there is no lock, no file or no key) */
+  readonly ownedVersions: Readonly<Record<string, string>>;
   /** agent id → skill names its settings force-exclude (pi: `-skills/<name>` in ~/.pi/agent/settings.json); the agent skips them in every dir it scans */
   readonly excluded: Readonly<Record<string, ReadonlySet<string>>>;
   readonly errors: readonly string[];
@@ -52,7 +54,7 @@ export type HostFacts = {
 
 
 /** Parse every config/lock file the probe shipped. Parse failures become `errors`, never exceptions. */
-export const hostFacts = (inv: Inventory): HostFacts => {
+export const hostFacts = (inv: Inventory, owned: readonly OwnedPolicy[] = []): HostFacts => {
   const errors: string[] = [];
   const use = <T>(id: string, parse: (t: string) => { ok: true; value: T } | { ok: false; error: { kind: string; file: string; message: string } }, fallback: T): T => {
     const text = inv.files[id];
@@ -63,7 +65,12 @@ export const hostFacts = (inv: Inventory): HostFacts => {
     return fallback;
   };
   const settings = use("claude-settings", parseClaudeSettings, EMPTY_CLAUDE_SETTINGS);
-  const acme = use("acme-lock", parseAcmeLock, {});
+  const ownedVersions = Object.fromEntries(owned.flatMap((o) => {
+    if (!o.lock.some) return [];
+    const { file, version } = o.lock.value;
+    const v = use(lockFileId(file), (t) => lockVersion(t, file, version, o.skill), "");
+    return v === "" ? [] : [[o.skill, v] as const];
+  }));
   const agentsLock = use("agents-lock", parseAgentsLock, {});
   return {
     claudeEnabled: settings.enabledPlugins,
@@ -78,8 +85,8 @@ export const hostFacts = (inv: Inventory): HostFacts => {
     claudeDisable1m: settings.disable1m,
     codex: use("codex-config", parseCodexConfig, EMPTY_CODEX),
     codexModels: use("codex-models", parseCodexModels, {}),
-    locks: { acme: new Set(Object.keys(acme)), skillsCli: new Set(Object.keys(agentsLock)) },
-    acmeVersions: acme,
+    locks: { owned: Object.fromEntries(owned.map((o) => [o.skill, o.tool])), skillsCli: new Set(Object.keys(agentsLock)) },
+    ownedVersions,
     excluded: { pi: use("pi-settings", parsePiSettings, new Set<string>()) },
     errors,
   };
@@ -217,7 +224,7 @@ const fromEntry = (inv: Inventory, facts: HostFacts, agentId: string, e: Entry, 
   if (hash === "") return undefined; // no SKILL.md: agents skip the directory, so it costs nothing
   const owner = ownerOf(agentId, storage, e.name, facts.locks);
   const info = docInfo(hash, inv.docs[hash]);
-  const v = owner === "acme" ? facts.acmeVersions[e.name] : undefined;
+  const v = owner === facts.locks.owned[e.name] ? facts.ownedVersions[e.name] : undefined;
   return { agent: agentId, name: e.name, source, storage, owner, path, version: v ? some(v) : none, enabled: "on", promptVisible: visibleFor(inv, agentId, path), listing: info.listing, description: info.description, listingChars: info.listing.length, listingTokens: info.listingTokens, bodyTokens: info.bodyTokens, hash };
 };
 

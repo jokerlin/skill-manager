@@ -24,10 +24,10 @@ export const snapshotHosts = async (app: AppState, only?: string): Promise<HostS
       .filter((h) => only === undefined || h.id === only)
       .map(async (host): Promise<HostSnapshot> => {
         const agents = agentsOn(app.config, host);
-        const inv = await probeHost(host, agents, runnerFor(host));
+        const inv = await probeHost(host, agents, app.config.owned, runnerFor(host));
         if (!inv.ok) return { host, result: { ok: false as const, error: inv.error } };
         await writeInventoryCache(app.skmHome, host.id, inv.value);
-        return { host, result: { ok: true as const, inventory: inv.value, ops: planFor(app.config, app.skills, host, inv.value, app.hubMarketplaces), view: buildHostView(host.id, agents, inv.value, app.config.contextTokens, app.claudeOverrides) } };
+        return { host, result: { ok: true as const, inventory: inv.value, ops: planFor(app.config, app.skills, host, inv.value, app.hubMarketplaces), view: buildHostView(host.id, agents, inv.value, app.config.contextTokens, app.claudeOverrides, app.config.owned) } };
       }),
   );
 

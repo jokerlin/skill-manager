@@ -19,7 +19,8 @@ export type Storage =
   | { readonly kind: "plugin-cache" }
   | { readonly kind: "builtin" };
 
-export type Owner = "skm" | "acme" | "skills-cli" | "claude-plugins" | "codex-plugins" | "codex-builtin" | "manual";
+/** Built-in owners, or the `tool` of the owned: policy that names the skill. */
+export type Owner = "skm" | "skills-cli" | "claude-plugins" | "codex-plugins" | "codex-builtin" | "manual" | (string & {});
 
 export type Enabled = "on" | "off";
 
@@ -191,15 +192,12 @@ export const parseCodexConfig = (text: string): Result<CodexConfig, ParseError> 
 
 // ---------- CLI-owned skill locks ----------
 
-/** ~/.local/share/acme/data/skill-lock.json → skill name → acme version that wrote it. */
-export const parseAcmeLock = (text: string): Result<Readonly<Record<string, string>>, ParseError> => {
-  const r = json("skill-lock.json", text);
+/** An owned: lock file → the string at the dotted key `path` (`{skill}` = skill name); "" when the key is absent or not a string. */
+export const lockVersion = (text: string, file: string, path: string, skill: string): Result<string, ParseError> => {
+  const r = json(file, text);
   if (!r.ok) return r;
-  if (!isRecord(r.value)) return err({ kind: "bad-shape", file: "skill-lock.json", message: "not an object" });
-  const g = r.value["global"];
-  const skills = isRecord(g) ? g["skills"] : undefined;
-  if (!isRecord(skills)) return ok({});
-  return ok(Object.fromEntries(Object.entries(skills).map(([name, v]) => [name, isRecord(v) && typeof v["acmeVersion"] === "string" ? v["acmeVersion"] : ""] as const)));
+  const v = path.split(".").map((k) => k.replaceAll("{skill}", skill)).reduce<unknown>((o, k) => (isRecord(o) ? o[k] : undefined), r.value);
+  return ok(typeof v === "string" ? v : "");
 };
 
 /** ~/.agents/.skill-lock.json (Vercel `skills` CLI) → skill name → source. */
@@ -248,7 +246,8 @@ export const compareVersions = (a: string, b: string): number => {
 
 export const highestVersion = (vs: readonly string[]): string | undefined => [...vs].sort(compareVersions).at(-1);
 
-export type Locks = { readonly acme: ReadonlySet<string>; readonly skillsCli: ReadonlySet<string> };
+/** owned: skill → its tool, and the skills the Vercel `skills` CLI lock lists. */
+export type Locks = { readonly owned: Readonly<Record<string, string>>; readonly skillsCli: ReadonlySet<string> };
 
 export const ownerOf = (agentId: string, storage: Storage, name: string, locks: Locks): Owner => {
   switch (storage.kind) {
@@ -257,7 +256,7 @@ export const ownerOf = (agentId: string, storage: Storage, name: string, locks: 
     case "link-elsewhere":
       return "manual";
     case "real-dir":
-      return locks.acme.has(name) ? "acme" : locks.skillsCli.has(name) ? "skills-cli" : "manual";
+      return locks.owned[name] ?? (locks.skillsCli.has(name) ? "skills-cli" : "manual");
     case "plugin-cache":
       return agentId === "claude" ? "claude-plugins" : "codex-plugins";
     case "builtin":

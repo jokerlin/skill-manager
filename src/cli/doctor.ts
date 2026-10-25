@@ -43,7 +43,7 @@ const cachedSnapshots = async (app: Parameters<Parameters<typeof withApp>[0]>[0]
       const inv = await readInventoryCache(app.skmHome, host.id);
       if (inv === undefined) return { host, result: { ok: false, error: { kind: "unreachable", host: host.id, detail: "no cached probe; run skm status" } } };
       const agents = agentsOn(app.config, host);
-      return { host, result: { ok: true, inventory: inv, ops: planFor(app.config, app.skills, host, inv, app.hubMarketplaces), view: buildHostView(host.id, agents, inv, app.config.contextTokens, app.claudeOverrides) } };
+      return { host, result: { ok: true, inventory: inv, ops: planFor(app.config, app.skills, host, inv, app.hubMarketplaces), view: buildHostView(host.id, agents, inv, app.config.contextTokens, app.claudeOverrides, app.config.owned) } };
     }),
   );
 

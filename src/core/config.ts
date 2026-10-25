@@ -36,13 +36,17 @@ export type PluginPolicy = {
   readonly enabled: boolean;                                // false ⇒ disable wherever it is present, whatever hosts/agents say
 };
 
-/** A skill written and refreshed by its own CLI (acme, …): skm defers to that tool where it exists. */
+/** Where the owning CLI records the version it wrote: a JSON file on each host and a dotted key path into it (`{skill}` = the skill name). */
+export type OwnedLock = { readonly file: string; readonly version: string };
+
+/** A skill written and refreshed by its own CLI: skm defers to that tool where it exists. */
 export type OwnedPolicy = {
   readonly skill: string;
   readonly tool: string;
-  readonly ensure: Option<string>;             // command run when the dir is missing and the tool exists; default per tool
+  readonly ensure: Option<string>;             // command run when the dir is missing and the tool exists; none ⇒ that cell is blocked
   readonly fallback: "store" | "none";         // when the tool is absent: link the store copy, or leave the cell empty
-  readonly agents: Option<readonly string[]>;  // agents whose dirs the tool writes itself (default per tool, none ⇒ all); elsewhere skm links the store copy
+  readonly agents: Option<readonly string[]>;  // agents whose dirs the tool writes itself (none ⇒ all); elsewhere skm links the store copy
+  readonly lock: Option<OwnedLock>;            // version source shown in the inventory; none ⇒ no version
 };
 
 /** Agents that have a plugin system skm can drive. */
@@ -191,7 +195,19 @@ const parseOwned = (skill: string, v: unknown): Result<OwnedPolicy, ConfigError>
   if (fallback !== "store" && fallback !== "none") return err(shape(`${path}.fallback`, "expected store or none"));
   const agents: Result<Option<readonly string[]>, ConfigError> = v["agents"] === undefined ? ok(none) : parseOptionalSelectorList(v["agents"], `${path}.agents`);
   if (!agents.ok) return agents;
-  return ok({ skill, tool, ensure: ensure === undefined ? none : some(ensure), fallback, agents: agents.value });
+  const lock = parseOwnedLock(v["lock"], `${path}.lock`);
+  if (!lock.ok) return lock;
+  return ok({ skill, tool, ensure: ensure === undefined ? none : some(ensure), fallback, agents: agents.value, lock: lock.value });
+};
+
+const parseOwnedLock = (v: unknown, path: string): Result<Option<OwnedLock>, ConfigError> => {
+  if (v === undefined) return ok(none);
+  if (!isRecord(v)) return err(shape(path, "expected { file, version }"));
+  const file = v["file"];
+  const version = v["version"];
+  if (typeof file !== "string" || file.length === 0) return err(shape(`${path}.file`, "expected the lock file path"));
+  if (typeof version !== "string" || version.length === 0) return err(shape(`${path}.version`, "expected a dotted key path, e.g. skills.{skill}.version"));
+  return ok(some({ file, version }));
 };
 
 const sequence = <T>(rs: readonly Result<T, ConfigError>[]): Result<T[], ConfigError> =>
@@ -294,7 +310,7 @@ const pluginToRaw = (p: PluginPolicy): Raw => {
   return { ...mk, ...(p.hosts.kind === "all" ? {} : { hosts: selectorToRaw(p.hosts) }), ...(p.agents.kind === "all" ? {} : { agents: selectorToRaw(p.agents) }), ...(p.enabled ? {} : { enabled: false }) };
 };
 
-const ownedToRaw = (o: OwnedPolicy): Raw => ({ tool: o.tool, ...(o.ensure.some ? { ensure: o.ensure.value } : {}), ...(o.fallback === "store" ? {} : { fallback: o.fallback }), ...(o.agents.some ? { agents: [...o.agents.value] } : {}) });
+const ownedToRaw = (o: OwnedPolicy): Raw => ({ tool: o.tool, ...(o.ensure.some ? { ensure: o.ensure.value } : {}), ...(o.fallback === "store" ? {} : { fallback: o.fallback }), ...(o.agents.some ? { agents: [...o.agents.value] } : {}), ...(o.lock.some ? { lock: { ...o.lock.value } } : {}) });
 
 const hostToRaw = (h: HostConfig): Raw => ({
   ...(h.ssh.some ? { ssh: h.ssh.value } : {}),
@@ -331,13 +347,14 @@ export const marketplaceFor = (p: PluginPolicy, agentId: string): Option<string>
   return m !== undefined ? some(m) : none;
 };
 
-/** Built-in `ensure` commands for known CLI-owned skills. */
-export const defaultEnsure = (tool: string, skill: string): Option<string> =>
-  tool === "acme" ? some(`acme self skill install -g -s ${skill}`) : none;
+/** Probe file id of an owned: lock file. */
+export const lockFileId = (file: string): string => `lock:${file}`;
 
-/** Agent dirs a known CLI writes by itself (acme: ~/.claude/skills and ~/.agents/skills for the supported products); none ⇒ assume every agent. */
-export const defaultOwnedAgents = (tool: string): Option<readonly string[]> =>
-  tool === "acme" ? some(["claude", "codex"]) : none;
+/** Tools to locate and lock files to ship back for the owned: policies, on top of the built-in probe lists. */
+export const ownedProbe = (owned: readonly OwnedPolicy[]): { readonly tools: readonly string[]; readonly files: Readonly<Record<string, string>> } => ({
+  tools: [...new Set(owned.map((o) => o.tool))],
+  files: Object.fromEntries(owned.flatMap((o) => (o.lock.some ? [[lockFileId(o.lock.value.file), o.lock.value.file] as const] : []))),
+});
 
 export const configErrorText = (e: ConfigError): string => {
   switch (e.kind) {

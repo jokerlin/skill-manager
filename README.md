@@ -59,7 +59,12 @@ plugins:                                    # v2：期望状态扩展到 plugin�
   linear-cli: { marketplace: { claude: linear-cli, codex: linear-cli }, hosts: { except: [home-mini] } }
   humanizer: { marketplace: claude-extras, enabled: false }   # enabled: false：凡是装了的主机都关掉，不看 hosts/agents 选择器；把"禁用"记在 skm 里而不是手改 config.toml
 owned:                                      # v2：某个 CLI 自带的 skill（真实目录），skm 在它写的目录里不软链，只核对
-  acme: { tool: acme, agents: [claude, codex] }   # agents = 这个 CLI 自己会写的目录；Pi 已从该 CLI 的共享目录加载时，目标也算满足，不再链接 store 副本；ensure 默认 `acme self skill install -g -s acme`；fallback: store|none
+  acme:
+    tool: acme                              # owner CLI 的命令名；探测时在每台主机上查找它
+    agents: [claude, codex]                 # 这个 CLI 自己会写的目录（不写 = 全部 agent）；Pi 已从该 CLI 的共享目录加载时，目标也算满足，不再链接 store 副本
+    ensure: acme skill install acme         # 目录缺失且主机有该 CLI 时执行；不写则该单元格为 blocked
+    lock: { file: ~/.local/share/acme/skill-lock.json, version: "skills.{skill}.version" }   # 可选：版本来源，JSON 文件 + 点分键路径，{skill} = skill 名
+    fallback: store                         # 主机没有该 CLI 时：store = 链接 hub 副本，none = 留空
 eval: { agent: claude }                     # 或 codex；model 可选
 contextTokens: 1000000                      # 预算模拟的兜底上下文：Claude 按各主机 settings.json 的 model、Codex 按 config.toml 的 model 在 `codex debug models` 目录里的窗口（没写 model 时取目录的默认预设）推断，认不出时才用它
 backupBeforeApply: true
@@ -69,7 +74,7 @@ backupBeforeApply: true
 
 求值：`desired(skill, host, agent) = hosts选择器(host) ∧ agents选择器(agent)`，再按顺序套用 `on/off` 单元格覆盖，最后要求 agent 在该主机启用。
 
-目标矩阵显示启用与实际加载状态：`✓` 表示已加载，绿色表示符合目标；橙色表示待加载或当前仍会加载但目标未启用。真实目录、store 链接、共享目录均使用同样的状态标记，悬停桌面端单元格可查看存储方式和来源路径。Pi 从 CLI 自己维护的共享目录加载 acme 时，用 `skm scope acme local/pi on` 启用目标即可；同步会保留该机 CLI 的版本。
+目标矩阵显示启用与实际加载状态：`✓` 表示已加载，绿色表示符合目标；橙色表示待加载或当前仍会加载但目标未启用。真实目录、store 链接、共享目录均使用同样的状态标记，悬停桌面端单元格可查看存储方式和来源路径。Pi 从 CLI 自己维护的共享目录加载 owned skill 时，用 `skm scope acme local/pi on` 启用目标即可；同步会保留该机 CLI 的版本。
 
 Pi 也读 Codex 的 `~/.agents/skills`，所以只给 Codex 的 skill 会被 Pi 一起加载。sync 处理这种情况：同步后会出现在 `~/.agents/skills`、但 Pi 不在目标里的 store / owned skill，会在该机 `~/.pi/agent/settings.json` 的 `skills` 数组写入 `-skills/<name>`（`pi: exclude <name>`）。Pi 重新成为目标，或 skill 离开该目录时，sync 删除这条排除项（`pi: unexclude <name>`）。skm 只管这种精确写法、且名字属于 store 或 owned 的条目；其他条目（glob、`!pattern`、手写的其他名字）不动。编辑用主机上的 node 完成，找不到 node 时显示为 blocked。
 
@@ -97,13 +102,13 @@ Pi 也读 Codex 的 `~/.agents/skills`，所以只给 Codex 的 skill 会被 Pi 
 
 | 来源 | Claude Code | Codex | Pi | owner |
 |---|---|---|---|---|
-| 用户目录 | `~/.claude/skills` | `~/.agents/skills` | `~/.pi/agent/skills` | skm（软链）、acme / skills-cli（真实目录）、manual |
+| 用户目录 | `~/.claude/skills` | `~/.agents/skills` | `~/.pi/agent/skills` | skm（软链）、owned 的 tool / skills-cli（真实目录）、manual |
 | 旧目录 / 兼容目录 | — | `~/.codex/skills` | Pi 还读 `~/.agents/skills`（同名以 `~/.pi/agent/skills` 为准，另一份被遮蔽、不加载） | 同上 |
 | 设置排除 | — | — | `~/.pi/agent/settings.json` 的 `skills` 里写 `-skills/<name>`，Pi 在两个目录都跳过该 skill | skm（sync 维护） |
 | 内置 | — | `~/.codex/skills/.system` | — | codex-builtin |
 | plugin 缓存 | `~/.claude/plugins/cache/<mk>/<plugin>/<ver>/skills/*`，启用状态看 `settings.json` `enabledPlugins`，生效版本看 `installed_plugins.json` | `~/.codex/plugins/cache/...`，`config.toml` `[plugins."name@mk"] enabled`；缓存了但没写 config 的 Codex 不会加载，不计入（2026-09-06 用真实会话核对） | — | claude-plugins / codex-plugins |
 
-每一条都带：存储方式（`link→store`、`real dir`、`link→别处`、`plugin cache`、`builtin`）、owner、版本（plugin 版本 / acme lock / skills-cli lock）、listing 字符数、body token、内容 hash。发现项：
+每一条都带：存储方式（`link→store`、`real dir`、`link→别处`、`plugin cache`、`builtin`）、owner、版本（plugin 版本 / owned 的 lock）、listing 字符数、body token、内容 hash。发现项：
 
 - `same-name`：同一 agent 从两个来源加载同名 skill（如 Codex 内置 `skill-creator` 与 plugin 版）。
 - `linked-twice`：两个目录都软链到 store，同一批 skill 被加载两次（Codex 的 `~/.agents/skills` + `~/.codex/skills`）。
@@ -139,7 +144,7 @@ Pi 也读 Codex 的 `~/.agents/skills`，所以只给 Codex 的 skill 会被 Pi 
 
 - 只删除"指向 store 且 hub 认识该 skill"的软链；真实目录、指向别处的软链、远端独有的 store skill 一律不动（除非 `--replace-conflicts`，且先移入备份）。
 - 主机不可达不影响其他主机。
-- plugin / owned 类 op 只通过各自 owner 的 CLI 落地（`claude plugin`、`codex plugin`、`acme self skill`），从不改 plugin 缓存目录；CLI 缺失时 op 变成 `blocked`。
+- plugin / owned 类 op 只通过各自 owner 的 CLI 落地（`claude plugin`、`codex plugin`、owned 的 `ensure` 命令），从不改 plugin 缓存目录；CLI 缺失时 op 变成 `blocked`。
 - 所有 IO 返回 `Result`，错误为标签联合并穷尽渲染。
 
 ## Mac App

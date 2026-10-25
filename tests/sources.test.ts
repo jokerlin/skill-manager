@@ -3,8 +3,8 @@ import {
   compareVersions,
   highestVersion,
   ownerOf,
+  lockVersion,
   parseAgentsLock,
-  parseAcmeLock,
   parseClaudeInstalled,
   parseClaudeMarketplaces,
   parseClaudeSettings,
@@ -108,9 +108,13 @@ mcp_servers = {}
 });
 
 describe("locks", () => {
-  test("acme lock", () => {
-    const r = parseAcmeLock(JSON.stringify({ version: 1, global: { skills: { acme: { source: "builtin", acmeVersion: "0.144.0" } } } }));
-    expect(r.ok && r.value).toEqual({ acme: "0.144.0" });
+  test("owned lock: dotted key path with {skill}; absent or non-string keys give \"\"", () => {
+    const text = JSON.stringify({ version: 1, global: { skills: { acme: { source: "builtin", acmeVersion: "0.144.0" }, odd: { acmeVersion: 3 } } } });
+    const at = (skill: string) => lockVersion(text, "lock.json", "global.skills.{skill}.acmeVersion", skill);
+    expect(at("acme")).toEqual({ ok: true, value: "0.144.0" });
+    expect(at("missing")).toEqual({ ok: true, value: "" });
+    expect(at("odd")).toEqual({ ok: true, value: "" });
+    expect(lockVersion("{", "lock.json", "a", "s").ok).toBe(false);
   });
   test("agents lock", () => {
     const r = parseAgentsLock(JSON.stringify({ version: 3, skills: { "orca-cli": { source: "stablyai/orca" } } }));
@@ -126,7 +130,7 @@ describe("versions + owners", () => {
     expect(highestVersion([])).toBeUndefined();
   });
   test("ownerOf", () => {
-    const locks = { acme: new Set(["acme"]), skillsCli: new Set(["orca-cli"]) };
+    const locks = { owned: { acme: "acme" }, skillsCli: new Set(["orca-cli"]) };
     expect(ownerOf("claude", { kind: "store-link", direct: true }, "x", locks)).toBe("skm");
     expect(ownerOf("claude", { kind: "real-dir" }, "acme", locks)).toBe("acme");
     expect(ownerOf("codex", { kind: "real-dir" }, "orca-cli", locks)).toBe("skills-cli");

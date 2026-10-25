@@ -338,7 +338,7 @@ struct HostsView: View {
                 ForEach(model.hosts) { h in
                     HostSection(h: h, plan: plan(h), agentIds: agentIds(h.agents ?? [:]))
                 }
-                Text("linked to store = symlink into ~/.skm/skills · real dir = unmanaged directory (e.g. acme installed by its CLI) · link elsewhere = symlink to somewhere outside the store · broken link = target missing · legacy dir = a second directory the agent also scans · builtin = shipped with Codex · from plugins = skills inside enabled plugins").font(.caption).foregroundStyle(.secondary)
+                Text("linked to store = symlink into ~/.skm/skills · real dir = unmanaged directory (e.g. a skill its own CLI installed) · link elsewhere = symlink to somewhere outside the store · broken link = target missing · legacy dir = a second directory the agent also scans · builtin = shipped with Codex · from plugins = skills inside enabled plugins").font(.caption).foregroundStyle(.secondary)
             }
             .frame(width: listWidth)
             .onAppear { autoSelect(model.hosts) }

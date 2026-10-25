@@ -2,8 +2,14 @@ import { describe, expect, test } from "bun:test";
 import { agentById } from "../src/core/agents";
 import { driftFindings, effectiveFor, findingText, hostFacts, hostFindings, pluginStates, shadowedFor, sourceCounts } from "../src/core/effective";
 import { type Inventory, emptyInventory } from "../src/core/inventory";
+import { type OwnedPolicy, lockFileId } from "../src/core/config";
+import { none, some } from "../src/lib/result";
 
 const agent = (id: string) => { const a = agentById(id); if (!a.some) throw new Error(id); return a.value; };
+const LOCK = "~/.local/share/acme/data/skill-lock.json";
+const owned: OwnedPolicy[] = [{ skill: "acme", tool: "acme", ensure: none, fallback: "store", agents: none, lock: some({ file: LOCK, version: "global.skills.{skill}.acmeVersion" }) }];
+const factsOf = (i: Inventory) => hostFacts(i, owned);
+
 const md = (n: string, desc = `${n} desc. Use when ${n}.`) => `---\nname: ${n}\ndescription: ${desc}\n---\nbody of ${n}\n`;
 
 const inv: Inventory = {
@@ -20,7 +26,7 @@ const inv: Inventory = {
     "claude-settings": JSON.stringify({ enabledPlugins: { "superpowers@mk": true, "video@mk": false } }),
     "claude-installed": JSON.stringify({ version: 2, plugins: { "superpowers@mk": [{ installPath: "/h/.claude/plugins/cache/mk/superpowers/6.3.0", version: "6.3.0" }], "video@mk": [{ installPath: "/h/.claude/plugins/cache/mk/video/1.0.0", version: "1.0.0" }] } }),
     "codex-config": '[plugins."superpowers@mk"]\nenabled = true\n[plugins."off@mk"]\nenabled = false\n',
-    "acme-lock": JSON.stringify({ global: { skills: { acme: { acmeVersion: "0.144.0" } } } }),
+    [lockFileId(LOCK)]: JSON.stringify({ global: { skills: { acme: { acmeVersion: "0.144.0" } } } }),
     "agents-lock": JSON.stringify({ skills: { "orca-cli": { source: "stablyai/orca" } } }),
   },
   pluginCache: [
@@ -43,26 +49,31 @@ const inv: Inventory = {
 
 describe("hostFacts", () => {
   test("parses shipped files; missing files fall back; bad files become errors", () => {
-    const f = hostFacts(inv);
+    const f = factsOf(inv);
     expect(f.claudeEnabled).toEqual({ "superpowers@mk": true, "video@mk": false });
     expect(f.codex.plugins).toEqual({ "superpowers@mk": true, "off@mk": false });
-    expect(f.locks.acme.has("acme")).toBe(true);
-    expect(f.acmeVersions["acme"]).toBe("0.144.0");
+    expect(f.locks.owned).toEqual({ acme: "acme" });
+    expect(f.ownedVersions).toEqual({ acme: "0.144.0" });
+    expect(hostFacts(inv).locks.owned).toEqual({});
+    const badLock = factsOf({ ...inv, files: { [lockFileId(LOCK)]: "{" } });
+    expect(badLock.ownedVersions).toEqual({});
+    expect(badLock.errors).toHaveLength(1);
+    expect(badLock.errors[0]).toStartWith(`${lockFileId(LOCK)}: ${LOCK}: bad-json`);
     expect(f.errors).toEqual([]);
     expect(f.claudeModel.some).toBe(false);
     expect(f.claudeDisable1m).toBe(false);
-    const modelled = hostFacts({ ...inv, files: { "claude-settings": JSON.stringify({ model: "fable", env: { CLAUDE_CODE_DISABLE_1M_CONTEXT: "true", SLASH_COMMAND_TOOL_CHAR_BUDGET: "1500" } }) } });
+    const modelled = factsOf({ ...inv, files: { "claude-settings": JSON.stringify({ model: "fable", env: { CLAUDE_CODE_DISABLE_1M_CONTEXT: "true", SLASH_COMMAND_TOOL_CHAR_BUDGET: "1500" } }) } });
     expect(modelled.claudeModel).toEqual({ some: true, value: "fable" });
     expect(modelled.claudeDisable1m).toBe(true);
     expect(modelled.claudeOverrides.fixedChars).toBe(1500);
-    const broken = hostFacts({ ...inv, files: { "claude-settings": "{" } });
+    const broken = factsOf({ ...inv, files: { "claude-settings": "{" } });
     expect(broken.errors.length).toBe(1);
     expect(broken.claudeEnabled).toEqual({});
   });
 });
 
 describe("pluginStates", () => {
-  const f = hostFacts(inv);
+  const f = factsOf(inv);
   test("claude: enabled from settings, active version from installed_plugins, all cached versions listed", () => {
     const ps = pluginStates(inv, f, "claude");
     const sp = ps.find((p) => p.id === "superpowers@mk");
@@ -84,12 +95,12 @@ describe("pluginStates", () => {
   });
   test("agents/openai.yaml allow_implicit_invocation: false hides a skill from Codex's catalog only", () => {
     const hidden: Inventory = { ...inv, hidden: [{ agent: "codex", dir: "/h/.codex/skills/.system/imagegen" }, { agent: "claude", dir: "/h/.claude/skills/check" }] };
-    const f2 = hostFacts(hidden);
+    const f2 = factsOf(hidden);
     const codex = effectiveFor(hidden, f2, agent("codex"));
     expect(codex.find((e) => e.name === "imagegen")?.promptVisible).toBe(false);
     expect(codex.find((e) => e.name === "check" && e.source.kind === "user")?.promptVisible).toBe(true);
     expect(effectiveFor(hidden, f2, agent("claude")).find((e) => e.name === "check")?.promptVisible).toBe(true);
-    expect(effectiveFor(inv, hostFacts(inv), agent("codex")).every((e) => e.promptVisible)).toBe(true);
+    expect(effectiveFor(inv, factsOf(inv), agent("codex")).every((e) => e.promptVisible)).toBe(true);
   });
   test("agents without plugins have none", () => {
     expect(pluginStates(inv, f, "cursor")).toEqual([]);
@@ -97,7 +108,7 @@ describe("pluginStates", () => {
 });
 
 describe("effectiveFor", () => {
-  const f = hostFacts(inv);
+  const f = factsOf(inv);
   test("claude: user entries (skm link, acme real dir) + enabled plugin skills; broken links and files excluded", () => {
     const es = effectiveFor(inv, f, agent("claude"));
     expect(es.map((e) => `${e.source.kind}:${e.name}:${e.owner}`)).toEqual(["user:acme:acme", "user:check:skm", "plugin:brainstorming:claude-plugins"]);
@@ -122,7 +133,7 @@ describe("effectiveFor", () => {
 });
 
 describe("findings", () => {
-  const f = hostFacts(inv);
+  const f = factsOf(inv);
   const eff = { claude: effectiveFor(inv, f, agent("claude")), codex: effectiveFor(inv, f, agent("codex")) };
   const states = { claude: pluginStates(inv, f, "claude"), codex: pluginStates(inv, f, "codex") };
   test("same-name and same-content on codex (user link + legacy copy of check); stale + disabled caches on claude", () => {
@@ -149,16 +160,16 @@ describe("findings", () => {
       docs: { ...inv.docs, [hash]: md("acme", "store copy") },
     });
     const stale = withPi("H-acme-store");
-    const fs = hostFindings("local", { claude: effectiveFor(stale, hostFacts(stale), agent("claude")), pi: effectiveFor(stale, hostFacts(stale), agent("pi")) }, {});
+    const fs = hostFindings("local", { claude: effectiveFor(stale, factsOf(stale), agent("claude")), pi: effectiveFor(stale, factsOf(stale), agent("pi")) }, {});
     const d = fs.find((x) => x.kind === "owned-drift");
     expect(d).toMatchObject({ kind: "owned-drift", host: "local", name: "acme", owner: "acme", ownerPath: "/h/.claude/skills/acme", agents: ["pi"], storeHash: "H-acme-store", ownerHash: "H-acme" });
     expect(d && findingText(d)).toContain("differs from the acme-written /h/.claude/skills/acme");
     const fresh = withPi("H-acme");
-    expect(hostFindings("local", { claude: effectiveFor(fresh, hostFacts(fresh), agent("claude")), pi: effectiveFor(fresh, hostFacts(fresh), agent("pi")) }, {}).filter((x) => x.kind === "owned-drift")).toEqual([]);
+    expect(hostFindings("local", { claude: effectiveFor(fresh, factsOf(fresh), agent("claude")), pi: effectiveFor(fresh, factsOf(fresh), agent("pi")) }, {}).filter((x) => x.kind === "owned-drift")).toEqual([]);
   });
   test("store skill reachable from two scanned dirs collapses into one linked-twice finding; a real copy elsewhere is same-content", () => {
     const twice: Inventory = { ...inv, alsoReads: { codex: [{ kind: "managed", name: "check", direct: true, hash: "H-check" }, { kind: "dir", name: "copy-of-check", hash: "H-check" }] }, alsoDirs: { codex: { check: "/h/.codex/skills", "copy-of-check": "/h/.codex/skills" } } };
-    const f2 = hostFacts(twice);
+    const f2 = factsOf(twice);
     const fs = hostFindings("local", { codex: effectiveFor(twice, f2, agent("codex")) }, { codex: pluginStates(twice, f2, "codex") });
     expect(fs.find((x) => x.kind === "linked-twice")).toEqual({ kind: "linked-twice", host: "local", agent: "codex", names: ["check"], dirs: ["/h/.agents/skills", "/h/.codex/skills"] });
     expect(fs.filter((x) => x.kind === "same-name")).toEqual([]);
@@ -181,7 +192,7 @@ describe("effectiveFor: directories without SKILL.md", () => {
       agentDirs: { claude: { exists: true, entries: [{ kind: "dir", name: "log" }, { kind: "dir", name: "real", hash: "h1" }] } },
       docs: { h1: "---\nname: real\ndescription: Real skill. Use when testing.\n---\nbody" },
     };
-    const es = effectiveFor(inv, hostFacts(inv), claude.value);
+    const es = effectiveFor(inv, factsOf(inv), claude.value);
     expect(es.map((e) => e.name)).toEqual(["real"]);
   });
 });
@@ -195,7 +206,7 @@ describe("effectiveFor: agents that dedupe by name (pi: ~/.pi/agent/skills wins 
     alsoDirs: { pi: { check: "/h/.agents/skills", learn: "/h/.agents/skills", hunt: "/h/.agents/skills", gone: "/h/.agents/skills" } },
     docs: { "H-check": md("check"), "H-hunt": md("hunt"), "H-hunt-other": md("hunt", "a different hunt"), "H-learn": md("learn"), "H-gone": md("gone") },
   };
-  const f = hostFacts(pi);
+  const f = factsOf(pi);
   const es = effectiveFor(pi, f, agent("pi"));
   test("a name present in the user dir loads once; the ~/.agents copy is shadowed and not part of the effective list", () => {
     expect(es.map((e) => `${e.source.kind}:${e.name}`)).toEqual(["user:check", "user:hunt", "legacy:gone", "legacy:learn"]);
@@ -209,7 +220,7 @@ describe("effectiveFor: agents that dedupe by name (pi: ~/.pi/agent/skills wins 
   });
   test("codex still loads every copy (no dedupe), so the same inventory shape keeps its linked-twice finding", () => {
     const codex: Inventory = { ...pi, agentDirs: { codex: pi.agentDirs["pi"]! }, alsoReads: { codex: [{ kind: "managed", name: "check", direct: true, hash: "H-check" }] }, alsoDirs: { codex: { check: "/h/.codex/skills" } } };
-    const f2 = hostFacts(codex);
+    const f2 = factsOf(codex);
     const es2 = effectiveFor(codex, f2, agent("codex"));
     expect(es2.map((e) => `${e.source.kind}:${e.name}`)).toEqual(["user:check", "user:hunt", "legacy:check"]);
     expect(shadowedFor(codex, f2, agent("codex"))).toEqual([]);
@@ -227,13 +238,13 @@ describe("effectiveFor: skills pi's settings force-exclude", () => {
       files: { "pi-settings": JSON.stringify({ skills: ["~/.agents/skills/learn", "-skills/solo", "-skills/check/SKILL.md", "!skills/learn*"] }) },
       docs: { "H-check": md("check"), "H-solo": md("solo"), "H-learn": md("learn") },
     };
-    const f = hostFacts(base);
+    const f = factsOf(base);
     expect([...(f.excluded["pi"] ?? [])].sort()).toEqual(["check", "solo"]);
     expect(effectiveFor(base, f, agent("pi")).map((e) => e.name)).toEqual(["learn"]);
     expect(effectiveFor(base, f, agent("codex")).map((e) => e.name)).toEqual(["solo"]);
   });
   test("a broken settings file is an error, not a crash, and excludes nothing", () => {
-    const f = hostFacts({ ...emptyInventory("/h"), files: { "pi-settings": "{nope" } });
+    const f = factsOf({ ...emptyInventory("/h"), files: { "pi-settings": "{nope" } });
     expect(f.errors.some((e) => e.startsWith("pi-settings:"))).toBe(true);
     expect(f.excluded["pi"]?.size).toBe(0);
   });
