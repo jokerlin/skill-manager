@@ -75,9 +75,10 @@ The app's strings are in `desktop/src/renderer/src/i18n/en.ts` and `zh.ts`. To a
 
 Maintainers release from `main`:
 
-1. Set the same version in `package.json` and `desktop/package.json`, and commit.
-2. Run `sh desktop/scripts/release.sh`. It checks the versions and a clean tree, then creates and pushes the tag `v<version>`.
-3. The Release workflow tests, builds the CLI for macOS and Linux and the app for arm64 and x64, signs and notarizes the app, signs `latest-mac.json`, writes `SHA256SUMS`, adds build provenance, and publishes the GitHub release.
+1. Move the `[Unreleased]` entries in `CHANGELOG.md` under a new `## [<version>] - <date>` heading. The release notes come from that section.
+2. Set the same version in `package.json` and `desktop/package.json`, and commit.
+3. Run `sh desktop/scripts/release.sh`. It checks the versions and a clean tree, then creates and pushes the tag `v<version>`.
+4. The Release workflow tests, builds the CLI for macOS and Linux and the app for arm64 and x64, signs and notarizes the app, signs `latest-mac.json`, writes `SHA256SUMS`, adds build provenance, and publishes the GitHub release.
 
 Warning: pushing the tag publishes a public release. Installed apps offer it as an update.
 

@@ -1,0 +1,19 @@
+# Weekly dependency updates. Minor and patch bumps come grouped in one PR per directory;
+# majors get their own PR. Security updates are on as well (repository settings).
+version: 2
+updates:
+  - package-ecosystem: bun
+    directories: ["/", "/desktop"]
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        update-types: [minor, patch]
