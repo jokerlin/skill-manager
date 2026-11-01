@@ -79,6 +79,18 @@ Pi has no published listing budget. skm estimates with o200k and sets no limit.
 
 The **body** (paid when a skill activates) is the token and line count of the SKILL.md body. The spec suggests fewer than 5,000 tokens and 500 lines.
 
+## Upstreams
+
+`skm upstream` compares three digests for each skill under `upstreams:`:
+
+- **base**: what skm last wrote, from `~/.skm/upstreams.lock.json`
+- **store**: the store dir now
+- **target**: the dir at the target ref in the mirror (`~/.skm/cache/upstreams/<name>.git`)
+
+The digest is a SHA-256 over each file's path and git blob id, so skm hashes the store copy and a repo tree the same way without a checkout. `.DS_Store`, `__pycache__`, `*.pyc` and `.git` do not count. File modes do not count either, but `update` writes them (`100755` files are executable).
+
+`update` writes the skill into `<store>/.upstream-<skill>` first, then swaps it in, then reads it back and checks the digest against the target. Before it writes, it takes a hub backup of the skill dirs it replaces and of the lock file, so `skm restore <hub> <ts>` returns both. Skills that already equal the target get their lock entry moved to the target, so a later edit is measured against the right base.
+
 ## Backups and restore
 
 Before each `sync` applies, skm writes on every target host:

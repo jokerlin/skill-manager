@@ -4,6 +4,10 @@ All notable changes to Skill Manager. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+### Added
+
+- Skills can track the git repo they came from. Declare it under `upstreams:` in `config.yaml`, or run `skm upstream adopt <name> --repo <url>`; adopt also finds which upstream commit each store copy equals. `skm upstream` shows each skill's state (current, update available, edited locally) and the upstream commits since your version. `skm upstream update` backs up, writes the new version into the store and records it; it does not overwrite a copy you edited unless you pass `--force`. Then `skm sync` copies it to every host.
+
 ## [0.5.2] - 2026-11-01
 
 ### Changed

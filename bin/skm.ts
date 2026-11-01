@@ -15,6 +15,7 @@ import { runRulesInfer } from "../src/cli/rules";
 import { runConfigPatch, runConfigShow, runScope, runExtensions } from "../src/cli/scope";
 import { runPluginUpdate, runPlugins } from "../src/cli/plugins";
 import { runHarness, runHarnessUpdate } from "../src/cli/harness";
+import { runUpstream, runUpstreamAdopt, runUpstreamUpdate } from "../src/cli/upstream";
 import pkg from "../package.json";
 
 const program = new Command();
@@ -120,6 +121,40 @@ harness
   .action((_o: unknown, cmd: Command) => {
     const o = cmd.optsWithGlobals<{ host?: string; agent?: string; dryRun: boolean; yes: boolean; events: boolean }>();
     return runHarnessUpdate({ yes: o.yes, events: o.events, dryRun: o.dryRun, ...(o.host !== undefined ? { host: o.host } : {}), ...(o.agent !== undefined ? { agent: o.agent } : {}) });
+  });
+const upstream = program
+  .command("upstream")
+  .description("skills whose store copy comes from a git repo: target version and state of each (upstreams: in config.yaml)")
+  .option("--json", "machine-readable", false)
+  .option("--cached", "use the local mirror, do not fetch", false)
+  .option("--log", "list the upstream commits that touch each skill", false)
+  .action((o: { json: boolean; cached: boolean; log: boolean }) => runUpstream(o));
+upstream
+  .command("update [skills...]")
+  .description("write the upstream version of skills into the store (backup first; refuses edited copies unless --force); then run `skm sync`")
+  .option("--all", "every skill under upstreams:", false)
+  .option("--to <ref>", "a branch, tag or commit instead of the configured ref")
+  .option("--force", "also overwrite store copies edited locally or of unknown version", false)
+  .option("--dry-run", "show what would be written", false)
+  .option("-y, --yes", "no confirmation", false)
+  .option("--no-backup", "skip the automatic backup")
+  // --json/--cached are declared on `upstream` too; Commander hands them to the parent, so read them with optsWithGlobals()
+  .option("--json", "machine-readable result (needs -y)", false)
+  .option("--cached", "use the local mirror, do not fetch", false)
+  .action((skills: string[], _o: unknown, cmd: Command) => {
+    const o = cmd.optsWithGlobals<{ all: boolean; to?: string; force: boolean; dryRun: boolean; yes: boolean; backup: boolean; json: boolean; cached: boolean }>();
+    return runUpstreamUpdate(skills, { all: o.all, force: o.force, dryRun: o.dryRun, yes: o.yes, backup: o.backup, json: o.json, cached: o.cached, ...(o.to !== undefined ? { to: o.to } : {}) });
+  });
+upstream
+  .command("adopt <name> [skills...]")
+  .description("track store skills from a git repo: add upstreams.<name> and record which upstream commit each copy equals (no skills = every store skill the repo has)")
+  .option("--repo <url>", "git URL or path (required for a new upstream)")
+  .option("--path <pattern>", "where a skill lives in the repo (default: skills/{skill})")
+  .option("--ref <ref>", "branch, tag or commit to follow (default: newest release tag, else the default branch)")
+  .option("--json", "machine-readable", false)
+  .action((name: string, skills: string[], _o: unknown, cmd: Command) => {
+    const o = cmd.optsWithGlobals<{ repo?: string; path?: string; ref?: string; json: boolean }>();
+    return runUpstreamAdopt(name, skills, { json: o.json, ...(o.repo !== undefined ? { repo: o.repo } : {}), ...(o.path !== undefined ? { path: o.path } : {}), ...(o.ref !== undefined ? { ref: o.ref } : {}) });
   });
 program.command("extensions").description("extensions in ~/.skm/extensions: extra agents, desktop apps and harness tools").option("--json", "machine-readable", false).action((o: { json: boolean }) => runExtensions(o.json));
 program.command("pull <host> [skills...]").description("copy remote-only skills from a host's store into the hub").option("--all", "every remote-only skill", false).option("--force", "overwrite hub copy", false).action((host: string, skills: string[], o: { all: boolean; force: boolean }) => runPull(host, skills, o.all, o.force));

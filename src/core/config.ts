@@ -2,6 +2,7 @@ import { parse as parseYaml, stringify as toYaml } from "yaml";
 import { type Option, type Result, err, none, ok, some } from "../lib/result";
 import type { AgentOverride } from "./agents";
 import { type Registry, builtinRegistry } from "./extensions";
+import { type UpstreamPolicy, duplicateClaims, parseUpstream, upstreamToRaw } from "./upstream";
 
 /** Which hosts/agents a rule or default applies to. */
 export type Selector =
@@ -64,6 +65,8 @@ export type Config = {
   readonly rules: readonly Rule[];
   readonly plugins: readonly PluginPolicy[];
   readonly owned: readonly OwnedPolicy[];
+  /** skills whose store copy comes from a git repo (`skm upstream`) */
+  readonly upstreams: readonly UpstreamPolicy[];
   readonly eval: { readonly agent: EvalAgent; readonly model: Option<string> };
   readonly contextTokens: number;
   readonly backupBeforeApply: boolean;
@@ -91,6 +94,7 @@ export const defaultConfig = (): Config => ({
   rules: [],
   plugins: [],
   owned: [],
+  upstreams: [],
   eval: { agent: "claude", model: none },
   disabledExtensions: [],
   registry: builtinRegistry(),
@@ -276,6 +280,16 @@ export const parseConfig = (text: string): Result<Config, ConfigError> => {
   const owned = sequence(Object.entries(ownedRaw).map(([skill, v]) => parseOwned(skill, v)));
   if (!owned.ok) return owned;
 
+  const upstreamsRaw = doc["upstreams"] ?? {};
+  if (!isRecord(upstreamsRaw)) return err(shape("upstreams", "expected a map of upstream name → { repo, skills }"));
+  const upstreams = sequence(Object.entries(upstreamsRaw).map(([name, v]) => {
+    const u = parseUpstream(name, v);
+    return u.ok ? u : err(shape(u.error.path, u.error.message));
+  }));
+  if (!upstreams.ok) return upstreams;
+  const claimed = duplicateClaims(upstreams.value);
+  if (claimed.length > 0) return err(shape("upstreams", `a skill can come from one upstream only: ${claimed.join(", ")}`));
+
   const evalRaw = doc["eval"] ?? {};
   if (!isRecord(evalRaw)) return err(shape("eval", "expected a map"));
   const evalAgent = evalRaw["agent"] ?? d.eval.agent;
@@ -304,6 +318,7 @@ export const parseConfig = (text: string): Result<Config, ConfigError> => {
     rules: rules.value,
     plugins: plugins.value,
     owned: owned.value,
+    upstreams: upstreams.value,
     eval: { agent: evalAgent, model: model === undefined ? none : some(model) },
     contextTokens,
     backupBeforeApply,
@@ -372,6 +387,7 @@ export const serializeConfig = (c: Config): string =>
     rules: c.rules.map(ruleToRaw),
     ...(c.plugins.length > 0 ? { plugins: Object.fromEntries(c.plugins.map((p) => [p.name, pluginToRaw(p)])) } : {}),
     ...(c.owned.length > 0 ? { owned: Object.fromEntries(c.owned.map((o) => [o.skill, ownedToRaw(o)])) } : {}),
+    ...(c.upstreams.length > 0 ? { upstreams: Object.fromEntries(c.upstreams.map((u) => [u.name, upstreamToRaw(u)])) } : {}),
     eval: { agent: c.eval.agent, ...(c.eval.model.some ? { model: c.eval.model.value } : {}) },
     contextTokens: c.contextTokens,
     backupBeforeApply: c.backupBeforeApply,

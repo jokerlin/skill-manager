@@ -79,6 +79,18 @@ Pi 没有公开的 listing 预算。skm 用 o200k 估算，不设上限。
 
 **body**（激活时付）：SKILL.md 正文的 token 数和行数。规范建议少于 5,000 token、少于 500 行。
 
+## 上游
+
+`skm upstream` 对 `upstreams:` 下的每个 skill 比较三个摘要：
+
+- **base**：skm 上次写入的内容，记录在 `~/.skm/upstreams.lock.json`
+- **store**：store 目录的现状
+- **target**：镜像（`~/.skm/cache/upstreams/<name>.git`）里目标 ref 下的目录
+
+摘要是对每个文件的路径和 git blob id 求 SHA-256。所以 skm 不用 checkout，就能用同一种方法给 store 副本和仓库里的树算摘要。`.DS_Store`、`__pycache__`、`*.pyc` 和 `.git` 不计入。文件权限也不计入，但 `update` 会写入权限（`100755` 的文件可执行）。
+
+`update` 先把 skill 写到 `<store>/.upstream-<skill>`，再换到原位置，然后读回来，核对摘要和目标一致。写入前，它在 hub 上备份要替换的 skill 目录和 lock 文件，所以 `skm restore <hub> <ts>` 能把两者一起还原。已经等于目标版本的 skill，lock 记录也会移到目标版本，这样以后的改动按正确的 base 判断。
+
 ## 备份和还原
 
 每次 `sync` 应用前，每台目标主机上生成：
