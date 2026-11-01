@@ -40,7 +40,7 @@ Most skill managers handle one agent on one machine. skm treats your setup as a 
 - Plugin updates across hosts (`skm plugin update`), including plugins that ship inside a desktop app.
 - Harness updates: run each agent CLI's own update command on every host in parallel.
 - LLM evaluation of your skills (`skm eval`) with `claude -p` or `codex exec`.
-- Extensions: add agents and desktop apps with a YAML file, no code.
+- Extensions: add agents with a YAML file, no code.
 - English and Simplified Chinese UI. Light and dark themes.
 
 ## Install
@@ -137,7 +137,6 @@ upstreams:                             # skills whose store copy comes from a gi
 eval: { agent: claude }
 agentOverrides:                        # optional: another skill dir or update command for an agent
   pi: { dir: ~/.pi/agent/skills, update: "pi update --all" }
-disabledExtensions: []                 # e.g. [chatgpt-desktop]
 contextTokens: 1000000                 # fallback context window when skm cannot read the model
 backupBeforeApply: true
 ```
@@ -184,7 +183,7 @@ The app is an Electron shell over the CLI. All logic stays in `skm`: the app rea
 
 ## Extensions
 
-An extension is a YAML file in `~/.skm/extensions/`. It can add an agent or a desktop app that writes plugin marketplaces:
+An extension is a YAML file in `~/.skm/extensions/` that adds an agent skm does not ship with:
 
 ```yaml
 # ~/.skm/extensions/opencode.yaml
@@ -195,7 +194,17 @@ agents:
     cli: { bin: opencode, update: opencode upgrade }
 ```
 
-Extensions are data. skm runs their commands only when you run `skm harness update` or press update in the app. See [docs/extensions.md](docs/extensions.md) for the full format. The ChatGPT desktop app support ships as the built-in extension `chatgpt-desktop`; turn it off with `disabledExtensions: [chatgpt-desktop]`.
+Extensions are data. skm runs an agent's update command only when you run `skm harness update` or press update in the app. See [docs/extensions.md](docs/extensions.md) for the full format.
+
+### Codex desktop app (ChatGPT.app)
+
+The Codex desktop app ships as `/Applications/ChatGPT.app`. It writes two plugin marketplaces of its own, `openai-bundled` and `openai-primary-runtime`, which no CLI command refreshes. skm knows this app as part of the built-in codex agent (id `chatgpt`). `skm harness` shows its version on each host, or "not installed". The Plugins view marks its plugins as "Ships with an app". `skm harness update --agent chatgpt` updates it on one host:
+
+1. skm reads the newest version from the app's Sparkle appcast.
+2. skm downloads it, checks the code signature with `codesign --verify --deep --strict`, and checks that the Team ID matches the installed app.
+3. skm moves the old app to `~/.skm/backups/app/` on that host and installs the new one.
+4. skm opens the app hidden and waits until it has rewritten its marketplaces and finished its runtime download.
+5. skm quits the app again if it was not running before.
 
 ## Upstream skills
 

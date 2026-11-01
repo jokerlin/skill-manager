@@ -32,7 +32,7 @@ export type Agent = {
   /** The agent's own CLI: `--version` prints its version, `update` is the self-update command (it detects native / npm / brew installs). */
   readonly cli: { readonly bin: string; readonly update: string };
   /**
-   * The agent's desktop app, when it writes plugin marketplaces of its own (local dirs skm cannot refresh).
+   * The agent's desktop app (built-in agents only), when it writes plugin marketplaces of its own (local dirs skm cannot refresh).
    * skm reads its version from the bundle and updates it from its Sparkle appcast; the app rewrites `marketplaces` on its next launch.
    */
   readonly app?: AgentApp;
@@ -78,6 +78,17 @@ export const AGENTS: readonly Agent[] = [
     plugins: { cache: under(".codex/plugins/cache") }, // switched in ~/.codex/config.toml [plugins."name@mk"] enabled (default true)
     builtinDir: under(".codex/skills/.system"),
     cli: { bin: "codex", update: "codex update" },
+    // the Codex desktop app ships as ChatGPT.app (bundle id com.openai.codex); it materializes openai-bundled
+    // and installs the runtime that holds openai-primary-runtime. A host without the bundle reports "not installed".
+    app: {
+      id: "chatgpt",
+      name: "ChatGPT",
+      bundle: "/Applications/ChatGPT.app",
+      feed: "https://persistent.oaistatic.com/codex-app-prod/appcast.xml",
+      marketplaces: ["openai-bundled", "openai-primary-runtime"],
+      marker: ".codex/.tmp/bundled-marketplaces/openai-bundled/.materialization-key",
+      settle: { file: ".cache/codex-runtimes/codex-primary-runtime/runtime.json", busy: ".cache/codex-runtimes/codex-runtime-install-*" },
+    },
   },
   {
     id: "pi",

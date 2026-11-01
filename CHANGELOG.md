@@ -4,8 +4,13 @@ All notable changes to Skill Manager. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+### Changed
+
+- The Codex desktop app (ChatGPT.app) is part of the built-in codex agent, not the built-in extension `chatgpt-desktop`. The app labels it "Codex desktop app (ChatGPT.app)". Version checks, app updates and its bundled plugins work as before.
+
 ### Removed
 
+- Extensions can no longer declare `apps:`, and config.yaml no longer reads `disabledExtensions`. An extension file with `apps:` loads with a warning, and skm ignores that list. To turn an extension off, move its file out of `~/.skm/extensions`. **Settings → Extensions** lists the files with their warnings and errors, without switches.
 - Extensions can no longer declare `tools:` for `skm harness` to check and update. `skm harness`, the TUI hosts view and the app's Agent CLIs section show only the agent CLIs and desktop apps. A file that still has `tools:` loads with a warning in `skm extensions` and in **Settings → Extensions**; skm ignores that list, and the file's agents and apps still load.
 
 ### Fixed

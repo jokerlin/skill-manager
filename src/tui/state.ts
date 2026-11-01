@@ -267,7 +267,7 @@ export const harnessTools = (c: Config): readonly HarnessToolRow[] => {
   const agents = c.agents.flatMap((id) => { const a = resolveAgent(id, c.agentOverrides, c.registry.agents); return a.some ? [a.value] : []; });
   return [
     ...agents.map((a): HarnessToolRow => ({ id: a.id, name: a.id, kind: "cli" })),
-    ...agents.flatMap((a): HarnessToolRow[] => (a.app !== undefined ? [{ id: a.app.id, name: `${a.app.name} app`, kind: "app" }] : [])),
+    ...agents.flatMap((a): HarnessToolRow[] => (a.app !== undefined ? [{ id: a.app.id, name: `${a.name} desktop app (${a.app.bundle.split("/").pop() ?? a.app.name})`, kind: "app" }] : [])),
   ];
 };
 

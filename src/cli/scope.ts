@@ -49,7 +49,6 @@ export const runConfigShow = async (json: boolean): Promise<void> =>
         }),
         extensions: app.config.registry.extensions,
         extensionsDir: extensionsDir(app.skmHome),
-        disabledExtensions: [...app.config.disabledExtensions],
       }, null, 2));
     }
     out(await Bun.file(app.configPath).text());
@@ -66,7 +65,7 @@ export const runConfigPatch = async (): Promise<void> =>
     out(`${pc.green("ok")} saved ${app.configPath}`);
   });
 
-/** `skm extensions`: what each extension adds (agents, desktop apps), what in it skm ignored, and why one did not load. */
+/** `skm extensions`: the agents each extension adds, what in it skm ignored, and why one did not load. */
 export const runExtensions = async (json: boolean): Promise<void> =>
   withApp(async (app) => {
     const r = app.config.registry;
@@ -74,14 +73,10 @@ export const runExtensions = async (json: boolean): Promise<void> =>
     out(pc.dim(`extensions dir: ${extensionsDir(app.skmHome)}`));
     if (r.extensions.length === 0) return out("no extensions");
     r.extensions.forEach((e) => {
-      const what = [
-        e.agents.length > 0 ? `agents: ${e.agents.join(", ")}` : "",
-        e.apps.length > 0 ? `apps: ${e.apps.join(", ")}` : "",
-      ].filter((x) => x !== "").join(" · ");
-      const state = e.error !== null ? pc.red(`error: ${e.error}`) : e.enabled ? pc.green("on") : pc.dim("off (disabledExtensions)");
+      const state = e.error !== null ? pc.red(`error: ${e.error}`) : pc.green("on");
       out(`${pc.bold(e.name)}  ${state}`);
       out(pc.dim(`  ${e.source}`));
-      if (what !== "") out(`  ${what}`);
+      if (e.agents.length > 0) out(`  agents: ${e.agents.join(", ")}`);
       e.warnings.forEach((w) => out(pc.yellow(`  warning: ${w}`)));
     });
   });

@@ -92,7 +92,7 @@ export const HostsView = () => {
                 <div key={a.app.id} className="mt-2 flex items-center gap-2 border-t border-border/60 pt-2">
                   <AppWindow className="size-3.5 shrink-0 text-muted-foreground" />
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-[12px]">{t("harness.desktopApp", { name: a.app.name })}</div>
+                    <div className="truncate text-[12px]">{t("harness.desktopApp", { agent: t(agentKey(a.app.agent)), bundle: a.app.bundle.split("/").pop() ?? a.app.name })}</div>
                     <div className={cn("truncate text-[11px]", a.behind.length > 0 ? "text-danger" : "text-muted-foreground")}>
                       {a.behind.length > 0 && a.latest !== null
                         ? `${t("harness.appBehind", { n: a.behind.length, v: a.latest })} · ${a.behind.join(", ")}`

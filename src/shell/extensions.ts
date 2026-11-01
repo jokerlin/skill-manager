@@ -1,7 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import type { Config } from "../core/config";
-import { BUILTIN_EXTENSIONS, type Extension, buildRegistry, parseExtension } from "../core/extensions";
+import { type Extension, buildRegistry, parseExtension } from "../core/extensions";
 
 export const extensionsDir = (skm: string): string => join(skm, "extensions");
 
@@ -23,8 +23,8 @@ export const readExtensions = async (skm: string): Promise<{ readonly ok: readon
   };
 };
 
-/** The config with its registry rebuilt from the built-in extensions plus the user's files. */
+/** The config with its registry rebuilt from the built-in agents plus the user's files. */
 export const withExtensions = async (skm: string, c: Config): Promise<Config> => {
   const files = await readExtensions(skm);
-  return { ...c, registry: buildRegistry([...BUILTIN_EXTENSIONS, ...files.ok], c.disabledExtensions, files.failed) };
+  return { ...c, registry: buildRegistry(files.ok, files.failed) };
 };

@@ -147,7 +147,6 @@ export type ConfigSummary = {
   readonly agentCatalog: readonly AgentInfo[];
   readonly extensions: readonly ExtensionInfo[];
   readonly extensionsDir: string;
-  readonly disabledExtensions: readonly string[];
 };
 
 /** One extension (built-in or a YAML file in extensionsDir): what it adds, or why it is not loaded. */
@@ -190,7 +189,6 @@ export type ConfigPatch = {
   readonly agents?: readonly string[];
   readonly agentOverrides?: Readonly<Record<string, { readonly dir: string | null; readonly update: string | null }>>;
   readonly store?: string;
-  readonly disabledExtensions?: readonly string[];
   readonly backupBeforeApply?: boolean;
   readonly contextTokens?: number;
 };

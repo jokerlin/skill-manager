@@ -40,7 +40,7 @@ mini:~/.skm/skills  devbox:~/.skm/skills   ← rsync 镜像，在各主机本地
 - 跨主机更新 plugin（`skm plugin update`），包括随桌面应用分发的 plugin。
 - Harness 更新：在每台主机上并行执行各 agent CLI 自带的更新命令。
 - 用 `claude -p` 或 `codex exec` 让 LLM 评估你的 skill（`skm eval`）。
-- 扩展：写一个 YAML 文件就能加入 agent 和桌面应用，不用写代码。
+- 扩展：写一个 YAML 文件就能加入 agent，不用写代码。
 - 界面支持英文和简体中文，支持浅色和深色主题。
 
 ## 安装
@@ -137,7 +137,6 @@ upstreams:                             # store 副本来自某个 git 仓库的 
 eval: { agent: claude }
 agentOverrides:                        # 可选：改某个 agent 的 skill 目录或更新命令
   pi: { dir: ~/.pi/agent/skills, update: "pi update --all" }
-disabledExtensions: []                 # 例如 [chatgpt-desktop]
 contextTokens: 1000000                 # skm 读不到模型时的兜底上下文窗口
 backupBeforeApply: true
 ```
@@ -184,7 +183,7 @@ App 是 CLI 外面的一层 Electron 外壳，所有逻辑都在 `skm` 里：App
 
 ## 扩展
 
-扩展是 `~/.skm/extensions/` 里的一个 YAML 文件。它可以加入一个 agent，或一个会写 plugin marketplace 的桌面应用：
+扩展是 `~/.skm/extensions/` 里的一个 YAML 文件，用来加入 skm 没有内置的 agent：
 
 ```yaml
 # ~/.skm/extensions/opencode.yaml
@@ -195,7 +194,17 @@ agents:
     cli: { bin: opencode, update: opencode upgrade }
 ```
 
-扩展只包含数据。只有你运行 `skm harness update` 或在 App 里点更新时，skm 才执行其中的命令。完整格式见 [docs/zh-CN/extensions.md](docs/zh-CN/extensions.md)。ChatGPT 桌面版的支持是内置扩展 `chatgpt-desktop`，用 `disabledExtensions: [chatgpt-desktop]` 关闭。
+扩展只包含数据。只有你运行 `skm harness update` 或在 App 里点更新时，skm 才执行 agent 的更新命令。完整格式见 [docs/zh-CN/extensions.md](docs/zh-CN/extensions.md)。
+
+### Codex 桌面 App（ChatGPT.app）
+
+Codex 桌面 App 的安装包是 `/Applications/ChatGPT.app`。它自己写两个 plugin marketplace：`openai-bundled` 和 `openai-primary-runtime`，任何 CLI 命令都不会刷新它们。skm 把这个 App 当作内置 codex agent 的一部分（id 是 `chatgpt`）。`skm harness` 显示它在每台主机上的版本，没装时显示「not installed」。插件视图把它的 plugin 标为「随应用分发」。`skm harness update --agent chatgpt` 在一台主机上更新它：
+
+1. skm 从 App 的 Sparkle appcast 读取最新版本。
+2. skm 下载新版，用 `codesign --verify --deep --strict` 校验签名，并确认 Team ID 和已安装的 App 相同。
+3. skm 把旧版移到该主机的 `~/.skm/backups/app/`，安装新版。
+4. skm 在后台打开 App，等它重写完 marketplace、下载完 runtime。
+5. 如果 App 原来没在运行，skm 再把它退出。
 
 ## 上游 skill
 
