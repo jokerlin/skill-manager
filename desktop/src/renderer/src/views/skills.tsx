@@ -488,7 +488,7 @@ const UpstreamSection = ({ up }: { up: UpstreamOf }) => {
       {forced ? (armed ? t("upstream.confirmOverwrite") : t("upstream.overwrite", { target })) : t("upstream.update", { target })}
     </Button>
   ) : (
-    <Button size="sm" variant="ghost" className="text-muted-foreground" disabled={checking} onClick={() => void checkUpstreams()}>
+    <Button size="sm" variant="ghost" className="text-muted-foreground" disabled={checking} onClick={() => void checkUpstreams({ report: true })}>
       {checking ? <Loader2 className="animate-spin" /> : null}{t(checking ? "upstream.checking" : "upstream.check")}
     </Button>
   );

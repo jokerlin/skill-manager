@@ -1,6 +1,6 @@
 import type { ApplyEvent, ConfigSummary, HarnessReport, HostPlan, HostStatus, PluginsReport, SkillRow, Upstream, UpstreamSkill, UpstreamsReport } from "@shared/types";
 import { create } from "zustand";
-import { useI18n } from "@/i18n";
+import { translate, useI18n } from "@/i18n";
 import { type SkmError, errorText, skm, streamEvents } from "@/lib/skm";
 
 export type View = "skills" | "plugins" | "hosts";
@@ -68,7 +68,8 @@ type State = {
 type Actions = {
   readonly setView: (v: View) => void;
   readonly boot: () => Promise<void>;
-  readonly refreshLive: (host?: string) => Promise<void>;
+  /** Probe hosts live. Refreshing every host also re-checks the upstreams; `quiet` keeps that check from raising an error toast (launch). */
+  readonly refreshLive: (host?: string, o?: { quiet?: boolean }) => Promise<void>;
   readonly refreshDerived: () => Promise<void>;
   readonly reloadConfig: () => Promise<void>;
   readonly toggleSkill: (skill: string, host: string, agent: string, on: boolean) => Promise<void>;
@@ -77,7 +78,8 @@ type Actions = {
   readonly updatePlugins: (names: readonly string[], o?: { host?: string; agent?: string }) => Promise<void>;
   readonly checkHarness: (o?: { cached?: boolean; host?: string }) => Promise<void>;
   readonly updateHarness: (o?: { host?: string; agent?: string }) => Promise<void>;
-  readonly checkUpstreams: (o?: { cached?: boolean }) => Promise<void>;
+  /** `report`: a failure raises the error toast (user-initiated checks); otherwise the last result stays. */
+  readonly checkUpstreams: (o?: { cached?: boolean; report?: boolean }) => Promise<void>;
   /** Write the upstream version of skills into the store; the change then waits in the pending bar like any store edit. */
   readonly updateUpstream: (skills: readonly string[], o?: { force?: boolean }) => Promise<void>;
   /** Plugins another app writes: update that app where it is behind (it rewrites them on launch), then reinstall the plugins from each host's copy. */
@@ -211,13 +213,14 @@ export const useApp = create<AppStore>()((set, get) => {
       if (status.ok) set({ hosts: status.value });
       await refreshDerived();
       set({ booted: true });
-      void get().refreshLive();
+      // the live upstream check runs inside refreshLive, so a failed check at launch can be retried with Refresh
+      void get().checkUpstreams({ cached: true }).then(() => get().refreshLive(undefined, { quiet: true }));
       void get().checkHarness({ cached: true }).then(() => get().checkHarness());
-      void get().checkUpstreams({ cached: true }).then(() => get().checkUpstreams());
     },
 
-    refreshLive: async (only) => {
+    refreshLive: async (only, o = {}) => {
       const ids = only === undefined ? order() : [only];
+      const upstreams = only === undefined ? get().checkUpstreams({ report: !o.quiet }) : Promise.resolve();
       set((s) => ({ probe: { ...s.probe, ...Object.fromEntries(ids.map((h) => [h, "probing" as const])) } }));
       await Promise.all(ids.map(async (h) => {
         const r = await skm.status({ cached: false, host: h });
@@ -234,6 +237,7 @@ export const useApp = create<AppStore>()((set, get) => {
       }));
       const plugins = await skm.plugins();
       if (plugins.ok) set({ plugins: plugins.value });
+      await upstreams;
     },
 
     refreshDerived,
@@ -292,7 +296,10 @@ export const useApp = create<AppStore>()((set, get) => {
     checkUpstreams: async (o = {}) => {
       if (!o.cached) set({ upstreamChecking: true });
       const r = await skm.upstreams({ cached: o.cached ?? false });
-      set((s) => ({ upstreamChecking: o.cached ? s.upstreamChecking : false, ...(r.ok ? { upstreams: r.value } : {}) }));
+      set((s) => ({
+        upstreamChecking: o.cached ? s.upstreamChecking : false,
+        ...(r.ok ? { upstreams: r.value } : o.report ? { error: translate(useI18n.getState().locale, "upstream.checkFailed", { error: errorText(r.error) }) } : {}),
+      }));
     },
 
     updateUpstream: async (skills, o = {}) => {

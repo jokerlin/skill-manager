@@ -124,6 +124,7 @@ export const en = {
   "upstream.overwrite": "Overwrite with {target}",
   "upstream.confirmOverwrite": "Click again to overwrite",
   "upstream.check": "Check now",
+  "upstream.checkFailed": "Upstream check failed: {error}",
   "upstream.checking": "Checking…",
   "upstream.repo": "Repo",
   "upstream.version": "Store version",
