@@ -4,6 +4,8 @@ All notable changes to Skill Manager. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-11-01
+
 ### Added
 
 - The TUI shows the upstream state of each skill: a mark in the skills list (`↑` update available, `✎` edited locally, `≠` unknown base, `✗` gone upstream), and the repo, version and upstream commits in the detail panel. `u` updates the selected skill and `U` updates every skill with a new version, backup first; a copy you edited is overwritten only after its own prompt. The TUI checks the local mirrors when it starts, then fetches; `r` checks again.
@@ -102,7 +104,8 @@ First public release.
 - Self-update from GitHub Releases with an Ed25519-signed manifest and SHA-512 checks.
 - Release workflow with build provenance attestations and `SHA256SUMS`.
 
-[Unreleased]: https://github.com/jokerlin/skill-manager/compare/v0.5.4...HEAD
+[Unreleased]: https://github.com/jokerlin/skill-manager/compare/v0.5.5...HEAD
+[0.5.5]: https://github.com/jokerlin/skill-manager/compare/v0.5.4...v0.5.5
 [0.5.4]: https://github.com/jokerlin/skill-manager/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/jokerlin/skill-manager/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/jokerlin/skill-manager/compare/v0.5.1...v0.5.2
