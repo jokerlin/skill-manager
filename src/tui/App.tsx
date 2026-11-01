@@ -9,7 +9,9 @@ import type { AppState } from "../shell/app";
 import { hostErrorText } from "../shell/probe";
 import type { TuiIo } from "./io";
 import { pluginUpdateOps } from "../core/pluginUpdate";
-import { type State, VIEWS, fitCount, initialState, pendingTotal, pluginRowsOf, pluginUpdatable, reduce, selectedSkill, visibleSkills } from "./state";
+import { stateHint } from "../core/upstream";
+import { shortVersion } from "../core/harness";
+import { type State, VIEWS, cellWanted, fitCount, initialState, pendingTotal, pluginGrid, pluginRowsOf, pluginUpdatable, reduce, togglePluginCell, selectedSkill, upstreamOf, upstreamUpdatable, visibleSkills } from "./state";
 import { SkillsView } from "./views/Skills";
 import { PluginsView } from "./views/Plugins";
 import { HostsView, clampOffset, hostLines } from "./views/Hosts";
@@ -36,26 +38,108 @@ export const App = ({ app, io, autoProbe = true }: AppProps): React.ReactElement
           type: "host",
           id: hostId,
           status: r.ok
-            ? { kind: "ready", inventory: r.value, ops: io.plan(stateRef.current.config, app.skills, host, r.value), view: buildHostView(host.id, agentsOn(stateRef.current.config, host), r.value, stateRef.current.config.contextTokens, app.claudeOverrides, stateRef.current.config.owned) }
+            ? { kind: "ready", inventory: r.value, ops: io.plan(stateRef.current.config, stateRef.current.skills, host, r.value), view: buildHostView(host.id, agentsOn(stateRef.current.config, host), r.value, stateRef.current.config.contextTokens, app.claudeOverrides, stateRef.current.config.owned) }
             : { kind: "error", error: r.error },
         }),
       );
     },
-    [io, app.skills],
+    [io, app.claudeOverrides],
   );
   const probeAll = useCallback(() => stateRef.current.config.hosts.forEach((h) => probe(h.id)), [probe]);
-  useEffect(() => { if (autoProbe) probeAll(); }, [autoProbe, probeAll]);
 
-  /** Re-plan every ready host against a new config using the cached inventories (pure). */
+  /** Check every upstream: `offline` reads the local mirrors (fast, shown first), otherwise fetch them. */
+  const checkUpstream = useCallback(async (offline: boolean) => {
+    if (stateRef.current.config.upstreams.length === 0) return;
+    dispatch({ type: "upstreamChecking", on: true });
+    const r = await io.upstreams(offline);
+    dispatch({ type: "upstreamChecking", on: false });
+    if (!r.ok) return dispatch({ type: "message", text: `upstream: ${r.error}` });
+    dispatch({ type: "upstreams", results: r.value });
+    const warned = r.value.flatMap((x) => (x.result.ok && x.result.value.warning.some ? [x.policy.name] : []));
+    if (warned.length > 0) dispatch({ type: "message", text: `upstream: fetch failed for ${warned.join(", ")}, showing the cached mirror` });
+  }, [io]);
+
+  /** Agent CLI versions per host: `cached` reads the last run's result (instant), otherwise check over ssh. */
+  const checkHarness = useCallback(async (cached: boolean) => {
+    dispatch({ type: "harnessChecking", on: true });
+    const runs = await io.harness(cached);
+    dispatch({ type: "harness", runs });
+    dispatch({ type: "harnessChecking", on: false });
+  }, [io]);
+
+  useEffect(() => {
+    if (!autoProbe) return;
+    probeAll();
+    void checkUpstream(true).then(() => checkUpstream(false));
+    void checkHarness(true).then(() => checkHarness(false));
+  }, [autoProbe, probeAll, checkUpstream, checkHarness]);
+
+  /** Re-plan every ready host against a new config or store using the cached inventories (pure). */
   const replan = useCallback(
-    (config: State["config"]) => {
+    (config: State["config"], skills: State["skills"] = stateRef.current.skills) => {
       Object.entries(stateRef.current.hosts).forEach(([id, st]) => {
         const host = config.hosts.find((h) => h.id === id);
-        if (st.kind === "ready" && host) dispatch({ type: "host", id, status: { ...st, ops: io.plan(config, app.skills, host, st.inventory) } });
+        if (st.kind === "ready" && host) dispatch({ type: "host", id, status: { ...st, ops: io.plan(config, skills, host, st.inventory) } });
       });
     },
-    [io, app.skills],
+    [io],
   );
+
+  /** The desktop app's "Update agent CLIs": each CLI's own self-update on every reachable host, in parallel. */
+  const runHarnessUpdate = useCallback(async () => {
+    const st = stateRef.current;
+    dispatch({ type: "confirm", confirm: { kind: "none" } });
+    if (st.busy) return;
+    const hosts = st.config.hosts.filter((h) => st.hosts[h.id]?.kind === "ready");
+    if (hosts.length === 0) return dispatch({ type: "message", text: "no reachable host" });
+    dispatch({ type: "busy", what: `updating agent CLIs on ${hosts.map((h) => h.id).join(", ")}` });
+    await Promise.all(hosts.map(async (h) => {
+      const r = await io.harnessUpdate(h, (line) => dispatch({ type: "log", line: `${h.id}: ${line}` }));
+      dispatch({ type: "harness", runs: [r] });
+      if (r.error !== null) return dispatch({ type: "log", line: `${h.id}: ${r.error}` });
+      r.results.forEach((x) => {
+        switch (x.kind) {
+          case "updated": return dispatch({ type: "log", line: `${h.id}: ${x.agent} ${x.ok ? "ok" : "failed"} ${shortVersion(x.before)} → ${shortVersion(x.after)}` });
+          case "missing": return dispatch({ type: "log", line: `${h.id}: ${x.agent} not installed` });
+          case "checked": return;
+        }
+      });
+    }));
+    dispatch({ type: "busy", what: undefined });
+    dispatch({ type: "view", view: "changes" });
+  }, [io]);
+
+  /** The desktop app's upstream Update: write skills from the mirror the TUI showed, backup first, then re-read the store so the copies to other hosts show up as pending changes. */
+  const runUpstreamUpdate = useCallback(async (skills: readonly string[], force: boolean) => {
+    dispatch({ type: "confirm", confirm: { kind: "none" } });
+    if (stateRef.current.busy) return;
+    dispatch({ type: "busy", what: `updating ${skills.join(", ")} from upstream` });
+    const r = await io.upstreamUpdate(skills, force, (e) => {
+      switch (e.kind) {
+        case "backup": return dispatch({ type: "log", line: `${e.host}: backup ${e.dir}  (restore: skm restore ${e.host} ${e.ts})` });
+        case "updated": return dispatch({ type: "log", line: `upstream: updated ${e.skill} → ${e.label}` });
+        case "failed": return dispatch({ type: "log", line: `upstream: ${e.skill} failed: ${e.reason}` });
+      }
+    });
+    if (!r.ok) {
+      dispatch({ type: "log", line: `upstream: ${r.error}` });
+      dispatch({ type: "message", text: `upstream: ${r.error}` });
+      return dispatch({ type: "busy", what: undefined });
+    }
+    r.value.outcomes.filter((x) => x.result === "refused" || x.result === "skipped").forEach((x) => dispatch({ type: "log", line: `upstream: ${x.result} ${x.skill}: ${x.reason}` }));
+    const updated = r.value.outcomes.filter((x) => x.result === "updated").length;
+    const failed = r.value.outcomes.filter((x) => x.result === "failed").length;
+    if (updated > 0) {
+      const store = await io.loadSkills();
+      if (store.ok) {
+        dispatch({ type: "skills", skills: store.value });
+        replan(stateRef.current.config, store.value);
+      } else dispatch({ type: "log", line: store.error });
+    }
+    await checkUpstream(true);
+    dispatch({ type: "busy", what: undefined });
+    dispatch({ type: "message", text: updated === 0 && failed === 0 ? "upstream: nothing written" : `upstream: updated ${updated}${failed > 0 ? `, ${failed} failed (see 4:changes log)` : ""}${updated > 0 ? " · s to copy to every host" : ""}` });
+  }, [io, replan, checkUpstream]);
 
   const toggleCell = useCallback(() => {
     const st = stateRef.current;
@@ -67,6 +151,22 @@ export const App = ({ app, io, autoProbe = true }: AppProps): React.ReactElement
     dispatch({ type: "config", config: next });
     replan(next);
     void io.saveConfig(next).then(() => dispatch({ type: "message", text: `saved ${skill.name} ${host.id}/${agent}` }));
+  }, [io, replan]);
+
+  /** The desktop app's plugin switch: flip the highlighted cell in config.yaml; the next apply enables or disables the plugin there. */
+  const togglePlugin = useCallback(() => {
+    const st = stateRef.current;
+    const row = pluginRowsOf(st)[st.pluginSel];
+    const cell = row ? pluginGrid(st, row)[st.pluginCell] : undefined;
+    if (!row || !cell) return;
+    const toggled = togglePluginCell(st, row, cell);
+    if (!toggled.ok) return dispatch({ type: "message", text: toggled.error });
+    const next = toggled.value;
+    if (next === st.config) return dispatch({ type: "message", text: `${row.name} ${cell.host}/${cell.agent} unchanged` });
+    const on = !cellWanted(cell);
+    dispatch({ type: "config", config: next });
+    replan(next);
+    void io.saveConfig(next).then(() => dispatch({ type: "message", text: `saved plugin ${row.name} ${cell.host}/${cell.agent} → ${on ? "on" : "off"}` }));
   }, [io, replan]);
 
   const runSync = useCallback(async () => {
@@ -152,6 +252,12 @@ export const App = ({ app, io, autoProbe = true }: AppProps): React.ReactElement
       case "plugin-update":
         if (input === "y") return void runPluginUpdate(c.plugin);
         return dispatch({ type: "confirm", confirm: { kind: "none" } });
+      case "upstream-update":
+        if (input === "y") return void runUpstreamUpdate(c.skills, c.force);
+        return dispatch({ type: "confirm", confirm: { kind: "none" } });
+      case "harness-update":
+        if (input === "y") return void runHarnessUpdate();
+        return dispatch({ type: "confirm", confirm: { kind: "none" } });
       case "none":
         break;
     }
@@ -160,11 +266,18 @@ export const App = ({ app, io, autoProbe = true }: AppProps): React.ReactElement
     if (input === "?") return dispatch({ type: "view", view: "help" });
     const n = Number(input);
     if (Number.isInteger(n) && n >= 1 && n <= VIEWS.length) return dispatch({ type: "view", view: VIEWS[n - 1] ?? "skills" });
-    if (input === "r") return probeAll();
+    if (input === "r") { probeAll(); void checkHarness(false); return void checkUpstream(false); }
     const askApply = () => { dispatch({ type: "view", view: "changes" }); dispatch({ type: "confirm", confirm: { kind: "apply" } }); };
     if (input === "s") return askApply();
     if (st.view === "changes" && key.return) return askApply();
-    if (st.view === "plugins") {
+    if (st.view === "plugins" && st.pluginFocus === "grid") {
+      if (input === "m" || key.escape) return dispatch({ type: "pluginFocus", focus: "list" });
+      if (input === "j" || key.downArrow) return dispatch({ type: "movePluginCell", delta: 1 });
+      if (input === "k" || key.upArrow) return dispatch({ type: "movePluginCell", delta: -1 });
+      if (input === " " || key.return) return togglePlugin();
+    }
+    if (st.view === "plugins" && st.pluginFocus === "list") {
+      if (input === "m") return dispatch({ type: "pluginFocus", focus: "grid" });
       if (input === "j" || key.downArrow) return dispatch({ type: "movePlugin", delta: 1 });
       if (input === "k" || key.upArrow) return dispatch({ type: "movePlugin", delta: -1 });
       if (input === "g") return dispatch({ type: "movePlugin", delta: -1_000_000 });
@@ -172,6 +285,7 @@ export const App = ({ app, io, autoProbe = true }: AppProps): React.ReactElement
       if (input === "u") {
         const row = pluginRowsOf(st)[st.pluginSel];
         if (!row) return;
+        if (row.cells.length === 0) return dispatch({ type: "message", text: `${row.name} is not installed on any host` });
         if (!pluginUpdatable(row)) return dispatch({ type: "message", text: `${row.name} ships with an app: update the app with skm harness update` });
         return dispatch({ type: "confirm", confirm: { kind: "plugin-update", plugin: row.name } });
       }
@@ -182,6 +296,30 @@ export const App = ({ app, io, autoProbe = true }: AppProps): React.ReactElement
       if (input === "o") return dispatch({ type: "cycleSort" });
       if (input === "O") return dispatch({ type: "flipSort" });
       if (input === "m") return dispatch({ type: "focus", focus: st.focus === "list" ? "grid" : "list" });
+      if (input === "u" && st.focus === "list") {
+        const skill = selectedSkill(st);
+        if (!skill) return;
+        const up = upstreamOf(st, skill.name);
+        if (!up.some) return dispatch({ type: "message", text: st.upstream.checking ? "upstream: still checking" : `${skill.name} has no upstream` });
+        const target = up.value.report.target.label;
+        switch (up.value.skill.state.kind) {
+          case "behind":
+          case "absent":
+            return dispatch({ type: "confirm", confirm: { kind: "upstream-update", skills: [skill.name], force: false } });
+          case "modified":
+          case "unbased":
+            return dispatch({ type: "confirm", confirm: { kind: "upstream-update", skills: [skill.name], force: true } });
+          case "current":
+            return dispatch({ type: "message", text: `${skill.name} is already at ${target}` });
+          case "gone":
+            return dispatch({ type: "message", text: `${skill.name}: ${stateHint.gone}` });
+        }
+      }
+      if (input === "U" && st.focus === "list") {
+        const skills = upstreamUpdatable(st);
+        if (skills.length === 0) return dispatch({ type: "message", text: st.upstream.checking ? "upstream: still checking" : "no upstream updates" });
+        return dispatch({ type: "confirm", confirm: { kind: "upstream-update", skills, force: false } });
+      }
       if (key.escape) { dispatch({ type: "filter", text: "" }); return dispatch({ type: "focus", focus: "list" }); }
       if (st.focus === "grid") {
         if (input === "j" || key.downArrow) return dispatch({ type: "moveGrid", dHost: 1, dAgent: 0 });
@@ -199,6 +337,8 @@ export const App = ({ app, io, autoProbe = true }: AppProps): React.ReactElement
       if (input === "G") return dispatch({ type: "move", delta: 1_000_000 });
     }
     if (st.view === "hosts") {
+      if (input === "H") { dispatch({ type: "scrollHosts", offset: 0 }); return dispatch({ type: "confirm", confirm: { kind: "harness-update" } }); }
+      if (input === "f") return dispatch({ type: "toggleFindings" });
       const scroll = (delta: number) => dispatch({ type: "scrollHosts", offset: clampOffset(st.hostsOffset + delta, hostLines(st).length, rows - 3) });
       if (input === "j" || key.downArrow) return scroll(1);
       if (input === "k" || key.upArrow) return scroll(-1);
@@ -256,9 +396,11 @@ export const App = ({ app, io, autoProbe = true }: AppProps): React.ReactElement
 
   const hints = s.editingFilter ? [`filter: ${s.filter}▏`]
     : s.view === "skills" && s.focus === "grid" ? ["grid: hjkl move", "space toggle", "m back"]
-    : s.view === "plugins" ? ["j/k move", "u update everywhere", "s apply changes", "r reprobe", "Tab view", "q quit"]
+    : s.view === "plugins" && s.pluginFocus === "grid" ? ["cells: j/k move", "space toggle", "m back"]
+    : s.view === "plugins" ? ["j/k move", "m cells", "u update everywhere", "s apply changes", "r reprobe", "Tab view", "q quit"]
+    : s.view === "hosts" ? ["j/k scroll", "H update agent CLIs", "f findings", "s apply changes", "b backup", "r reprobe", "Tab view", "q quit"]
     : s.view === "changes" ? ["Enter apply", "c replace-conflicts (when asked)", "b backup", "r reprobe", "Tab view", "q quit"]
-    : ["j/k move", "/ filter", "o sort", "O flip", "m targets", "s apply changes", "b backup", "r reprobe", "Tab view", "q quit"];
+    : ["j/k move", "/ filter", "o sort", "O flip", "m targets", ...(s.config.upstreams.length > 0 ? ["u/U upstream"] : []), "s apply changes", "b backup", "r reprobe", "Tab view", "q quit"];
   const busyText = s.busy ? `⏳ ${s.busy}  ` : "";
   // ⏳ takes two columns; the message keeps one trailing space
   const hintRoom = cols - (busyText ? busyText.length + 1 : 0) - (s.message.length + 1);

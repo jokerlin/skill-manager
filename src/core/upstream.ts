@@ -134,6 +134,26 @@ export const updateAction = (s: SkillUpstreamState, force: boolean): UpdateActio
   }
 };
 
+/** The words the CLI table and the TUI use for each state. */
+export const stateLabel: Readonly<Record<StateKind, string>> = {
+  current: "current",
+  behind: "update available",
+  modified: "edited locally",
+  unbased: "unknown base",
+  absent: "not in store",
+  gone: "gone upstream",
+};
+
+/** Why a state needs a person's attention; empty when it does not. */
+export const stateHint: Readonly<Record<StateKind, string>> = {
+  current: "",
+  behind: "",
+  modified: "the store copy changed since skm wrote it; update refuses unless --force (a backup is taken first)",
+  unbased: "skm has no record of which version the store copy is; run `skm upstream adopt` to find it, or update --force",
+  absent: "",
+  gone: "the target ref has no such dir; update leaves the store copy alone",
+};
+
 // ---------- refs ----------
 
 const RELEASE_TAG = /^v?(\d+)\.(\d+)\.(\d+)$/;

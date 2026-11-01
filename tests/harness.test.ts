@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mergeHarness } from "../src/cli/harness";
+import { mergeHarness } from "../src/shell/harness";
 import { harnessScript, parseHarnessLine, shortVersion } from "../src/core/harness";
 
 describe("harness", () => {

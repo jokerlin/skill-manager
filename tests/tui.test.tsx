@@ -5,17 +5,22 @@ import { render } from "ink-testing-library";
 import { Box } from "ink";
 import { App } from "../src/tui/App";
 import type { TuiIo } from "../src/tui/io";
-import { defaultConfig } from "../src/core/config";
+import { ALL, type Config, defaultConfig } from "../src/core/config";
+import { pluginWanted } from "../src/core/scope";
 import { buildSkill } from "../src/core/skill";
 import { agentById } from "../src/core/agents";
 import { none, some } from "../src/lib/result";
 import type { AppState } from "../src/shell/app";
 import { inferRules, compressGlobs } from "../src/cli/rules";
 import { pullCandidates } from "../src/cli/pull";
-import { HostsView, clampOffset, hostLines } from "../src/tui/views/Hosts";
+import { HostsView, clampOffset, findingLine, findingSummary, hostLines, toolStatus } from "../src/tui/views/Hosts";
+import { toolVersions } from "../src/core/harness";
+import type { HarnessHost } from "../src/shell/harness";
 import { SkillsView } from "../src/tui/views/Skills";
-import { cellGlyph, fitCount, initialState, pendingTotal, reduce, skillCoverage, visibleSkills } from "../src/tui/state";
-import { coverageText } from "../src/tui/views/Skills";
+import { cellGlyph, fitCount, harnessTools, initialState, pendingTotal, reduce, skillCoverage, visibleSkills } from "../src/tui/state";
+import { coverageText, listTitle, upstreamMark, upstreamPrompt } from "../src/tui/views/Skills";
+import type { StateKind, UpstreamPolicy } from "../src/core/upstream";
+import type { SkillReport, UpstreamResult } from "../src/shell/upstreamOps";
 import type { Op } from "../src/core/plan";
 import { buildHostView } from "../src/core/view";
 
@@ -38,6 +43,11 @@ const io: TuiIo = {
   backup: async () => ({ ok: true, value: "/h/.skm/backups/x" }),
   apply: async (h) => ({ host: h.id, rsynced: [], applied: ["link codex/pdf-tools"], skipped: [], conflicts: [], commands: [], error: undefined }),
   now: () => "20260906-000000",
+  upstreams: async () => ({ ok: true, value: [] }),
+  upstreamUpdate: async () => ({ ok: true, value: { backup: null, outcomes: [] } }),
+  loadSkills: async () => ({ ok: true, value: skills }),
+  harness: async () => [],
+  harnessUpdate: async (h) => ({ host: h.id, at: "", error: null, results: [] }),
 };
 
 const tick = () => new Promise((r) => setTimeout(r, 30));
@@ -170,7 +180,8 @@ describe("hosts view", () => {
   test("renders one row per line and windows by height (no Yoga shrink overlap)", async () => {
     const s = hostsState();
     const lines = hostLines(s);
-    expect(lines.length).toBe(2 * (1 + 2 * 2 + 1)); // per host: header + 2 agents × (row + loads) + gap
+    // the agent CLIs section (title + one row per tool + gap), then per host: header + 2 agents × (row + loads) + gap
+    expect(lines.length).toBe(harnessTools(s.config).length + 2 + 2 * (1 + 2 * 2 + 1));
     const full = render(<HostsView s={s} height={lines.length + 1} offset={0} />); await tick();
     const rows = (full.lastFrame() ?? "").split("\n");
     expect(rows.length).toBe(lines.length + 1);
@@ -301,7 +312,7 @@ describe("aligned with the desktop app", () => {
     expect(frame).toContain("1 plugins · 1 drifting");
     expect(frame).toMatch(/superpowers\s+2 versions/);
     expect(frame).toContain("6.3.0 (newest)");
-    expect(frame).toMatch(/dev\/claude\s+6\.1\.1/);
+    expect(frame).toMatch(/dev\/claude\s+✓ on\s+6\.1\.1/);
     stdin.write("u"); await tick();
     expect(lastFrame()).toContain("update superpowers on local, dev? y = yes");
     stdin.write("y"); await tick(); await tick();
@@ -309,6 +320,58 @@ describe("aligned with the desktop app", () => {
     expect(applied.map((a) => a.host).sort()).toEqual(["dev", "local"]);
     expect(applied.flatMap((a) => a.ops).some((o) => o.op === "plugin-update" && o.plugin === "superpowers@official")).toBe(true);
     expect(lastFrame()).toContain("pending changes"); // the log of what ran is in the changes view
+    unmount();
+  });
+
+  test("m opens the plugin's cells; space flips one in config.yaml and keeps every other cell as it is", async () => {
+    const saved: Config[] = [];
+    const { lastFrame, stdin, unmount } = render(<App app={app()} io={{ ...pluginIo([], []), saveConfig: async (c) => { saved.push(c); } }} />); await tick();
+    stdin.write("2"); await tick();
+    stdin.write("m"); await tick();
+    expect(lastFrame()).toContain("space toggles the highlighted cell");
+    expect(lastFrame()).toMatch(/local\/claude\s+✓ on\s+6\.3\.0/);
+    expect(lastFrame()).toMatch(/dev\/claude\s+✓ on\s+6\.1\.1/);
+    stdin.write(" "); await tick(); await tick();
+    expect(lastFrame()).toContain("saved plugin superpowers local/claude → off");
+    expect(lastFrame()).toMatch(/local\/claude\s+◌ will disable\s+6\.3\.0/); // the version keeps its own column
+    const policy = saved.at(-1)?.plugins.find((p) => p.name === "superpowers");
+    expect(policy).toBeDefined();
+    // a new policy lists today's enabled cells and leaves out the one switched off
+    const wanted = (h: string, a: string) => (policy ? pluginWanted(policy, h, a) : undefined);
+    expect([wanted("local", "claude"), wanted("local", "codex"), wanted("dev", "claude"), wanted("dev", "codex")]).toEqual([false, true, true, true]);
+    stdin.write(" "); await tick(); await tick(); // flip back
+    expect(lastFrame()).toMatch(/local\/claude\s+✓ on/);
+    stdin.write("m"); await tick(); // back to the list: j moves plugins again
+    expect(lastFrame()).toContain("(m to switch cells)");
+    unmount();
+  });
+
+  test("a plugin with no policy cannot be flipped while a host is unreachable: its enabled cells there would be lost", async () => {
+    const saved: Config[] = [];
+    const halfIo: TuiIo = {
+      ...pluginIo([], []),
+      probe: async (h) => (h.id === "local" ? { ok: true, value: pluginInv("6.3.0") } : { ok: false, error: { kind: "ssh", host: "dev", message: "timeout" } as never }),
+      saveConfig: async (c) => { saved.push(c); },
+    };
+    const { lastFrame, stdin, unmount } = render(<App app={app()} io={halfIo} />); await tick();
+    stdin.write("2"); await tick();
+    stdin.write("m"); await tick();
+    stdin.write(" "); await tick();
+    expect(lastFrame()).toContain("superpowers is not under plugins: yet, and dev is not probed");
+    expect(saved).toEqual([]);
+    unmount();
+  });
+
+  test("a plugin under plugins: that no host has yet is listed, with the cells the next apply enables", async () => {
+    const base = app();
+    const ghost = { name: "ghost", marketplace: { claude: "official" }, hosts: ALL, agents: ALL, enabled: true, on: [], off: [] };
+    const { lastFrame, stdin, unmount } = render(<App app={{ ...base, config: { ...base.config, plugins: [ghost] } }} io={io} />); await tick();
+    stdin.write("2"); await tick();
+    expect(lastFrame()).toContain("ghost");
+    expect(lastFrame()).toContain("not installed on any host yet");
+    expect(lastFrame()).toMatch(/local\/claude\s+◌ will enable/);
+    stdin.write("u"); await tick();
+    expect(lastFrame()).toContain("ghost is not installed on any host");
     unmount();
   });
 
@@ -331,5 +394,179 @@ describe("aligned with the desktop app", () => {
     expect(coverageText({ kind: "only-hosts", hosts: ["studio", "gpu-box"] }, 12)).toBe("Only 2 hosts"); // names do not fit, so a count
     expect(coverageText({ kind: "partial", on: 7, total: 12 }, 20)).toBe("7 of 12");
     expect(pendingTotal(s)).toBe(0);
+  });
+});
+
+describe("upstream state in the TUI", () => {
+  const policy: UpstreamPolicy = { name: "waza", repo: "https://example.com/waza.git", ref: none, path: "skills/{skill}", skills: ["pdf-tools", "kb-doc"] };
+  const change = (i: number) => ({ commit: `c${i}00000`, date: "2026-10-30", subject: `change ${i}` });
+  const skillReport = (skill: string, kind: StateKind, changes: number): SkillReport => ({
+    skill, state: { kind } as SkillReport["state"], base: some({ commit: "a".repeat(40), label: "v1.0.0", digest: "d" }), targetDigest: some("t"), entries: none,
+    changes: Array.from({ length: changes }, (_, i) => change(i)),
+  });
+  const results: readonly UpstreamResult[] = [{
+    policy,
+    result: { ok: true, value: { policy, gitDir: "/tmp/waza.git", target: { commit: "b".repeat(40), label: "v1.2.0" }, warning: none, skills: [skillReport("pdf-tools", "behind", 7), skillReport("kb-doc", "modified", 1)], unlisted: [] } },
+  }];
+  /** The detail panel's text with its wrapping undone: the part of each row right of the list. */
+  const detail = (frame: string | undefined): string =>
+    (frame ?? "").split("\n").map((l) => l.split("││")[1] ?? "").map((l) => l.replace(/│\s*$/, "").trim()).filter((l) => l !== "").join(" ");
+  const upApp = (): AppState => { const a = app(); return { ...a, config: { ...a.config, upstreams: [policy] } }; };
+
+  test("marks each row, shows the upstream in the detail, and u on an edited copy asks to overwrite before writing", async () => {
+    const checks: boolean[] = [];
+    const updates: { skills: readonly string[]; force: boolean }[] = [];
+    const planned: string[][] = [];
+    let reloads = 0;
+    const upIo: TuiIo = {
+      ...io,
+      plan: (_c, ks) => { planned.push(ks.map((k) => k.name)); return []; },
+      upstreams: async (offline) => { checks.push(offline); return { ok: true, value: results }; },
+      upstreamUpdate: async (ss, force, onEvent) => {
+        updates.push({ skills: ss, force });
+        onEvent({ kind: "updated", skill: ss[0] ?? "", label: "v1.2.0" });
+        return { ok: true, value: { backup: "/h/.skm/backups/x", outcomes: [{ upstream: "waza", skill: ss[0] ?? "", from: "v1.0.0", to: "v1.2.0", result: "updated", reason: "" }] } };
+      },
+      loadSkills: async () => { reloads += 1; return { ok: true, value: [...skills, mk("new-one", "Use when testing.")] }; },
+    };
+    const { lastFrame, stdin, unmount } = render(<App app={upApp()} io={upIo} />); await tick(); await tick();
+    expect(checks).toEqual([true, false]); // the cached mirror first, then a fetch
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("1 upstream update (U)");
+    expect(frame).toMatch(/pdf-tools\s+↑/);
+    expect(frame).toMatch(/kb-doc\s+✎/);
+    expect(frame).toContain("upstream waza");
+    expect(frame).toMatch(/v1\.0\.0 → v1\.2\.0\s+edited locally · 1 commit/);
+    expect(frame).toContain("u  overwrite the edits");
+
+    stdin.write("u"); await tick();
+    expect(detail(lastFrame())).toContain("overwrite the edits in kb-doc with waza v1.2.0? y = yes (backup first: on), any other key = cancel");
+    stdin.write("y"); await tick(); await tick();
+    expect(updates).toEqual([{ skills: ["kb-doc"], force: true }]);
+    expect(reloads).toBe(1);
+    expect(planned.at(-1)).toContain("new-one"); // hosts are re-planned against the re-read store
+    expect(lastFrame()).toContain("upstream: updated 1 · s to copy to every host");
+    expect(lastFrame()).toContain("3 skills");
+
+    stdin.write("j"); await tick(); // new-one, then pdf-tools
+    stdin.write("j"); await tick();
+    expect(lastFrame()).toContain("change 4");
+    expect(lastFrame()).toContain("… 2 more (skm upstream --log)");
+    expect(lastFrame()).toContain("u  update from upstream (backup first)");
+    unmount();
+  });
+
+  test("U offers every skill an update writes without force; any other key cancels", async () => {
+    const updates: (readonly string[])[] = [];
+    const upIo: TuiIo = { ...io, upstreams: async () => ({ ok: true, value: results }), upstreamUpdate: async (ss) => { updates.push(ss); return { ok: true, value: { backup: null, outcomes: [] } }; } };
+    const { lastFrame, stdin, unmount } = render(<App app={upApp()} io={upIo} />); await tick(); await tick();
+    stdin.write("U"); await tick();
+    expect(detail(lastFrame())).toContain("update pdf-tools to v1.2.0 from waza? y = yes");
+    stdin.write("n"); await tick();
+    expect(lastFrame()).toContain("1 upstream update (U)");
+    expect(updates).toEqual([]);
+    unmount();
+  });
+
+  test("a skills list with no upstreams configured has no mark column and no upstream check", async () => {
+    let checked = 0;
+    const { lastFrame, unmount } = render(<App app={app()} io={{ ...io, upstreams: async () => { checked += 1; return { ok: true, value: [] }; } }} />); await tick();
+    expect(checked).toBe(0);
+    expect(lastFrame()).toMatch(/kb-doc\s+\d+t/);
+    unmount();
+  });
+
+  test("each state has its own mark; a failed check is named in the list title", () => {
+    expect(["current", "behind", "absent", "modified", "unbased", "gone"].map((k) => upstreamMark(k as StateKind).glyph)).toEqual([" ", "↑", "+", "✎", "≠", "✗"]);
+    const s = { ...initialState(upApp().config, skills), upstream: { checking: false, results: [{ policy, result: { ok: false as const, error: { upstream: "waza", step: "read cache", detail: "no mirror" } } }] } };
+    expect(listTitle(s, 2)).toContain("upstream check failed: waza");
+    expect(listTitle({ ...s, upstream: { results: [], checking: true } }, 2)).toContain("checking upstream…");
+    expect(upstreamPrompt(s)).toEqual(none);
+    expect(upstreamPrompt({ ...s, confirm: { kind: "upstream-update", skills: ["a", "b"], force: false } })).toEqual(some("update 2 skills from upstream (a, b)? y = yes (backup first: on), any other key = cancel"));
+  });
+});
+
+describe("agent CLIs and findings in the hosts view", () => {
+  const runs: readonly HarnessHost[] = [
+    { host: "local", at: "t", error: null, results: [{ kind: "checked", agent: "claude", version: "2.1.3 (Claude Code)", latest: "" }, { kind: "checked", agent: "codex", version: "codex-cli 0.80.0", latest: "" }] },
+    { host: "dev", at: "t", error: null, results: [{ kind: "checked", agent: "claude", version: "2.1.3 (Claude Code)", latest: "" }, { kind: "checked", agent: "codex", version: "codex-cli 0.79.0", latest: "" }] },
+  ];
+  // the same skill twice in claude's dir on both hosts: one same-name finding per host
+  const dupInv = () => ({
+    ...emptyInventory("/h"),
+    agentDirs: { claude: { exists: true, entries: [{ kind: "managed" as const, name: "pdf-tools", direct: true }] }, codex: { exists: true, entries: [] } },
+  });
+
+  test("the section shows each tool's newest version and the hosts that are older; agent rows show each host's version", async () => {
+    const harnessIo: TuiIo = { ...io, probe: async () => ({ ok: true, value: dupInv() }), harness: async (cached) => (cached ? [] : runs) };
+    const { lastFrame, stdin, unmount } = render(<App app={app()} io={harnessIo} />); await tick(); await tick();
+    stdin.write("3"); await tick();
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("agent CLIs  H update every CLI on every reachable host");
+    expect(frame).toMatch(/claude\s+2\.1\.3\s+same version everywhere/);
+    expect(frame).toMatch(/codex\s+0\.80\.0\s+2 versions · older on dev 0\.79\.0/);
+    expect(frame).toMatch(/codex\s+0\.79\.0\s+●/); // dev's codex row
+    unmount();
+  });
+
+  test("H asks, y runs each reachable host's CLI updates and logs the versions", async () => {
+    const updated: string[] = [];
+    const harnessIo: TuiIo = {
+      ...io,
+      harness: async () => runs,
+      harnessUpdate: async (h, onLine) => {
+        updated.push(h.id);
+        onLine(">> codex update");
+        return { host: h.id, at: "t2", error: null, results: [{ kind: "updated", agent: "codex", before: "codex-cli 0.79.0", after: "codex-cli 0.80.0", ok: true }] };
+      },
+    };
+    const { lastFrame, stdin, unmount } = render(<App app={app()} io={harnessIo} />); await tick(); await tick();
+    stdin.write("3"); await tick();
+    stdin.write("H"); await tick();
+    expect(lastFrame()).toContain("update every agent CLI on local, dev? y = yes, any other key = cancel");
+    stdin.write("y"); await tick(); await tick();
+    expect(updated.sort()).toEqual(["dev", "local"]);
+    expect(lastFrame()).toContain("dev: >> codex update");
+    expect(lastFrame()).toContain("dev: codex ok 0.79.0 → 0.80.0");
+    stdin.write("3"); await tick();
+    expect(lastFrame()).toMatch(/codex\s+0\.80\.0\s+same version everywhere/); // both hosts now on 0.80.0
+    expect(lastFrame()).toMatch(/claude\s+2\.1\.3\s+same version everywhere/); // the update result only replaces codex
+    unmount();
+  });
+
+  test("tool status covers unchecked, missing, app feed and drift", () => {
+    const cli = { id: "codex", name: "codex", kind: "cli" as const };
+    const app_ = { id: "chatgpt", name: "ChatGPT app", kind: "app" as const };
+    expect(toolStatus(cli, toolVersions([], "codex"), true).text).toBe("checking…");
+    expect(toolStatus(cli, toolVersions([], "codex"), false).text).toBe("not checked");
+    expect(toolStatus(cli, toolVersions([{ host: "a", error: null, results: [{ kind: "missing", agent: "codex" }] }], "codex"), false).text).toBe("not installed");
+    expect(toolStatus(cli, toolVersions([{ host: "a", error: "ssh failed", results: [] }], "codex"), false).text).toBe("not checked");
+    const appRuns = [{ host: "a", error: null, results: [{ kind: "checked" as const, agent: "chatgpt", version: "1.2026.10", latest: "1.2026.20" }] }];
+    expect(toolStatus(app_, toolVersions(appRuns, "chatgpt"), false)).toEqual({ text: "can update to 1.2026.20 on a 1.2026.10 (skm harness update --agent chatgpt)", color: "yellow" });
+    expect(toolStatus(app_, toolVersions([{ host: "a", error: null, results: [{ kind: "checked", agent: "chatgpt", version: "1.2026.20", latest: "1.2026.20" }] }], "chatgpt"), false).text).toBe("up to date");
+  });
+
+  test("each host lists its findings under its agents", async () => {
+    const a = app();
+    const inv = dupInv();
+    const view = buildHostView("dev", a.agents, inv, 200000, {});
+    const withFindings = { ...view, findings: [{ kind: "disabled-cached" as const, host: "dev", agent: "claude", plugin: "x@m" }] };
+    const s = { ...initialState(a.config, skills), hosts: { local: { kind: "ready" as const, inventory: inv, ops: [], view }, dev: { kind: "ready" as const, inventory: inv, ops: [], view: withFindings } } };
+    const r = render(<HostsView s={s} height={hostLines(s).length + 1} offset={0} />); await tick();
+    const frame = r.lastFrame() ?? "";
+    expect(frame).toContain("findings 1: disabled-cached 1  (f to list)");
+    expect(frame).not.toContain("x@m is cached");
+    expect(frame.indexOf("findings 1")).toBeGreaterThan(frame.indexOf(" dev /h")); // under dev, not local
+    r.unmount();
+    const open = { ...s, allFindings: true };
+    const all = render(<HostsView s={open} height={hostLines(open).length + 1} offset={0} />); await tick();
+    expect(all.lastFrame()).toMatch(/disabled-cached\s+claude: x@m is cached but disabled/);
+    all.unmount();
+    expect(findingSummary([{ kind: "disabled-cached", host: "a", agent: "c", plugin: "p" }, { kind: "stale-cache", host: "a", agent: "c", plugin: "p", versions: [] }, { kind: "stale-cache", host: "a", agent: "c", plugin: "q", versions: [] }])).toBe("stale-cache 2 · disabled-cached 1");
+  });
+
+  test("findings drop the host prefix the view already shows", () => {
+    expect(findingLine("mini", { kind: "disabled-cached", host: "mini", agent: "claude", plugin: "x@m" })).toBe("claude: x@m is cached but disabled");
+    expect(findingLine("mini", { kind: "owned-drift", host: "mini", name: "s", owner: "skills", ownerPath: "/p", agents: ["pi"], storeHash: "a", ownerHash: "b" } as Parameters<typeof findingLine>[1])).toMatch(/^the store copy of s linked for pi differs/);
   });
 });

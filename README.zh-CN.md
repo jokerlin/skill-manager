@@ -221,6 +221,8 @@ skm sync                         # 和其他 store 改动一样，同步到每�
 
 `adopt` 能找出手动安装的副本是哪个版本：它找文件和 store 副本完全相同的最新上游 commit。skm 默认跟最新的 release tag（`vX.Y.Z`）。要跟某个分支，设置 `ref:`；只想这一次换 ref，用 `--to <ref>`。只有 hub 需要 `git`。skm 直接从 git 对象写文件，所以 `.gitattributes` 的 export 规则不影响写进 store 的内容。
 
+TUI 在 skills 列表里给每个上游 skill 加标记（`↑` 有更新，`✎` 本地改过，`≠` 版本未知，`✗` 上游已删除），详情面板列出上游 commit。`u` 更新选中的 skill，`U` 更新所有有新版本的 skill，两者都先确认。本地改过的副本要单独确认一次才会被覆盖。
+
 ## 更新
 
 桌面 App 每次启动时在 GitHub Releases 上检查一次新版本（可在 设置 → 通用 里关闭，也可以在「关于」里手动检查）。

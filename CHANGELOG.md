@@ -4,6 +4,13 @@ All notable changes to Skill Manager. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+### Added
+
+- The TUI shows the upstream state of each skill: a mark in the skills list (`↑` update available, `✎` edited locally, `≠` unknown base, `✗` gone upstream), and the repo, version and upstream commits in the detail panel. `u` updates the selected skill and `U` updates every skill with a new version, backup first; a copy you edited is overwritten only after its own prompt. The TUI checks the local mirrors when it starts, then fetches; `r` checks again.
+- The TUI hosts view starts with the agent CLIs: the newest version of each agent CLI, desktop app and extension tool, and the hosts that are older. Each agent row shows that host's version. `H` runs every CLI's own update on every reachable host after a prompt, as `skm harness update` does.
+- The TUI hosts view lists each host's findings (shadowed copies, stale plugin caches, the same skill twice, …): one summary line per host, and `f` lists them all.
+- The TUI plugins view lists every host × agent that can load plugins, with each cell's state and the change the next apply makes (`will enable`, `will disable`). `m` moves into the cells and space switches one on or off in `config.yaml`, as the app's switches do. Plugins under `plugins:` that no host has yet are listed too.
+
 ## [0.5.4] - 2026-11-01
 
 ### Fixed
