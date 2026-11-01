@@ -73,12 +73,32 @@ App 的文案在 `desktop/src/renderer/src/i18n/en.ts` 和 `zh.ts`。新增语�
 
 ## 发布
 
+### 什么时候发版
+
+只在用户升级后能注意到变化、或因此避开问题时发版。每发一次版，所有 App 用户都要下载约 140 MB。
+
+| 改动 | 是否发版 |
+|---|---|
+| 安全修复、数据丢失、启动崩溃、自动更新本身的 bug | 立即发。更新器坏了，之后的版本都送不到用户手上。 |
+| 用户能感知的 bug 修复或新功能 | 攒几条再发。 |
+| 运行时依赖更新 | 修复已知漏洞时立即发，否则跟下个版本走。 |
+| 文档、README、截图 | 不发。 |
+| CI、发布流程、Dependabot、仓库设置 | 不发。发布流程的改动用试跑验证（见下文）。 |
+| 测试、不改行为的重构、开发依赖 | 不发。 |
+| 用户感知不到的构建改动 | 不单独发，跟下个版本走。 |
+
+不发版的改动照常合进 `main`。用户会关心的改动，在 `CHANGELOG.md` 的 `[Unreleased]` 下记一条。
+
+想验证发布流程的改动又不想发布时，手动运行它：Actions → Release → Run workflow。它会完成构建、签名和公证，把产物存成 workflow artifact，不发布 release。
+
+### 怎么发版
+
 维护者从 `main` 发布：
 
 1. 把 `CHANGELOG.md` 里 `[Unreleased]` 下的条目移到新的 `## [<版本>] - <日期>` 标题下。release 说明取自这一节。
 2. 在 `package.json` 和 `desktop/package.json` 里写同一个版本号，然后提交。
 3. 运行 `sh desktop/scripts/release.sh`。脚本检查两个版本号一致、工作区干净，然后创建并推送 tag `v<版本>`。
-4. Release 工作流跑测试，构建 macOS 和 Linux 的 CLI、arm64 和 x64 的 App，给 App 签名并公证，给 `latest-mac.json` 签名，生成 `SHA256SUMS`，加上构建来源证明，再发布 GitHub release。
+4. Release 工作流跑测试，构建 macOS 和 Linux 的 CLI、arm64 和 x64 的 App，给 App 和 macOS CLI 签名并公证，给 `latest-mac.json` 签名，生成 `SHA256SUMS`，加上构建来源证明，再发布 GitHub release。
 
 警告：推送 tag 会发布一个公开 release，已安装的 App 会把它当作更新提示给用户。
 
