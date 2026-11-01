@@ -1,0 +1,3 @@
+[test]
+# CI installs only the root dependencies for these; renderer tests run from desktop/ (see desktop/bunfig.toml)
+root = "tests"

@@ -4,6 +4,10 @@ All notable changes to Skill Manager. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+### Fixed
+
+- When the app's upstream check failed at launch (for example, the installed `skm` CLI was older than 0.5.3, or `config.yaml` had an error), the Skills view showed no upstream information until the app restarted. Refresh (⌘R) now checks the upstreams again, and a check you start that fails shows an error.
+
 ## [0.5.3] - 2026-11-01
 
 ### Added

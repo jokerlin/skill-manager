@@ -126,6 +126,7 @@ export const zh: Readonly<Record<keyof typeof en, string>> = {
   "upstream.overwrite": "用 {target} 覆盖",
   "upstream.confirmOverwrite": "再点一次确认覆盖",
   "upstream.check": "立即检查",
+  "upstream.checkFailed": "上游检查失败：{error}",
   "upstream.checking": "检查中…",
   "upstream.repo": "仓库",
   "upstream.version": "技能库版本",
