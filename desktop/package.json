@@ -22,7 +22,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "pack": "bun run cli && electron-vite build && electron-builder --mac dir --config electron-builder.yml",
     "install-app": "sh scripts/install.sh",
-    "dist": "bun run cli && electron-vite build && electron-builder --mac zip --arm64 --x64 --config electron-builder.yml",
+    "dist": "bun run cli && electron-vite build && electron-builder --mac zip --arm64 --x64 --publish never --config electron-builder.yml",
     "release": "sh scripts/release.sh",
     "cli": "cd .. && bun run build:mac"
   },
