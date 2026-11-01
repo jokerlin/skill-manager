@@ -11,6 +11,8 @@ skm 在主力机上保存一份 skill store，把它软链到每个 agent 的 sk
 
 内置支持的 agent：**Claude Code**、**Codex**、**Pi**。其他 agent 可以用[扩展](docs/zh-CN/extensions.md)加入。
 
+![技能视图：每个 skill 的清单开销和覆盖范围，右侧是选中 skill 的 主机 × agent 网格](docs/images/skills-zh.png)
+
 ```
 ~/.skm/skills/<name>/SKILL.md     ← store，唯一事实源
 ~/.claude/skills/<name>    ─┐
@@ -154,6 +156,9 @@ App 是 CLI 外面的一层 Electron 外壳，所有逻辑都在 `skm` 里：App
 
 - **技能**：全部 skill 的表格。「覆盖」列显示一句话的范围（「全部」「仅 mini」「除 Codex」「7 / 12」），主机和 agent 再多也不变宽。悬停看完整网格，在详情面板里点格子开关。
 - **插件**：每个 plugin 在每个 主机 × agent 上的版本。版本不一致标红，一个按钮更新全部不一致的 plugin。
+
+  ![插件视图：docs-kit 在 laptop 上是 1.3.2，其他主机是 1.4.0](docs/images/plugins-zh.png)
+
 - **主机**：主机 → agent 主从视图，含 listing 预算、来源构成、每条已加载的 skill，以及 agent CLI 版本。
 - **待应用变更**：修改先排在底部栏里（`⌘↵` 应用），应用前可以按主机审阅。
 - **设置**（`⌘,`）：语言、外观、主机（拖拽排序、改名、ssh 别名）、agent、扩展、store 路径、备份。
