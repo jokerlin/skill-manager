@@ -4,6 +4,8 @@ All notable changes to Skill Manager. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-01
+
 ### Added
 
 - Homebrew tap: `brew install --cask skill-manager` for the app, `brew install skill-manager-cli` for the CLI (after `brew tap jokerlin/tap` and `brew trust jokerlin/tap`). Each release updates the tap.
@@ -69,7 +71,8 @@ First public release.
 - Self-update from GitHub Releases with an Ed25519-signed manifest and SHA-512 checks.
 - Release workflow with build provenance attestations and `SHA256SUMS`.
 
-[Unreleased]: https://github.com/jokerlin/skill-manager/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/jokerlin/skill-manager/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/jokerlin/skill-manager/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/jokerlin/skill-manager/compare/v0.4.3...v0.5.0
 [0.4.3]: https://github.com/jokerlin/skill-manager/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/jokerlin/skill-manager/compare/v0.4.1...v0.4.2
