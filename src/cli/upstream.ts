@@ -2,7 +2,7 @@ import pc from "picocolors";
 import { hubOf } from "../core/config";
 import {
   type LockEntry, type SkillUpstreamState, type StateKind, type UpstreamLock, type UpstreamPolicy,
-  DEFAULT_UPSTREAM_PATH, isSafeSkillName, lockEntry, setLockEntry, skillPath, skillState, updateAction,
+  DEFAULT_UPSTREAM_PATH, isSafeSkillName, lockEntry, setLockEntry, skillPath, skillState, unlistedSummary, updateAction,
 } from "../core/upstream";
 import { type Option, none, some } from "../lib/result";
 import type { AppState } from "../shell/app";
@@ -131,7 +131,8 @@ export const runUpstream = async (o: { json: boolean; cached: boolean; log: bool
         out(`\n  ${pc.bold(s.skill)}`);
         s.changes.forEach((c) => out(`    ${pc.dim(`${c.commit} ${c.date}`)} ${c.subject}`));
       });
-      if (v.unlisted.length > 0) out(pc.dim(`  also upstream, not tracked: ${v.unlisted.join(", ")} (add to upstreams.${v.policy.name}.skills)`));
+      const unlisted = unlistedSummary(v.policy.name, v.unlisted);
+      if (unlisted.some) out(pc.dim(`  ${unlisted.value}`));
     });
     const pending = reports.flatMap((r) => (r.result.ok ? r.result.value.skills.filter((s) => s.state.kind === "behind" || s.state.kind === "absent") : []));
     if (pending.length > 0) out(pc.dim(`\nnext: \`skm upstream update ${pending.map((s) => s.skill).join(" ")}\`${o.log ? "" : " · commit list: `skm upstream --log`"}`));

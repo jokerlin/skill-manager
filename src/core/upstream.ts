@@ -151,6 +151,18 @@ export const latestReleaseTag = (tags: readonly string[]): Option<string> => {
   return best ? some(best.tag) : none;
 };
 
+const UNLISTED_SHOWN = 3;
+
+/**
+ * The human line for skill dirs an upstream has but the config does not track. A repo can hold hundreds
+ * (bytedcli ships ~300 bytedance-* guides), so a long list becomes a count plus a few examples; `--json` keeps every name.
+ */
+export const unlistedSummary = (upstream: string, names: readonly string[]): Option<string> => {
+  if (names.length === 0) return none;
+  if (names.length <= UNLISTED_SHOWN) return some(`also upstream, not tracked: ${names.join(", ")} (add to upstreams.${upstream}.skills)`);
+  return some(`also upstream, not tracked: ${names.length} skills (${names.slice(0, UNLISTED_SHOWN).join(", ")}, …; all names: \`skm upstream --json\`)`);
+};
+
 // ---------- lock ----------
 
 /** What skm last wrote for one skill. */
