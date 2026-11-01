@@ -172,7 +172,7 @@ backupBeforeApply: true
 
 App 是 CLI 外面的一层 Electron 外壳，所有逻辑都在 `skm` 里：App 读 `skm … --json`，写操作调用 `skm scope` 和 `skm config patch`，同步和更新读 `--events` 的 NDJSON 进度。
 
-- **技能**：全部 skill 的表格。「覆盖」列显示一句话的范围（「全部」「仅 mini」「除 Codex」「7 / 12」），主机和 agent 再多也不变宽。悬停看完整网格，在详情面板里点格子开关。
+- **技能**：全部 skill 的表格。「覆盖」列显示一句话的范围（「全部」「仅 mini」「除 Codex」「7 / 12」），主机和 agent 再多也不变宽。悬停看完整网格，在详情面板里点格子开关。`upstreams:` 下的 skill 会显示状态。「可更新」筛选和一个按钮就能把所有上游新版本写进 store，详情面板列出你的版本之后的上游提交。
 - **插件**：每个 plugin 在每个 主机 × agent 上的版本。版本不一致标红，一个按钮更新全部不一致的 plugin。
 
   ![插件视图：docs-kit 在 laptop 上是 1.3.2，其他主机是 1.4.0](docs/images/plugins-zh.png)

@@ -1,5 +1,5 @@
-import type { HostStatus } from "@shared/types";
-import { ArrowUpDown, Check, Layers, Loader2 } from "lucide-react";
+import type { HostStatus, UpstreamState } from "@shared/types";
+import { ArrowUpDown, Check, GitBranch, Layers, Loader2, RefreshCcwDot } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useDefaultLayout } from "react-resizable-panels";
@@ -15,9 +15,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { BODY_WARN_TOKENS, type CatalogItem, type CellState, type GroupKind, LISTING_CAP_CHARS, buildCatalog, cellState, groupRank, groupText, loadCount } from "@/lib/catalog";
 import { cn } from "@/lib/utils";
 import { type Key, useT } from "@/i18n";
-import { useApp, useGrid } from "@/store/app";
+import { type UpstreamOf, updatable, upstreamIndex, useApp, useGrid } from "@/store/app";
 
-type Filter = "all" | GroupKind;
+type Filter = "all" | GroupKind | "updates";
 type Sort = "source" | "name" | "listing" | "body" | "loads";
 
 const FILTERS: readonly { readonly value: Filter; readonly key: Key }[] = [
@@ -26,7 +26,17 @@ const FILTERS: readonly { readonly value: Filter; readonly key: Key }[] = [
   { value: "plugin", key: "skills.filter.plugin" },
   { value: "builtin", key: "skills.filter.builtin" },
   { value: "unmanaged", key: "skills.filter.unmanaged" },
+  { value: "updates", key: "skills.filter.updates" },
 ];
+
+/** Row chip per upstream state; current has none. */
+const UPSTREAM_CHIP: Readonly<Record<Exclude<UpstreamState, "current">, { readonly key: Key; readonly tone: Tone }>> = {
+  behind: { key: "upstream.chip.behind", tone: "info" },
+  absent: { key: "upstream.chip.absent", tone: "info" },
+  modified: { key: "upstream.chip.modified", tone: "pending" },
+  unbased: { key: "upstream.chip.unbased", tone: "pending" },
+  gone: { key: "upstream.chip.gone", tone: "danger" },
+};
 
 const SORTS: readonly { readonly value: Sort; readonly key: Key }[] = [
   { value: "source", key: "skills.sort.source" },
@@ -123,6 +133,9 @@ export const SkillsView = () => {
   const hostsStatus = useApp((s) => s.hosts);
   const selected = useApp((s) => s.selectedSkill);
   const select = useApp((s) => s.select);
+  const upstreams = useApp((s) => s.upstreams);
+  const upstreamBusy = useApp((s) => s.upstreamBusy);
+  const updateUpstream = useApp((s) => s.updateUpstream);
   const grid = useGrid();
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
@@ -132,14 +145,21 @@ export const SkillsView = () => {
   const layout = useDefaultLayout({ id: "skills-split", storage: layoutStorage });
 
   const catalog = useMemo(() => buildCatalog(skills, hostsStatus), [skills, hostsStatus]);
-  const counts = useMemo(() => Object.fromEntries(FILTERS.map((f) => [f.value, f.value === "all" ? catalog.length : catalog.filter((i) => i.group.kind === f.value).length])) as Record<Filter, number>, [catalog]);
+  const upIndex = useMemo(() => upstreamIndex(upstreams), [upstreams]);
+  const upOf = (i: CatalogItem): UpstreamOf | undefined => (i.group.kind === "store" ? upIndex.get(i.name) : undefined);
+  const hasUpdate = (i: CatalogItem): boolean => { const u = upOf(i); return u !== undefined && updatable(u.skill); };
+  const matches = (i: CatalogItem, f: Filter): boolean => (f === "all" ? true : f === "updates" ? hasUpdate(i) : i.group.kind === f);
+  const counts = useMemo(() => Object.fromEntries(FILTERS.map((f) => [f.value, catalog.filter((i) => matches(i, f.value)).length])) as Record<Filter, number>, [catalog, upIndex]);
+  // skills in the store-less "absent" state have no catalog row, so the batch button reads the report itself
+  const pendingUpdates = useMemo(() => [...upIndex.values()].filter((u) => updatable(u.skill)).map((u) => u.skill.skill), [upIndex]);
   const visible = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return catalog
-      .filter((i) => filter === "all" || i.group.kind === filter)
+      .filter((i) => matches(i, filter))
       .filter((i) => needle === "" || i.name.toLowerCase().includes(needle) || i.description.toLowerCase().includes(needle) || groupText(i.group).toLowerCase().includes(needle))
       .sort(comparator(sort));
-  }, [catalog, filter, q, sort]);
+  }, [catalog, filter, q, sort, upIndex]);
+  useEffect(() => { if (filter === "updates" && counts.updates === 0) setFilter("all"); }, [filter, counts.updates]);
 
   const current = catalog.find((i) => i.id === selected) ?? null;
   useEffect(() => { if (current === null && visible[0]) select({ selectedSkill: visible[0].id }); }, [current, visible, select]);
@@ -166,6 +186,17 @@ export const SkillsView = () => {
             <Segmented value={filter} onChange={setFilter} options={FILTERS.filter((f) => f.value === "all" || counts[f.value] > 0).map((f) => ({ value: f.value, label: t(f.key), count: counts[f.value] }))} />
             <div className="flex-1" />
             <LensMenu value={lens} onChange={setLens} hosts={grid.hosts} />
+            {pendingUpdates.length > 0 ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button size="sm" className="no-drag" disabled={pendingUpdates.some((s) => upstreamBusy.has(s))} onClick={() => void updateUpstream(pendingUpdates)}>
+                    {pendingUpdates.some((s) => upstreamBusy.has(s)) ? <Loader2 className="animate-spin" /> : <RefreshCcwDot />}
+                    {t("upstream.updateN", { n: pendingUpdates.length })}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-[280px] text-xs">{pendingUpdates.join(", ")}<br />{t("upstream.updateHint")}</TooltipContent>
+              </Tooltip>
+            ) : null}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm" className="no-drag text-muted-foreground"><ArrowUpDown />{t(SORTS.find((s) => s.value === sort)?.key ?? "skills.sort")}</Button>
@@ -206,6 +237,7 @@ export const SkillsView = () => {
                         <span className={cn("truncate text-[13px] font-medium", (i.store?.violations.length ?? 0) > 0 && "text-danger")}>{i.name}</span>
                         {i.group.kind !== "store" ? <Chip tone={sourceTone(i.group.kind)} className="shrink truncate">{groupLabel(i.group, t)}</Chip> : null}
                         {i.versions.length > 1 ? <Chip tone="danger">{i.versions.length}×</Chip> : null}
+                        {(() => { const u = upOf(i); if (u === undefined || u.skill.state === "current") return null; const c = UPSTREAM_CHIP[u.skill.state]; return <Chip tone={c.tone} className="shrink-0">{t(c.key)}</Chip>; })()}
                       </div>
                       <div className="truncate text-[11.5px] text-muted-foreground">{i.description || t("detail.noDescription")}</div>
                     </div>
@@ -227,7 +259,7 @@ export const SkillsView = () => {
         <AnimatePresence mode="wait" initial={false}>
           {current ? (
             <motion.div key={current.id} className="h-full" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.1 }}>
-              <SkillDetail item={current} />
+              <SkillDetail item={current} upstream={upOf(current)} />
             </motion.div>
           ) : (
             <Empty icon={<Layers className="size-5" />}>{t("skills.select")}</Empty>
@@ -275,7 +307,7 @@ const Description = ({ text, empty }: { text: string; empty: string }) => {
   );
 };
 
-const SkillDetail = ({ item }: { item: CatalogItem }) => {
+const SkillDetail = ({ item, upstream }: { item: CatalogItem; upstream: UpstreamOf | undefined }) => {
   const t = useT();
   const grid = useGrid();
   const hostsStatus = useApp((s) => s.hosts);
@@ -319,6 +351,8 @@ const SkillDetail = ({ item }: { item: CatalogItem }) => {
           </Stat>
           {s ? <Stat label={t("detail.files")} value={s.files} sub={fmtBytes(s.bytes)} /> : <Stat label={t("detail.version")} value={item.versions[0] ?? "–"} tone={item.versions.length > 1 ? "danger" : "neutral"} sub={item.versions.length > 1 ? item.versions.slice(1).join(" / ") : undefined} />}
         </StatGrid>
+
+        {upstream ? <UpstreamSection up={upstream} /> : null}
 
         <section>
           <SectionTitle hint={s ? t("detail.targetsHint") : t("detail.loadedByHint")}>{s ? t("detail.targets") : t("detail.loadedBy")}</SectionTitle>
@@ -423,5 +457,68 @@ const SkillDetail = ({ item }: { item: CatalogItem }) => {
         ) : null}
       </div>
     </ScrollArea>
+  );
+};
+
+/** Where a store skill comes from upstream, its state, the commits since the store version, and the update button. */
+const UpstreamSection = ({ up }: { up: UpstreamOf }) => {
+  const t = useT();
+  const busy = useApp((s) => s.upstreamBusy.has(up.skill.skill));
+  const checking = useApp((s) => s.upstreamChecking);
+  const updateUpstream = useApp((s) => s.updateUpstream);
+  const checkUpstreams = useApp((s) => s.checkUpstreams);
+  const [armed, setArmed] = useState(false);
+  useEffect(() => setArmed(false), [up.skill.skill, up.skill.state]);
+  const { upstream: u, skill: k } = up;
+  const target = u.target?.label ?? "–";
+  const base = k.base?.label ?? t("upstream.noRecord");
+  const forced = k.state === "modified" || k.state === "unbased";
+  const action = updatable(k) || forced ? (
+    <Button
+      size="sm"
+      variant={forced ? "outline" : "default"}
+      disabled={busy}
+      className={cn(forced && armed && "border-danger text-danger")}
+      onClick={() => {
+        if (forced && !armed) return setArmed(true);
+        void updateUpstream([k.skill], { force: forced });
+      }}
+    >
+      {busy ? <Loader2 className="animate-spin" /> : <RefreshCcwDot />}
+      {forced ? (armed ? t("upstream.confirmOverwrite") : t("upstream.overwrite", { target })) : t("upstream.update", { target })}
+    </Button>
+  ) : (
+    <Button size="sm" variant="ghost" className="text-muted-foreground" disabled={checking} onClick={() => void checkUpstreams()}>
+      {checking ? <Loader2 className="animate-spin" /> : null}{t(checking ? "upstream.checking" : "upstream.check")}
+    </Button>
+  );
+  return (
+    <section>
+      <SectionTitle trailing={action} hint={u.error ?? u.warning ?? t(`upstream.state.${k.state}` as Key, { target, base })}>
+        <span className="inline-flex items-center gap-1"><GitBranch className="size-3" />{t("upstream.title")} · {u.name}</span>
+      </SectionTitle>
+      <dl className="grid grid-cols-[96px_minmax(0,1fr)] gap-x-3 gap-y-1 text-[12px]">
+        <dt className="text-muted-foreground">{t("upstream.repo")}</dt>
+        <dd className="truncate font-mono text-[11px] selectable" title={u.repo}>{u.repo}</dd>
+        <dt className="text-muted-foreground">{t("upstream.version")}</dt>
+        <dd className="font-mono text-[11px] selectable">{base}</dd>
+        <dt className="text-muted-foreground">{t("upstream.target")}</dt>
+        <dd className="font-mono text-[11px] selectable">{target}{u.target ? <span className="text-muted-foreground"> · {u.target.commit.slice(0, 7)}</span> : null}</dd>
+      </dl>
+      {k.changes.length > 0 ? (
+        <div className="mt-3">
+          <p className="mb-1 text-[11px] text-muted-foreground">{t("upstream.changes", { base })} · {k.changes.length}</p>
+          <ul className="max-h-[220px] overflow-y-auto rounded-lg border border-border/80 text-[12px]">
+            {k.changes.map((c) => (
+              // a grid, not flex: the ScrollArea lays content out as a table, which grows to a flex row's full nowrap text
+              <li key={c.commit} className="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-2 border-b border-border/50 px-3 py-1.5 last:border-b-0">
+                <span className="font-mono text-[10.5px] text-muted-foreground tabular">{c.date}</span>
+                <span className="truncate selectable" title={c.subject}>{c.subject}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </section>
   );
 };

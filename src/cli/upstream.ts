@@ -166,7 +166,8 @@ export const runUpstreamUpdate = async (names: readonly string[], o: { all: bool
       const failed = outcomes.some((x) => x.result === "failed") || reports.some((r) => !r.result.ok);
       if (o.json) out(JSON.stringify({ backup, outcomes, errors: reports.flatMap((r) => (r.result.ok ? [] : [upstreamErrorText(r.result.error)])) }, null, 2));
       else if (outcomes.some((x) => x.result === "updated")) say(pc.dim("\nnext: `skm plan` to review, then `skm sync` to copy the new versions to every host"));
-      if (failed) process.exitCode = 1;
+      // --json readers get each failure in outcomes/errors; the exit code is for people and scripts reading text
+      if (failed && !o.json) process.exitCode = 1;
     };
     const outcomeOf = (x: (typeof picked)[number], result: UpdateOutcome["result"], reason: string): UpdateOutcome =>
       ({ upstream: x.r.policy.name, skill: x.s.skill, from: x.s.base.some ? x.s.base.value.label : null, to: x.r.target.label, result, reason });

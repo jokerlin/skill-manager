@@ -172,7 +172,7 @@ Most commands take `--json`, `--host` and `--cached` (use the last probe, no ssh
 
 The app is an Electron shell over the CLI. All logic stays in `skm`: the app reads `skm … --json` and writes through `skm scope` and `skm config patch`. Sync and updates stream `--events` NDJSON for progress.
 
-- **Skills**: every skill with a coverage column ("Everywhere", "Only mini", "All but Codex", "7 / 12"). The column keeps its width for any number of hosts and agents. Hover to see the full grid; click cells in the detail panel to toggle them.
+- **Skills**: every skill with a coverage column ("Everywhere", "Only mini", "All but Codex", "7 / 12"). The column keeps its width for any number of hosts and agents. Hover to see the full grid; click cells in the detail panel to toggle them. Skills under `upstreams:` show their state; the Updates filter and one button write every new upstream version into the store, and the detail panel lists the upstream commits since your version.
 - **Plugins**: each plugin's version on every host × agent. Drift is red, with one button to update everything that drifts.
 
   ![Plugins view: docs-kit is 1.3.2 on laptop and 1.4.0 elsewhere](docs/images/plugins-en.png)
