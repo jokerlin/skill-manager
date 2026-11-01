@@ -99,3 +99,34 @@ export const pickManifestFile = (m: Manifest, arch: string): Manifest["files"][n
 /** The manifest text the release workflow signs: stable key order, one trailing newline. Pure. */
 export const manifestText = (version: string, files: Manifest["files"]): string =>
   `${JSON.stringify({ version: version.replace(/^v/, ""), files: files.map((f) => ({ name: f.name, sha512: f.sha512, size: f.size })) }, null, 2)}\n`;
+
+/** Who signed a bundle, from `codesign -dv` (it prints to stderr). */
+export type Signer = { readonly kind: "team"; readonly team: string } | { readonly kind: "adhoc" } | { readonly kind: "unsigned" };
+
+export const parseSigner = (codesignDv: string, exitCode: number): Signer => {
+  if (exitCode !== 0) return { kind: "unsigned" };
+  const team = /^TeamIdentifier=(\S+)$/m.exec(codesignDv)?.[1];
+  return team !== undefined && team !== "not" && /^[A-Z0-9]{10}$/.test(team) ? { kind: "team", team } : { kind: "adhoc" };
+};
+
+/**
+ * A Developer ID-signed app replaces itself only with a bundle whose signature verifies and whose team is the same,
+ * on top of the signed manifest. An unsigned or ad-hoc build (a fork, a local build) has no team to pin, so the
+ * signed manifest and checksum stay the only checks. Returns why the swap is refused, or null.
+ */
+export const swapRefusal = (current: Signer, next: Signer, nextVerifies: boolean): string | null => {
+  switch (current.kind) {
+    case "unsigned":
+    case "adhoc":
+      return null;
+    case "team":
+      if (!nextVerifies) return "the downloaded app's code signature does not verify";
+      switch (next.kind) {
+        case "team":
+          return next.team === current.team ? null : `the downloaded app is signed by team ${next.team}, not ${current.team}`;
+        case "adhoc":
+        case "unsigned":
+          return "the downloaded app is not signed with a Developer ID";
+      }
+  }
+};

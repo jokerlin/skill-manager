@@ -18,7 +18,10 @@ mac:
   icon: build/icon.icns
   target:
     - dir
-  identity: null
-  hardenedRuntime: false
+  # Signed with the Developer ID from CSC_LINK / CSC_KEY_PASSWORD and notarized when APPLE_API_KEY,
+  # APPLE_API_KEY_ID and APPLE_API_ISSUER are set (the Release workflow); a build without them is unsigned.
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     LSMinimumSystemVersion: "13.0"

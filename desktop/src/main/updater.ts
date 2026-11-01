@@ -10,13 +10,29 @@ import { pipeline } from "node:stream/promises";
 import { promises as rawFs } from "original-fs";
 import { app, net } from "electron";
 import type { UpdateState } from "../shared/types";
-import { MANIFEST, MANIFEST_SIG, type Release, bundleOf, compareVersions, parseManifest, parseRelease, pickManifestFile, swapScript, verifyManifest } from "./update-core";
+import { MANIFEST, MANIFEST_SIG, type Release, type Signer, bundleOf, compareVersions, parseManifest, parseRelease, parseSigner, pickManifestFile, swapRefusal, swapScript, verifyManifest } from "./update-core";
+
+/** Run a command; exit code and stdout + stderr. A spawn failure counts as exit 127. */
+const run = (cmd: string, args: readonly string[]): Promise<{ readonly code: number; readonly out: string }> =>
+  new Promise((resolve) => {
+    const p = spawn(cmd, args);
+    let out = "";
+    p.stdout.on("data", (c: Buffer) => { out += c.toString(); });
+    p.stderr.on("data", (c: Buffer) => { out += c.toString(); });
+    p.on("error", () => resolve({ code: 127, out }));
+    p.on("close", (code) => resolve({ code: code ?? 1, out }));
+  });
+
+const signerOf = async (bundle: string): Promise<Signer> => {
+  const r = await run("/usr/bin/codesign", ["-dv", "--verbose=2", bundle]);
+  return parseSigner(r.out, r.code);
+};
 
 /**
- * Self-update from GitHub Releases. Squirrel.Mac (electron-updater) needs a Developer ID-signed app, so this one
- * follows the same model as Sparkle / Tauri instead: the release workflow signs `latest-mac.json` (version + sha512
- * of each zip) with an Ed25519 key, the app verifies it with the public key in package.json, downloads the zip,
- * checks its sha512, unpacks it with ditto and swaps it in with a detached shell script after the app quits.
+ * Self-update from GitHub Releases, on the Sparkle / Tauri model: the release workflow signs `latest-mac.json`
+ * (version + sha512 of each zip) with an Ed25519 key, the app verifies it with the public key in package.json,
+ * downloads the zip, checks its sha512, unpacks it with ditto, and (when this app has a Developer ID signature)
+ * requires the new bundle to verify and carry the same Team ID. A detached shell script swaps it in after quit.
  */
 export const createUpdater = (o: { readonly repo: string | null; readonly api: string; readonly publicKey: string | null; readonly onChange: (s: UpdateState) => void }) => {
   let state: UpdateState = { kind: "idle" };
@@ -104,7 +120,17 @@ export const createUpdater = (o: { readonly repo: string | null; readonly api: s
       });
       const bundle = (await readdir(out)).find((n) => n.endsWith(".app"));
       if (bundle === undefined) return set({ kind: "error", message: "the zip has no .app inside" });
-      staged = join(out, bundle);
+      const next = join(out, bundle);
+      const current = bundleOf(process.execPath);
+      if (current !== null) {
+        const verifies = (await run("/usr/bin/codesign", ["--verify", "--deep", "--strict", next])).code === 0;
+        const refusal = swapRefusal(await signerOf(current), await signerOf(next), verifies);
+        if (refusal !== null) {
+          await rawFs.rm(base, { recursive: true, force: true });
+          return set({ kind: "error", message: `${refusal}; not installing` });
+        }
+      }
+      staged = next;
       return set({ kind: "ready", version });
     } catch (e) {
       return set({ kind: "error", message: e instanceof Error ? e.message : String(e) });

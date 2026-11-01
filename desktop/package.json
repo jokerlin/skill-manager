@@ -2,7 +2,7 @@
   "name": "skill-manager",
   "productName": "Skill Manager",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Skill Manager: one place for agent skills and plugins across every machine and every coding agent",
   "author": {
     "name": "jokerlin",
