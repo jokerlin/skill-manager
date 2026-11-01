@@ -151,6 +151,8 @@ const opLine = (a: ApplyArgs, o: Op): string[] => {
     case "owned-ensure":
     case "exclude":
     case "unexclude":
+    case "marketplace-refresh":
+    case "plugin-update":
       return []; // command ops run in commandsScript, after apply.sh
   }
 };
@@ -175,6 +177,10 @@ export const commandLabel = (o: Op): string => {
       return `${o.agent}: exclude ${o.skill}`;
     case "unexclude":
       return `${o.agent}: unexclude ${o.skill}`;
+    case "marketplace-refresh":
+      return `${o.agent}: marketplace refresh ${o.marketplace}`;
+    case "plugin-update":
+      return `${o.agent}: plugin update ${o.plugin}${o.scope === "user" ? "" : ` (${o.scope})`}`;
     case "mkdir":
     case "rsync-skill":
     case "link":
@@ -207,6 +213,13 @@ const commandArgv = (o: Op): string | undefined => {
       const ex = a.some ? a.value.excludes : undefined;
       return ex === undefined ? undefined : `skills_exclude ${o.op === "exclude" ? "add" : "remove"} ${shPath(ex.file("~"))} ${shQuote(excludePattern(o.skill))}`;
     }
+    case "marketplace-refresh":
+      return o.agent === "claude" ? `claude plugin marketplace update ${shQuote(o.marketplace)}` : o.agent === "codex" ? `codex plugin marketplace upgrade ${shQuote(o.marketplace)}` : undefined;
+    case "plugin-update":
+      // Claude updates the record of one scope; project/local records only resolve from inside their project dir. Codex re-adds, which installs the newest snapshot.
+      return o.agent === "claude"
+        ? `in_dir ${o.projectPath.some ? shQuote(o.projectPath.value) : `"$HOME"`} claude plugin update ${shQuote(o.plugin)} --scope ${shQuote(o.scope)} -y`
+        : o.agent === "codex" ? `codex plugin add ${shQuote(o.plugin)}` : undefined;
     case "mkdir":
     case "rsync-skill":
     case "link":
@@ -254,6 +267,7 @@ export const commandsScript = (ops: readonly Op[]): string =>
     CODEX_SET_FN,
     SKILLS_EXCLUDE_FN,
     `TMP=$(mktemp)`,
+    `in_dir() { d=$1; shift; (cd "$d" && "$@"); }`,
     `run() { label=$1; shift; if "$@" </dev/null >"$TMP" 2>&1; then printf 'ok\\t%s\\n' "$label"; else printf 'fail\\t%s\\t%s\\n' "$label" "$(tail -n 3 "$TMP" | tr '\\n\\t' '  ')"; fi; }`,
     ...ops.flatMap((o) => { const argv = commandArgv(o); return argv === undefined ? [] : [`run ${shQuote(commandLabel(o))} ${argv}`]; }),
     `rm -f "$TMP"`,

@@ -8,26 +8,46 @@ import { sourceText, storageText } from "../core/sources";
 import { type HostView, activePluginsText, buildHostView } from "../core/view";
 import type { AppState } from "../shell/app";
 import { agentsOn, desiredOn, planFor, runnerFor } from "../shell/hosts";
-import { type HostError, hostErrorText, probeHost, writeInventoryCache } from "../shell/probe";
+import { type HostError, clearProbeError, hostErrorText, probeHost, readInventoryCacheEntry, readProbeError, writeInventoryCache, writeProbeError } from "../shell/probe";
 import { trimText } from "../core/budget";
 import { out, table, withApp } from "./common";
 
 export type HostSnapshot = {
   readonly host: HostConfig;
   readonly result: { ok: true; inventory: Inventory; ops: Op[]; view: HostView } | { ok: false; error: HostError };
+  /** when the inventory was probed (ISO 8601); "" when unknown */
+  readonly probedAt: string;
+  /** set when this snapshot came from the cache and the last live probe after it failed */
+  readonly lastError?: { readonly at: string; readonly error: string };
 };
 
-/** Probe every selected host in parallel, plan each, and derive the effective view. Successful probes are cached under ~/.skm/cache/inventory/. */
-export const snapshotHosts = async (app: AppState, only?: string): Promise<HostSnapshot[]> =>
+const snapshotOf = (app: AppState, host: HostConfig, inv: Inventory, probedAt: string): HostSnapshot => {
+  const agents = agentsOn(app.config, host);
+  return { host, probedAt, result: { ok: true as const, inventory: inv, ops: planFor(app.config, app.skills, host, inv, app.hubMarketplaces), view: buildHostView(host.id, agents, inv, app.config.contextTokens, app.claudeOverrides, app.config.owned) } };
+};
+
+/**
+ * Probe every selected host in parallel, plan each, and derive the effective view. Successful probes are cached under ~/.skm/cache/inventory/.
+ * `cached`: read that cache instead of probing (no ssh); a host never probed comes back unreachable.
+ */
+export const snapshotHosts = async (app: AppState, only?: string, opts: { readonly cached?: boolean } = {}): Promise<HostSnapshot[]> =>
   Promise.all(
     app.config.hosts
       .filter((h) => only === undefined || h.id === only)
       .map(async (host): Promise<HostSnapshot> => {
-        const agents = agentsOn(app.config, host);
-        const inv = await probeHost(host, agents, app.config.owned, runnerFor(host));
-        if (!inv.ok) return { host, result: { ok: false as const, error: inv.error } };
-        await writeInventoryCache(app.skmHome, host.id, inv.value);
-        return { host, result: { ok: true as const, inventory: inv.value, ops: planFor(app.config, app.skills, host, inv.value, app.hubMarketplaces), view: buildHostView(host.id, agents, inv.value, app.config.contextTokens, app.claudeOverrides, app.config.owned) } };
+        if (opts.cached) {
+          const [entry, lastError] = await Promise.all([readInventoryCacheEntry(app.skmHome, host.id), readProbeError(app.skmHome, host.id)]);
+          if (entry === undefined) return { host, probedAt: "", result: { ok: false, error: { kind: "unreachable", host: host.id, detail: lastError?.error ?? "no cached probe; run skm status" } } };
+          const snap = snapshotOf(app, host, entry.inventory, entry.at);
+          return lastError !== undefined && lastError.at > entry.at ? { ...snap, lastError } : snap;
+        }
+        const inv = await probeHost(host, agentsOn(app.config, host), app.config.owned, runnerFor(host));
+        if (!inv.ok) {
+          await writeProbeError(app.skmHome, host.id, inv.error);
+          return { host, probedAt: "", result: { ok: false as const, error: inv.error } };
+        }
+        await Promise.all([writeInventoryCache(app.skmHome, host.id, inv.value), clearProbeError(app.skmHome, host.id)]);
+        return snapshotOf(app, host, inv.value, new Date().toISOString());
       }),
   );
 
@@ -80,12 +100,16 @@ export const budgetJson = (b: HostView["budget"][string] | undefined) =>
 
 /** What an agent on a host actually loads. v1 fields kept; v2 adds effective/plugins/budget/tools/findings. */
 export const consumedJson = (snap: HostSnapshot, app: AppState) => {
-  if (!snap.result.ok) return { host: snap.host.id, reachable: false, error: hostErrorText(snap.result.error) };
+  const ssh = snap.host.ssh.some ? snap.host.ssh.value : null;
+  if (!snap.result.ok) return { host: snap.host.id, ssh, reachable: false, error: hostErrorText(snap.result.error), probedAt: snap.probedAt || null };
   const { inventory: inv, ops, view } = snap.result;
   const desired = desiredOn(app.config, app.skills, snap.host);
   return {
     host: snap.host.id,
+    ssh,
     reachable: true,
+    probedAt: snap.probedAt || null,
+    ...(snap.lastError !== undefined ? { lastError: snap.lastError } : {}),
     home: inv.home,
     store: inv.storeSkills.map((s) => s.name),
     remoteOnly: ops.flatMap((o) => (o.op === "remote-only" ? [o.skill] : [])),
@@ -134,9 +158,9 @@ const sourcesText = (view: HostView, agent: string): string => {
   ].join(" · ");
 };
 
-export const runStatus = async (o: { host?: string; json: boolean }): Promise<void> =>
+export const runStatus = async (o: { host?: string; json: boolean; cached?: boolean }): Promise<void> =>
   withApp(async (app) => {
-    const snaps = await snapshotHosts(app, o.host);
+    const snaps = await snapshotHosts(app, o.host, { cached: o.cached === true });
     if (o.json) return out(JSON.stringify(snaps.map((s) => consumedJson(s, app)), null, 2));
     snaps.forEach((snap) => {
       if (!snap.result.ok) return out(`${pc.bold(snap.host.id)}  ${pc.red("unreachable")}  ${pc.dim(hostErrorText(snap.result.error))}\n`);

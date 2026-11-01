@@ -29,6 +29,31 @@ export type Agent = {
    * Lets a shared dir (~/.agents/skills) feed one agent and not another: skm writes `excludePattern(name)` there.
    */
   readonly excludes?: { readonly fileId: string; readonly file: (home: string) => string };
+  /** The agent's own CLI: `--version` prints its version, `update` is the self-update command (it detects native / npm / brew installs). */
+  readonly cli: { readonly bin: string; readonly update: string };
+  /**
+   * The agent's desktop app, when it writes plugin marketplaces of its own (local dirs skm cannot refresh).
+   * skm reads its version from the bundle and updates it from its Sparkle appcast; the app rewrites `marketplaces` on its next launch.
+   */
+  readonly app?: AgentApp;
+  /** the extension that defined this agent; absent for the built-in ones */
+  readonly extension?: string;
+};
+
+/** A macOS desktop app that ships plugins: bundle path, Sparkle feed, the marketplaces it writes, and a file it rewrites after an update. */
+export type AgentApp = {
+  readonly id: string;
+  readonly name: string;
+  readonly bundle: string;
+  readonly feed: string;
+  readonly marketplaces: readonly string[];
+  /** `~/`-relative file whose content names the app version once the app has rewritten its marketplaces */
+  readonly marker: string;
+  /**
+   * A follow-up download the app may start after launch: `file` (`~/`-relative) changes content when it is done,
+   * `busy` (`~/`-relative glob) exists while it runs. skm keeps the app open until then.
+   */
+  readonly settle?: { readonly file: string; readonly busy: string };
 };
 
 const under = (rel: string) => (home: string) => `${home}/${rel}`;
@@ -42,6 +67,7 @@ export const AGENTS: readonly Agent[] = [
     listing: { kind: "claude", budgetFraction: 0.01, maxDescChars: 1536 },
     alsoReads: [],
     plugins: { cache: under(".claude/plugins/cache") }, // enabled via ~/.claude/settings.json enabledPlugins; active version in plugins/installed_plugins.json
+    cli: { bin: "claude", update: "claude update" },
   },
   {
     id: "codex",
@@ -51,6 +77,7 @@ export const AGENTS: readonly Agent[] = [
     alsoReads: [under(".codex/skills")], // legacy dir; copies here load twice
     plugins: { cache: under(".codex/plugins/cache") }, // switched in ~/.codex/config.toml [plugins."name@mk"] enabled (default true)
     builtinDir: under(".codex/skills/.system"),
+    cli: { bin: "codex", update: "codex update" },
   },
   {
     id: "pi",
@@ -61,6 +88,7 @@ export const AGENTS: readonly Agent[] = [
     duplicates: "user-dir-first", // loadSkills() keeps the first copy by name (user dir loads first) and reports the other as a "collision" at startup
     // pi ≥0.87 package-manager isEnabledByOverrides: a `-path` entry force-excludes an exact path, relative to ~/.agents for that dir and ~/.pi/agent for the user dir
     excludes: { fileId: "pi-settings", file: under(".pi/agent/settings.json") },
+    cli: { bin: "pi", update: "pi update --all" }, // --all also updates installed extensions
   },
 ];
 
@@ -73,3 +101,25 @@ export const agentById = (id: string): Option<Agent> => {
 };
 
 export const agentIds = (): readonly string[] => AGENTS.map((a) => a.id);
+
+/** Per-agent settings from config.yaml `agentOverrides:`; each field replaces the built-in value. */
+export type AgentOverride = { readonly dir: Option<string>; readonly update: Option<string> };
+
+/** A `~/`-relative or absolute directory as a function of a host's $HOME. */
+export const dirFn = (dir: string) => (home: string): string => (dir === "~" ? home : dir.startsWith("~/") ? `${home}/${dir.slice(2)}` : dir);
+
+/** The registry entry with the user's overrides applied. Pure. */
+export const withOverride = (a: Agent, o: AgentOverride | undefined): Agent =>
+  o === undefined
+    ? a
+    : {
+        ...a,
+        ...(o.dir.some ? { userDir: dirFn(o.dir.value) } : {}),
+        ...(o.update.some ? { cli: { ...a.cli, update: o.update.value } } : {}),
+      };
+
+/** Registry lookup with config overrides applied. `registry` = built-in agents plus extensions (defaults to the built-in ones). */
+export const resolveAgent = (id: string, overrides: Readonly<Record<string, AgentOverride>>, registry: readonly Agent[] = AGENTS): Option<Agent> => {
+  const a = registry.find((x) => x.id === id);
+  return a !== undefined ? some(withOverride(a, overrides[id])) : none;
+};

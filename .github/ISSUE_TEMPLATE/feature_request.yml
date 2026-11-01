@@ -1,0 +1,22 @@
+name: Feature request
+description: Suggest a change or a new capability
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what gets in the way today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What should skm do? Commands, config or UI you have in mind
+  - type: dropdown
+    id: extension
+    attributes:
+      label: Could this be an extension?
+      description: Setup-specific agents, apps and update tasks can live in ~/.skm/extensions (docs/extensions.md)
+      options: ["Not sure", "No, it needs a core change", "Yes, but the extension format is missing something"]

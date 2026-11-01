@@ -33,7 +33,6 @@ const io: TuiIo = {
   saveConfig: async () => {},
   backup: async () => ({ ok: true, value: "/h/.skm/backups/x" }),
   apply: async (h) => ({ host: h.id, rsynced: [], applied: ["link codex/pdf-tools"], skipped: [], conflicts: [], commands: [], error: undefined }),
-  evaluate: async () => ({ ok: true, value: {} }),
   now: () => "20260906-000000",
 };
 
@@ -50,7 +49,7 @@ test("target cells show a loaded shared skill instead of absent or pending", () 
     docs: { "shared-acme": "---\nname: acme\ndescription: Use corp tools.\n---\n" },
   };
   const view = buildHostView("local", [pi.value], inv, 1_000_000);
-  const s = { ...initialState(defaultConfig(), [], [], {}), hosts: { local: { kind: "ready" as const, inventory: inv, ops: [], view } } };
+  const s = { ...initialState(defaultConfig(), []), hosts: { local: { kind: "ready" as const, inventory: inv, ops: [], view } } };
   expect(cellGlyph(s, "acme", "local", "pi", true)).toEqual({ glyph: "✓", color: "green" });
   expect(cellGlyph(s, "acme", "local", "pi", false)).toEqual({ glyph: "✓", color: "yellow" });
   expect(cellGlyph(s, "missing", "local", "pi", true)).toEqual({ glyph: "◌", color: "yellow" });
@@ -70,7 +69,7 @@ test("target availability uses the same checkmark for real directories and links
   for (const { entry, glyph, color } of cases) {
     const inv = { ...emptyInventory("/h"), agentDirs: { claude: { exists: true, entries: [entry] } }, docs: { "available-acme": "---\nname: acme\ndescription: Use corp tools.\n---\n" } };
     const view = buildHostView("local", [claude.value], inv, 1_000_000);
-    const s = { ...initialState(defaultConfig(), [], [], {}), hosts: { local: { kind: "ready" as const, inventory: inv, ops: [], view } } };
+    const s = { ...initialState(defaultConfig(), []), hosts: { local: { kind: "ready" as const, inventory: inv, ops: [], view } } };
     expect(cellGlyph(s, "acme", "local", "claude", true)).toEqual({ glyph, color });
     if (color === "green") expect(cellGlyph(s, "acme", "local", "claude", false)).toEqual({ glyph: "✓", color: "yellow" });
   }
@@ -78,7 +77,7 @@ test("target availability uses the same checkmark for real directories and links
 
 describe("TUI sort", () => {
   test("o cycles name → listing → body (costs descending first); O flips the direction; ties break by name", () => {
-    const s0 = initialState(app().config, skills, [], {});
+    const s0 = initialState(app().config, skills);
     expect(s0.sort).toEqual({ by: "name", dir: "asc" });
     expect(visibleSkills(s0).map((k) => k.name)).toEqual(["kb-doc", "pdf-tools"]);
     const byListingDesc = [...skills].sort((a, b) => b.cost.descTokens - a.cost.descTokens || a.name.localeCompare(b.name)).map((k) => k.name);
@@ -97,7 +96,7 @@ describe("TUI sort", () => {
 
 describe("TUI", () => {
   test("renders skills, filters, and shows probe results in the header", async () => {
-    const { lastFrame, stdin } = render(<App app={app()} io={io} evals={{}} />);
+    const { lastFrame, stdin } = render(<App app={app()} io={io} />);
     await tick();
     expect(lastFrame()).toContain("pdf-tools");
     expect(lastFrame()).toContain("kb-doc");
@@ -114,7 +113,7 @@ describe("TUI", () => {
   });
   test("targets grid toggle calls saveConfig", async () => {
     let saved = 0;
-    const { lastFrame, stdin } = render(<App app={app()} io={{ ...io, saveConfig: async () => { saved += 1; } }} evals={{}} />);
+    const { lastFrame, stdin } = render(<App app={app()} io={{ ...io, saveConfig: async () => { saved += 1; } }} />);
     await tick();
     stdin.write("m"); await tick();
     stdin.write(" "); await tick();
@@ -162,7 +161,7 @@ describe("hosts view", () => {
     const inv = { ...emptyInventory("/h"), agentDirs: { claude: { exists: true, entries: [{ kind: "managed" as const, name: "pdf-tools", direct: true }] }, codex: { exists: true, entries: [{ kind: "dir" as const, name: "acme" }] } } };
     const view = buildHostView("local", a.agents, inv, 200000, {});
     const ready = { kind: "ready" as const, inventory: inv, ops: [], view };
-    return { ...initialState(a.config, skills, [], {}), hosts: { local: ready, dev: ready } };
+    return { ...initialState(a.config, skills), hosts: { local: ready, dev: ready } };
   };
   test("renders one row per line and windows by height (no Yoga shrink overlap)", async () => {
     const s = hostsState();

@@ -19,7 +19,10 @@ export type Op =
   // an agent that reads another agent's dir (pi ← ~/.agents/skills) switches a skill off / back on in its own settings
   | { readonly op: "exclude"; readonly host: string; readonly agent: string; readonly skill: string }
   | { readonly op: "unexclude"; readonly host: string; readonly agent: string; readonly skill: string }
-  | { readonly op: "blocked"; readonly host: string; readonly agent: string; readonly what: string; readonly reason: string };
+  | { readonly op: "blocked"; readonly host: string; readonly agent: string; readonly what: string; readonly reason: string }
+  // `skm plugin update`: never produced by planHost (desired state has no "latest"); see core/pluginUpdate.ts
+  | { readonly op: "marketplace-refresh"; readonly host: string; readonly agent: string; readonly marketplace: string }
+  | { readonly op: "plugin-update"; readonly host: string; readonly agent: string; readonly plugin: string; readonly scope: string; readonly projectPath: Option<string>; readonly from: string };
 
 /** One plugin's desired state for one agent on this host (marketplace resolved by the shell). */
 export type PluginCell = { readonly agent: string; readonly name: string; readonly marketplace: string; readonly wanted: boolean };
@@ -60,7 +63,8 @@ export type PlanInput = {
 const ORDER: Record<Op["op"], number> = {
   mkdir: 0, "rsync-skill": 1, unlink: 2, link: 3,
   "marketplace-add": 4, "plugin-install": 5, "plugin-enable": 6, "plugin-disable": 7, "owned-ensure": 8, exclude: 9, unexclude: 10,
-  conflict: 11, blocked: 12, "remote-only": 13,
+  "marketplace-refresh": 11, "plugin-update": 12,
+  conflict: 13, blocked: 14, "remote-only": 15,
 };
 
 const entryFor = (inv: Inventory, agent: string, skill: string): Entry | undefined =>
@@ -226,6 +230,10 @@ export const opText = (o: Op): string => {
       return `${o.agent}: unexclude ${o.skill} (settings)`;
     case "blocked":
       return `blocked ${o.agent} ${o.what}: ${o.reason}`;
+    case "marketplace-refresh":
+      return `${o.agent}: marketplace refresh ${o.marketplace}`;
+    case "plugin-update":
+      return `${o.agent}: plugin update ${o.plugin} (${o.from || "?"}${o.scope === "user" ? "" : `, ${o.scope}${o.projectPath.some ? ` ${o.projectPath.value}` : ""}`})`;
   }
 };
 
@@ -235,7 +243,8 @@ export const isMutation = (o: Op): boolean => isFileOp(o) || isCommandOp(o);
 export const isFileOp = (o: Op): boolean => o.op === "mkdir" || o.op === "rsync-skill" || o.op === "link" || o.op === "unlink";
 
 export const isCommandOp = (o: Op): boolean =>
-  o.op === "marketplace-add" || o.op === "plugin-install" || o.op === "plugin-enable" || o.op === "plugin-disable" || o.op === "owned-ensure" || o.op === "exclude" || o.op === "unexclude";
+  o.op === "marketplace-add" || o.op === "plugin-install" || o.op === "plugin-enable" || o.op === "plugin-disable" || o.op === "owned-ensure" || o.op === "exclude" || o.op === "unexclude"
+  || o.op === "marketplace-refresh" || o.op === "plugin-update";
 
 /** Informational ops: nothing is executed for these. */
 export const isReport = (o: Op): boolean => o.op === "conflict" || o.op === "blocked" || o.op === "remote-only";

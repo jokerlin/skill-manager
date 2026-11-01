@@ -1,19 +1,19 @@
-import { type Agent, agentById } from "../core/agents";
+import { type Agent, resolveAgent } from "../core/agents";
 import { type Config, type HostConfig, PLUGIN_AGENTS, hostAgents, marketplaceFor } from "../core/config";
 import { type HostFacts, type PluginState, effectiveFor, hostFacts, pluginStates } from "../core/effective";
 import { type Inventory, entryHash } from "../core/inventory";
 import { type ExcludeCell, type Op, type OwnedRule, type PluginCell, planHost } from "../core/plan";
-import { desiredFor, selects } from "../core/scope";
+import { desiredFor, pluginWanted } from "../core/scope";
 import type { MarketplaceSource } from "../core/sources";
 import type { Skill } from "../core/skill";
 import { type Runner, localRunner, sshRunner } from "./runner";
 import { homeDir } from "./paths";
 
-export const runnerFor = (h: HostConfig): Runner => (h.ssh.some ? sshRunner(h.id, h.ssh.value) : localRunner(homeDir()));
+export const runnerFor = (h: HostConfig): Runner => (h.ssh.some ? sshRunner(h.id, h.ssh.value) : localRunner(homeDir(), h.id));
 
 /** Agents enabled on this host, resolved to registry entries (unknown ids are dropped). */
 export const agentsOn = (c: Config, h: HostConfig): readonly Agent[] =>
-  hostAgents(c, h).flatMap((id) => { const a = agentById(id); return a.some ? [a.value] : []; });
+  hostAgents(c, h).flatMap((id) => { const a = resolveAgent(id, c.agentOverrides, c.registry.agents); return a.some ? [a.value] : []; });
 
 /** agent id → home-relative user dir (`~/.claude/skills`) */
 export const agentDirsRel = (agents: readonly Agent[]): Record<string, string> =>
@@ -45,7 +45,7 @@ export const pluginCellsFor = (c: Config, h: HostConfig, states: Readonly<Record
     agentsOn(c, h).filter((a) => PLUGIN_AGENTS.includes(a.id)).map((a): PluginCell => {
       const mk = marketplaceFor(p, a.id);
       const marketplace = mk.some ? mk.value : (states[a.id] ?? []).find((s) => s.name === p.name)?.marketplace ?? "";
-      return { agent: a.id, name: p.name, marketplace, wanted: p.enabled && selects(p.hosts, h.id) && selects(p.agents, a.id) };
+      return { agent: a.id, name: p.name, marketplace, wanted: pluginWanted(p, h.id, a.id) };
     }),
   );
 
@@ -96,7 +96,7 @@ export const planFor = (c: Config, skills: readonly Skill[], h: HostConfig, inv:
       const dir = e.source.dir;
       return owned.some((o) => o.skill === e.name && inv.tools[o.tool] !== undefined && o.agents.some
         && !o.agents.value.includes(a.id) && o.agents.value.some((id) => {
-          const writer = agentById(id);
+          const writer = resolveAgent(id, c.agentOverrides, c.registry.agents);
           return writer.some && writer.value.userDir(inv.home) === dir;
         }));
     }).map((e) => e.name));

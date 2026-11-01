@@ -40,7 +40,7 @@ describe("claude files", () => {
   });
   test("installed_plugins.json v2 shape", () => {
     const r = parseClaudeInstalled(JSON.stringify({ version: 2, plugins: { "superpowers@claude-plugins-official": [{ scope: "user", installPath: "/h/.claude/plugins/cache/claude-plugins-official/superpowers/6.3.0", version: "6.3.0" }], broken: [{}] } }));
-    expect(r.ok && r.value).toEqual({ "superpowers@claude-plugins-official": { version: "6.3.0", installPath: "/h/.claude/plugins/cache/claude-plugins-official/superpowers/6.3.0" } });
+    expect(r.ok && r.value).toEqual({ "superpowers@claude-plugins-official": { version: "6.3.0", installPath: "/h/.claude/plugins/cache/claude-plugins-official/superpowers/6.3.0", installs: [{ scope: "user", projectPath: { some: false }, version: "6.3.0" }] } });
   });
   test("known_marketplaces.json sources", () => {
     const r = parseClaudeMarketplaces(JSON.stringify({ "claude-plugins-official": { source: { source: "github", repo: "anthropics/claude-plugins-official" } }, local: { source: { source: "directory", path: "/tmp/mk" } }, junk: 1 }));

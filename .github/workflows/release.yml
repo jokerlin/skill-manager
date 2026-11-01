@@ -1,0 +1,55 @@
+name: Release
+
+# Push a tag like v0.4.0 (matching both package.json versions) to build, sign and publish a release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write      # create the release
+  id-token: write      # build provenance
+  attestations: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - name: Install
+        run: |
+          bun install --frozen-lockfile
+          (cd desktop && bun install --frozen-lockfile)
+      - name: Check the tag matches both versions
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          test "$(node -p 'require("./package.json").version')" = "$v"
+          test "$(node -p 'require("./desktop/package.json").version')" = "$v"
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+      - name: Test
+        run: bun run typecheck && bun test
+      - name: Build the CLI for Linux
+        run: bun run build:linux
+      - name: Build the app (it bundles the macOS CLI for each architecture)
+        working-directory: desktop
+        run: bun run dist
+      - name: Sign the update manifest
+        working-directory: desktop
+        env:
+          SKM_UPDATE_SIGN_KEY: ${{ secrets.SKM_UPDATE_SIGN_KEY }}
+        run: bun scripts/update-manifest.ts "$VERSION" dist/skill-manager-"$VERSION"-*-mac.zip
+      - name: Collect assets
+        run: |
+          mkdir release
+          cp desktop/dist/skill-manager-"$VERSION"-*-mac.zip desktop/dist/latest-mac.json desktop/dist/latest-mac.json.sig release/
+          for t in darwin-arm64 darwin-x64 linux-x64 linux-arm64; do cp "dist/skm-$t" "release/skm-$t"; done
+          (cd release && shasum -a 256 * > SHA256SUMS)
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: release/*
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" release/* --title "Skill Manager $VERSION" --generate-notes

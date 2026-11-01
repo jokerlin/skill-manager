@@ -82,7 +82,11 @@ export const parseClaudeSettings = (text: string): Result<ClaudeSettings, ParseE
   });
 };
 
-export type ClaudeInstalled = Readonly<Record<string, { readonly version: string; readonly installPath: string }>>;
+/** One install record: Claude keeps one per scope (user / project / local), project and local ones tied to a project dir. */
+export type ClaudeInstall = { readonly scope: string; readonly projectPath: Option<string>; readonly version: string };
+
+/** id → the first record's version + path (what loads in a session started outside any project), plus every record for updates. */
+export type ClaudeInstalled = Readonly<Record<string, { readonly version: string; readonly installPath: string; readonly installs: readonly ClaudeInstall[] }>>;
 
 /** ~/.claude/plugins/installed_plugins.json (v2 shape: { version, plugins: { "name@mk": [{ installPath, version, ... }] } }). */
 export const parseClaudeInstalled = (text: string): Result<ClaudeInstalled, ParseError> => {
@@ -98,7 +102,12 @@ export const parseClaudeInstalled = (text: string): Result<ClaudeInstalled, Pars
         if (!isRecord(first)) return [];
         const version = first["version"];
         const installPath = first["installPath"];
-        return typeof installPath === "string" ? [[id, { version: typeof version === "string" ? version : "", installPath }] as const] : [];
+        const installs = (Array.isArray(v) ? v : [v]).flatMap((x): ClaudeInstall[] => {
+          if (!isRecord(x)) return [];
+          const pp = x["projectPath"];
+          return [{ scope: typeof x["scope"] === "string" ? x["scope"] : "user", projectPath: typeof pp === "string" && pp.length > 0 ? some(pp) : none, version: typeof x["version"] === "string" ? x["version"] : "" }];
+        });
+        return typeof installPath === "string" ? [[id, { version: typeof version === "string" ? version : "", installPath, installs }] as const] : [];
       }),
     ),
   );

@@ -5,10 +5,9 @@ import { allInsights } from "../core/heuristics";
 import { isDesired } from "../core/scope";
 import { buildHostView } from "../core/view";
 import { agentsOn } from "../shell/hosts";
-import { hostErrorText, readInventoryCache } from "../shell/probe";
+import { hostErrorText } from "../shell/probe";
 import { out, table, withApp } from "./common";
 import { type HostSnapshot, snapshotHosts } from "./status";
-import { planFor } from "../shell/hosts";
 
 export type DoctorOpts = { json?: boolean; cached?: boolean; host?: string };
 
@@ -36,17 +35,6 @@ const budgetRows = (app: Parameters<Parameters<typeof withApp>[0]>[0], snaps: re
     }),
   );
 
-/** Snapshots from the on-disk probe cache (no ssh), for `doctor --cached`. */
-const cachedSnapshots = async (app: Parameters<Parameters<typeof withApp>[0]>[0], only?: string): Promise<HostSnapshot[]> =>
-  Promise.all(
-    app.config.hosts.filter((h) => only === undefined || h.id === only).map(async (host): Promise<HostSnapshot> => {
-      const inv = await readInventoryCache(app.skmHome, host.id);
-      if (inv === undefined) return { host, result: { ok: false, error: { kind: "unreachable", host: host.id, detail: "no cached probe; run skm status" } } };
-      const agents = agentsOn(app.config, host);
-      return { host, result: { ok: true, inventory: inv, ops: planFor(app.config, app.skills, host, inv, app.hubMarketplaces), view: buildHostView(host.id, agents, inv, app.config.contextTokens, app.claudeOverrides, app.config.owned) } };
-    }),
-  );
-
 const findingColor = (f: Finding): string => {
   switch (f.kind) {
     case "same-name": return pc.yellow(f.kind);
@@ -64,7 +52,7 @@ const findingColor = (f: Finding): string => {
 export const runDoctor = async (o: DoctorOpts = {}): Promise<void> =>
   withApp(async (app) => {
     const insights = allInsights(app.skills);
-    const snaps = o.cached ? await cachedSnapshots(app, o.host) : await snapshotHosts(app, o.host);
+    const snaps = await snapshotHosts(app, o.host, { cached: o.cached === true });
     const budget = budgetRows(app, snaps);
     const hostFindings = snaps.flatMap((s) => (s.result.ok ? s.result.view.findings : []));
     const drift = driftFindings(snaps.flatMap((s) => (s.result.ok ? [{ host: s.host.id, states: s.result.view.states }] : [])));

@@ -1,0 +1,207 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* Radix and cmdk expose state as data-state / data-orientation / data-selected="true".
+   The Nova components are written against short variants; map them here. */
+@custom-variant data-open (&:where([data-state="open"], [data-open]:not([data-open="false"])));
+@custom-variant data-closed (&:where([data-state="closed"], [data-closed]:not([data-closed="false"])));
+@custom-variant data-checked (&:where([data-state="checked"], [data-checked]:not([data-checked="false"])));
+@custom-variant data-unchecked (&:where([data-state="unchecked"], [data-unchecked]:not([data-unchecked="false"])));
+@custom-variant data-active (&:where([data-state="active"], [data-active]:not([data-active="false"])));
+@custom-variant data-selected (&:where([data-selected="true"]));
+@custom-variant data-disabled (&:where([data-disabled]:not([data-disabled="false"])));
+@custom-variant data-horizontal (&:where([data-orientation="horizontal"]));
+@custom-variant data-vertical (&:where([data-orientation="vertical"]));
+
+/*
+ * skm: a quiet neutral ledger with one live signal.
+ * Surfaces step by background value, not shadows. Colour is reserved for state:
+ * signal (green) = loaded / in sync, pending (amber) = waiting for apply, danger (red) = unreachable / drift / conflict.
+ * Radius scale: 4px cells & chips, 6px controls, 10px panels & dialogs.
+ */
+@theme inline {
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-signal: var(--signal);
+  --color-signal-soft: var(--signal-soft);
+  --color-pending: var(--pending);
+  --color-pending-soft: var(--pending-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-surface: var(--surface);
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+}
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(0.992 0.002 95);
+  --surface: oklch(0.975 0.003 95);
+  --foreground: oklch(0.2 0.01 260);
+  --card: oklch(1 0 0);
+  --card-foreground: var(--foreground);
+  --popover: oklch(1 0 0);
+  --popover-foreground: var(--foreground);
+  --primary: oklch(0.24 0.012 260);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.955 0.004 95);
+  --secondary-foreground: var(--foreground);
+  --muted: oklch(0.955 0.004 95);
+  --muted-foreground: oklch(0.52 0.01 260);
+  --accent: oklch(0.945 0.005 95);
+  --accent-foreground: var(--foreground);
+  --destructive: oklch(0.58 0.2 27);
+  --border: oklch(0.91 0.005 95);
+  --input: oklch(0.89 0.006 95);
+  --ring: oklch(0.62 0.12 155);
+  --sidebar: oklch(0.965 0.004 95 / 0.72);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-accent: oklch(0.2 0.01 260 / 0.07);
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: oklch(0.2 0.01 260 / 0.08);
+
+  --signal: oklch(0.6 0.15 155);
+  --signal-soft: oklch(0.6 0.15 155 / 0.12);
+  --pending: oklch(0.7 0.15 70);
+  --pending-soft: oklch(0.7 0.15 70 / 0.14);
+  --danger: oklch(0.58 0.2 27);
+  --danger-soft: oklch(0.58 0.2 27 / 0.1);
+  --info: oklch(0.56 0.13 250);
+  --info-soft: oklch(0.56 0.13 250 / 0.1);
+}
+
+.dark {
+  --background: oklch(0.18 0.006 260);
+  --surface: oklch(0.205 0.007 260);
+  --foreground: oklch(0.94 0.004 95);
+  --card: oklch(0.215 0.007 260);
+  --card-foreground: var(--foreground);
+  --popover: oklch(0.235 0.008 260);
+  --popover-foreground: var(--foreground);
+  --primary: oklch(0.94 0.004 95);
+  --primary-foreground: oklch(0.2 0.01 260);
+  --secondary: oklch(0.26 0.008 260);
+  --secondary-foreground: var(--foreground);
+  --muted: oklch(0.26 0.008 260);
+  --muted-foreground: oklch(0.68 0.01 260);
+  --accent: oklch(0.27 0.009 260);
+  --accent-foreground: var(--foreground);
+  --destructive: oklch(0.66 0.19 25);
+  --border: oklch(1 0 0 / 0.08);
+  --input: oklch(1 0 0 / 0.12);
+  --ring: oklch(0.7 0.14 155);
+  --sidebar: oklch(0.17 0.006 260 / 0.86);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-accent: oklch(1 0 0 / 0.07);
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: oklch(1 0 0 / 0.06);
+
+  --signal: oklch(0.72 0.15 155);
+  --signal-soft: oklch(0.72 0.15 155 / 0.16);
+  --pending: oklch(0.78 0.14 75);
+  --pending-soft: oklch(0.78 0.14 75 / 0.16);
+  --danger: oklch(0.68 0.19 25);
+  --danger-soft: oklch(0.68 0.19 25 / 0.16);
+  --info: oklch(0.7 0.12 250);
+  --info-soft: oklch(0.7 0.12 250 / 0.16);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-transparent text-foreground font-sans antialiased;
+    font-size: 13px;
+    line-height: 1.45;
+    overflow: hidden;
+    -webkit-user-select: none;
+    user-select: none;
+    cursor: default;
+  }
+  /* text the user may copy */
+  .selectable,
+  input,
+  textarea,
+  code,
+  pre {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  ::selection {
+    background: var(--signal-soft);
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@utility drag-region {
+  -webkit-app-region: drag;
+}
+@utility no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* thin overlay scrollbars like native lists */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: oklch(0.5 0 0 / 0.22);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: oklch(0.5 0 0 / 0.38);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+  }
+}
