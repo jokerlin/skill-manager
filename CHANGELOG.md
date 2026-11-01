@@ -4,6 +4,10 @@ All notable changes to Skill Manager. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+### Fixed
+
+- Switching a plugin that is not under `plugins:` yet (in the app, or with `skm scope --plugin`) could switch it off on a host skm had never probed. The first switch copies where the plugin is enabled today, and a host with no probe result added no cells, so the next apply there disabled it. skm now refuses that switch and names the hosts to probe first (`skm status <host>`).
+
 ## [0.5.5] - 2026-11-01
 
 ### Added
