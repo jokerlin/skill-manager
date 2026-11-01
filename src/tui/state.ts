@@ -9,13 +9,22 @@ import { type PluginRow, pluginRows } from "../core/pluginUpdate";
 import { isDesired } from "../core/scope";
 import { agentsOn } from "../shell/hosts";
 import type { HostError } from "../shell/probe";
+import type { SkillReport, UpstreamReport, UpstreamResult } from "../shell/upstreamOps";
+import { type Option, none, some } from "../lib/result";
 
 /** Same order and names as the desktop app: Skills, Plugins, Hosts, then the pending changes. */
 export type View = "skills" | "plugins" | "hosts" | "changes" | "help";
 export const VIEWS: readonly View[] = ["skills", "plugins", "hosts", "changes", "help"];
 
-/** What a y/n prompt would start: apply every pending change, or update one plugin on every host. */
-export type Confirm = { readonly kind: "none" } | { readonly kind: "apply" } | { readonly kind: "plugin-update"; readonly plugin: string };
+/** What a y/n prompt would start: apply every pending change, update one plugin on every host, or write skills from their upstream. */
+export type Confirm =
+  | { readonly kind: "none" }
+  | { readonly kind: "apply" }
+  | { readonly kind: "plugin-update"; readonly plugin: string }
+  | { readonly kind: "upstream-update"; readonly skills: readonly string[]; readonly force: boolean };
+
+/** The last upstream check (empty until one finishes) and whether another is running. */
+export type UpstreamView = { readonly results: readonly UpstreamResult[]; readonly checking: boolean };
 
 export type HostStatus =
   | { readonly kind: "probing" }
@@ -57,6 +66,7 @@ export type State = {
   readonly confirm: Confirm;
   readonly replaceConflicts: boolean;
   readonly message: string;
+  readonly upstream: UpstreamView;
 };
 
 export type Action =
@@ -77,7 +87,10 @@ export type Action =
   | { readonly type: "busy"; readonly what: string | undefined }
   | { readonly type: "confirm"; readonly confirm: Confirm }
   | { readonly type: "toggleReplace" }
-  | { readonly type: "message"; readonly text: string };
+  | { readonly type: "message"; readonly text: string }
+  | { readonly type: "skills"; readonly skills: readonly Skill[] }
+  | { readonly type: "upstreams"; readonly results: readonly UpstreamResult[] }
+  | { readonly type: "upstreamChecking"; readonly on: boolean };
 
 export const visibleSkills = (s: State): readonly Skill[] => {
   const q = s.filter.toLowerCase();
@@ -140,6 +153,12 @@ export const reduce = (s: State, a: Action): State =>
     .with({ type: "confirm" }, ({ confirm }) => ({ ...s, confirm }))
     .with({ type: "toggleReplace" }, () => ({ ...s, replaceConflicts: !s.replaceConflicts }))
     .with({ type: "message" }, ({ text }) => ({ ...s, message: text }))
+    .with({ type: "skills" }, ({ skills }): State => {
+      const next = { ...s, skills };
+      return { ...next, selected: clamp(s.selected, 0, Math.max(0, visibleSkills(next).length - 1)) };
+    })
+    .with({ type: "upstreams" }, ({ results }) => ({ ...s, upstream: { ...s.upstream, results } }))
+    .with({ type: "upstreamChecking" }, ({ on }) => ({ ...s, upstream: { ...s.upstream, checking: on } }))
     .exhaustive();
 
 export const initialState = (config: Config, skills: readonly Skill[]): State => ({
@@ -160,7 +179,25 @@ export const initialState = (config: Config, skills: readonly Skill[]): State =>
   confirm: NO_CONFIRM,
   replaceConflicts: false,
   message: "",
+  upstream: { results: [], checking: false },
 });
+
+const okReports = (s: State): readonly UpstreamReport[] => s.upstream.results.flatMap((r) => (r.result.ok ? [r.result.value] : []));
+
+export type UpstreamOf = { readonly report: UpstreamReport; readonly skill: SkillReport };
+
+/** The upstream that supplies a skill, as the last check judged it; none when no checked upstream lists it. */
+export const upstreamOf = (s: State, skill: string): Option<UpstreamOf> => {
+  const hit = okReports(s).flatMap((report) => report.skills.filter((k) => k.skill === skill).map((k) => ({ report, skill: k })))[0];
+  return hit ? some(hit) : none;
+};
+
+/** Skills an update writes without --force: behind their upstream, or listed but not in the store yet. */
+export const upstreamUpdatable = (s: State): readonly string[] =>
+  okReports(s).flatMap((r) => r.skills.filter((k) => k.state.kind === "behind" || k.state.kind === "absent").map((k) => k.skill));
+
+/** Names of upstreams whose last check failed. */
+export const upstreamFailures = (s: State): readonly string[] => s.upstream.results.flatMap((r) => (r.result.ok ? [] : [r.policy.name]));
 
 /** Live glyph for a (skill, host, agent) cell given the desired state and the last probe. */
 export const cellGlyph = (s: State, skill: string, hostId: string, agentId: string, desired: boolean): { glyph: string; color: "green" | "gray" | "yellow" | "red" | "cyan" | "magenta" } => {

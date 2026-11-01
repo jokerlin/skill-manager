@@ -15,7 +15,9 @@ import { pullCandidates } from "../src/cli/pull";
 import { HostsView, clampOffset, hostLines } from "../src/tui/views/Hosts";
 import { SkillsView } from "../src/tui/views/Skills";
 import { cellGlyph, fitCount, initialState, pendingTotal, reduce, skillCoverage, visibleSkills } from "../src/tui/state";
-import { coverageText } from "../src/tui/views/Skills";
+import { coverageText, listTitle, upstreamMark, upstreamPrompt } from "../src/tui/views/Skills";
+import type { StateKind, UpstreamPolicy } from "../src/core/upstream";
+import type { SkillReport, UpstreamResult } from "../src/shell/upstreamOps";
 import type { Op } from "../src/core/plan";
 import { buildHostView } from "../src/core/view";
 
@@ -38,6 +40,9 @@ const io: TuiIo = {
   backup: async () => ({ ok: true, value: "/h/.skm/backups/x" }),
   apply: async (h) => ({ host: h.id, rsynced: [], applied: ["link codex/pdf-tools"], skipped: [], conflicts: [], commands: [], error: undefined }),
   now: () => "20260906-000000",
+  upstreams: async () => ({ ok: true, value: [] }),
+  upstreamUpdate: async () => ({ ok: true, value: { backup: null, outcomes: [] } }),
+  loadSkills: async () => ({ ok: true, value: skills }),
 };
 
 const tick = () => new Promise((r) => setTimeout(r, 30));
@@ -331,5 +336,94 @@ describe("aligned with the desktop app", () => {
     expect(coverageText({ kind: "only-hosts", hosts: ["studio", "gpu-box"] }, 12)).toBe("Only 2 hosts"); // names do not fit, so a count
     expect(coverageText({ kind: "partial", on: 7, total: 12 }, 20)).toBe("7 of 12");
     expect(pendingTotal(s)).toBe(0);
+  });
+});
+
+describe("upstream state in the TUI", () => {
+  const policy: UpstreamPolicy = { name: "waza", repo: "https://example.com/waza.git", ref: none, path: "skills/{skill}", skills: ["pdf-tools", "kb-doc"] };
+  const change = (i: number) => ({ commit: `c${i}00000`, date: "2026-10-30", subject: `change ${i}` });
+  const skillReport = (skill: string, kind: StateKind, changes: number): SkillReport => ({
+    skill, state: { kind } as SkillReport["state"], base: some({ commit: "a".repeat(40), label: "v1.0.0", digest: "d" }), targetDigest: some("t"), entries: none,
+    changes: Array.from({ length: changes }, (_, i) => change(i)),
+  });
+  const results: readonly UpstreamResult[] = [{
+    policy,
+    result: { ok: true, value: { policy, gitDir: "/tmp/waza.git", target: { commit: "b".repeat(40), label: "v1.2.0" }, warning: none, skills: [skillReport("pdf-tools", "behind", 7), skillReport("kb-doc", "modified", 1)], unlisted: [] } },
+  }];
+  /** The detail panel's text with its wrapping undone: the part of each row right of the list. */
+  const detail = (frame: string | undefined): string =>
+    (frame ?? "").split("\n").map((l) => l.split("││")[1] ?? "").map((l) => l.replace(/│\s*$/, "").trim()).filter((l) => l !== "").join(" ");
+  const upApp = (): AppState => { const a = app(); return { ...a, config: { ...a.config, upstreams: [policy] } }; };
+
+  test("marks each row, shows the upstream in the detail, and u on an edited copy asks to overwrite before writing", async () => {
+    const checks: boolean[] = [];
+    const updates: { skills: readonly string[]; force: boolean }[] = [];
+    const planned: string[][] = [];
+    let reloads = 0;
+    const upIo: TuiIo = {
+      ...io,
+      plan: (_c, ks) => { planned.push(ks.map((k) => k.name)); return []; },
+      upstreams: async (offline) => { checks.push(offline); return { ok: true, value: results }; },
+      upstreamUpdate: async (ss, force, onEvent) => {
+        updates.push({ skills: ss, force });
+        onEvent({ kind: "updated", skill: ss[0] ?? "", label: "v1.2.0" });
+        return { ok: true, value: { backup: "/h/.skm/backups/x", outcomes: [{ upstream: "waza", skill: ss[0] ?? "", from: "v1.0.0", to: "v1.2.0", result: "updated", reason: "" }] } };
+      },
+      loadSkills: async () => { reloads += 1; return { ok: true, value: [...skills, mk("new-one", "Use when testing.")] }; },
+    };
+    const { lastFrame, stdin, unmount } = render(<App app={upApp()} io={upIo} />); await tick(); await tick();
+    expect(checks).toEqual([true, false]); // the cached mirror first, then a fetch
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("1 upstream update (U)");
+    expect(frame).toMatch(/pdf-tools\s+↑/);
+    expect(frame).toMatch(/kb-doc\s+✎/);
+    expect(frame).toContain("upstream waza");
+    expect(frame).toMatch(/v1\.0\.0 → v1\.2\.0\s+edited locally · 1 commit/);
+    expect(frame).toContain("u  overwrite the edits");
+
+    stdin.write("u"); await tick();
+    expect(detail(lastFrame())).toContain("overwrite the edits in kb-doc with waza v1.2.0? y = yes (backup first: on), any other key = cancel");
+    stdin.write("y"); await tick(); await tick();
+    expect(updates).toEqual([{ skills: ["kb-doc"], force: true }]);
+    expect(reloads).toBe(1);
+    expect(planned.at(-1)).toContain("new-one"); // hosts are re-planned against the re-read store
+    expect(lastFrame()).toContain("upstream: updated 1 · s to copy to every host");
+    expect(lastFrame()).toContain("3 skills");
+
+    stdin.write("j"); await tick(); // new-one, then pdf-tools
+    stdin.write("j"); await tick();
+    expect(lastFrame()).toContain("change 4");
+    expect(lastFrame()).toContain("… 2 more (skm upstream --log)");
+    expect(lastFrame()).toContain("u  update from upstream (backup first)");
+    unmount();
+  });
+
+  test("U offers every skill an update writes without force; any other key cancels", async () => {
+    const updates: (readonly string[])[] = [];
+    const upIo: TuiIo = { ...io, upstreams: async () => ({ ok: true, value: results }), upstreamUpdate: async (ss) => { updates.push(ss); return { ok: true, value: { backup: null, outcomes: [] } }; } };
+    const { lastFrame, stdin, unmount } = render(<App app={upApp()} io={upIo} />); await tick(); await tick();
+    stdin.write("U"); await tick();
+    expect(detail(lastFrame())).toContain("update pdf-tools to v1.2.0 from waza? y = yes");
+    stdin.write("n"); await tick();
+    expect(lastFrame()).toContain("1 upstream update (U)");
+    expect(updates).toEqual([]);
+    unmount();
+  });
+
+  test("a skills list with no upstreams configured has no mark column and no upstream check", async () => {
+    let checked = 0;
+    const { lastFrame, unmount } = render(<App app={app()} io={{ ...io, upstreams: async () => { checked += 1; return { ok: true, value: [] }; } }} />); await tick();
+    expect(checked).toBe(0);
+    expect(lastFrame()).toMatch(/kb-doc\s+\d+t/);
+    unmount();
+  });
+
+  test("each state has its own mark; a failed check is named in the list title", () => {
+    expect(["current", "behind", "absent", "modified", "unbased", "gone"].map((k) => upstreamMark(k as StateKind).glyph)).toEqual([" ", "↑", "+", "✎", "≠", "✗"]);
+    const s = { ...initialState(upApp().config, skills), upstream: { checking: false, results: [{ policy, result: { ok: false as const, error: { upstream: "waza", step: "read cache", detail: "no mirror" } } }] } };
+    expect(listTitle(s, 2)).toContain("upstream check failed: waza");
+    expect(listTitle({ ...s, upstream: { results: [], checking: true } }, 2)).toContain("checking upstream…");
+    expect(upstreamPrompt(s)).toEqual(none);
+    expect(upstreamPrompt({ ...s, confirm: { kind: "upstream-update", skills: ["a", "b"], force: false } })).toEqual(some("update 2 skills from upstream (a, b)? y = yes (backup first: on), any other key = cancel"));
   });
 });

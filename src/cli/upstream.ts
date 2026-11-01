@@ -1,82 +1,29 @@
 import pc from "picocolors";
-import { hubOf } from "../core/config";
 import {
-  type LockEntry, type SkillUpstreamState, type StateKind, type UpstreamLock, type UpstreamPolicy,
-  DEFAULT_UPSTREAM_PATH, isSafeSkillName, lockEntry, setLockEntry, skillPath, skillState, unlistedSummary, updateAction,
+  type StateKind, type UpstreamLock, type UpstreamPolicy,
+  DEFAULT_UPSTREAM_PATH, isSafeSkillName, setLockEntry, stateHint, stateLabel, unlistedSummary,
 } from "../core/upstream";
-import { type Option, none, some } from "../lib/result";
+import { none, some } from "../lib/result";
 import type { AppState } from "../shell/app";
-import { backupHost } from "../shell/backup";
-import { homeDir, nowStamp } from "../shell/paths";
-import { hostErrorText } from "../shell/probe";
-import { localRunner } from "../shell/runner";
-import {
-  type Change, type RawEntry, type Target, type UpstreamError,
-  changesBetween, describe, findBases, readLock, resolveTarget, skillTrees, storeDigest, syncMirror, unlistedSkills, upstreamErrorText, writeLock, writeSkill,
-} from "../shell/upstream";
+import { describe, findBases, readLock, resolveTarget, storeDigest, syncMirror, unlistedSkills, upstreamErrorText, writeLock } from "../shell/upstream";
+import { type UpstreamReport, type UpdateOutcome, checkUpstreams, planUpdate, runUpdate, toWrite } from "../shell/upstreamOps";
 import { confirm, die, out, saveConfig, table, withApp } from "./common";
-
-export type SkillReport = {
-  readonly skill: string;
-  readonly state: SkillUpstreamState;
-  readonly base: Option<LockEntry>;
-  readonly targetDigest: Option<string>;
-  readonly entries: Option<readonly RawEntry[]>;
-  readonly changes: readonly Change[];
-};
-
-export type UpstreamReport = {
-  readonly policy: UpstreamPolicy;
-  readonly gitDir: string;
-  readonly target: Target;
-  readonly warning: Option<string>;
-  readonly skills: readonly SkillReport[];
-  readonly unlisted: readonly string[];
-};
 
 const storePath = (app: AppState, skill: string): string => `${app.storeDir}/${skill}`;
 
-/** Fetch (unless offline), resolve the target and judge every skill of one upstream. */
-const reportFor = async (app: AppState, lock: UpstreamLock, p: UpstreamPolicy, o: { readonly offline: boolean; readonly ref: Option<string> }): Promise<{ ok: true; value: UpstreamReport } | { ok: false; error: UpstreamError }> => {
-  const m = await syncMirror(app.skmHome, p, o.offline);
-  if (!m.ok) return m;
-  const target = await resolveTarget(m.value.gitDir, o.ref.some ? o.ref : p.ref, p.name);
-  if (!target.ok) return target;
-  const trees = await skillTrees(m.value.gitDir, p, target.value.commit);
-  if (!trees.ok) return trees;
-  const skills = await Promise.all(trees.value.map(async (t): Promise<SkillReport> => {
-    const base = lockEntry(lock, p.name, t.skill);
-    const state = skillState(base.some ? some(base.value.digest) : none, await storeDigest(storePath(app, t.skill)), t.digest);
-    const changes = base.some && (state.kind === "behind" || state.kind === "modified") && base.value.commit !== target.value.commit
-      ? await changesBetween(m.value.gitDir, base.value.commit, target.value.commit, skillPath(p, t.skill))
-      : [];
-    return { skill: t.skill, state, base, targetDigest: t.digest, entries: t.entries, changes };
-  }));
-  const unlisted = await unlistedSkills(m.value.gitDir, p, target.value.commit);
-  return { ok: true, value: { policy: p, gitDir: m.value.gitDir, target: target.value, warning: m.value.warning, skills, unlisted } };
-};
-
 const stateText = (s: StateKind): string => {
+  const label = stateLabel[s];
   switch (s) {
-    case "current": return pc.green("current");
-    case "behind": return pc.cyan("update available");
-    case "modified": return pc.yellow("edited locally");
-    case "unbased": return pc.yellow("unknown base");
-    case "absent": return pc.cyan("not in store");
-    case "gone": return pc.red("gone upstream");
+    case "current": return pc.green(label);
+    case "behind": return pc.cyan(label);
+    case "modified": return pc.yellow(label);
+    case "unbased": return pc.yellow(label);
+    case "absent": return pc.cyan(label);
+    case "gone": return pc.red(label);
   }
 };
 
-const stateHint: Readonly<Record<StateKind, string>> = {
-  current: "",
-  behind: "",
-  modified: "the store copy changed since skm wrote it; update refuses unless --force (a backup is taken first)",
-  unbased: "skm has no record of which version the store copy is; run `skm upstream adopt` to find it, or update --force",
-  absent: "",
-  gone: "the target ref has no such dir; update leaves the store copy alone",
-};
-
-const skillJson = (s: SkillReport) => ({
+const skillJson = (s: UpstreamReport["skills"][number]) => ({
   skill: s.skill,
   state: s.state.kind,
   base: s.base.some ? { commit: s.base.value.commit, label: s.base.value.label } : null,
@@ -99,16 +46,13 @@ const loadLock = async (app: AppState): Promise<UpstreamLock> => {
   return l.ok ? l.value : die(l.error);
 };
 
-const reportsFor = async (app: AppState, lock: UpstreamLock, ps: readonly UpstreamPolicy[], o: { offline: boolean; ref: Option<string> }) =>
-  Promise.all(ps.map(async (p) => ({ policy: p, result: await reportFor(app, lock, p, o) })));
-
 /** `skm upstream`: every configured upstream, its target ref, and the state of each skill it supplies. */
 export const runUpstream = async (o: { json: boolean; cached: boolean; log: boolean }): Promise<void> =>
   withApp(async (app) => {
     const ups = app.config.upstreams;
     if (ups.length === 0 && !o.json) return out(pc.dim("no upstreams in config.yaml; add one with `skm upstream adopt <name> --repo <url>`"));
-    const lock = await loadLock(app);
-    const reports = await reportsFor(app, lock, ups, { offline: o.cached, ref: none });
+    const checked = await checkUpstreams(app, { offline: o.cached, ref: none });
+    const reports = checked.ok ? checked.value : die(checked.error);
     if (o.json) {
       return out(JSON.stringify({
         upstreams: reports.map((r) => (r.result.ok ? reportJson(r.result.value) : { name: r.policy.name, repo: r.policy.repo, ref: r.policy.ref.some ? r.policy.ref.value : null, target: null, warning: null, error: upstreamErrorText(r.result.error), skills: [], unlisted: [] })),
@@ -138,8 +82,6 @@ export const runUpstream = async (o: { json: boolean; cached: boolean; log: bool
     if (pending.length > 0) out(pc.dim(`\nnext: \`skm upstream update ${pending.map((s) => s.skill).join(" ")}\`${o.log ? "" : " · commit list: `skm upstream --log`"}`));
   });
 
-type UpdateOutcome = { readonly upstream: string; readonly skill: string; readonly from: string | null; readonly to: string; readonly result: "updated" | "skipped" | "refused" | "failed"; readonly reason: string };
-
 /** `skm upstream update [skills…]`: write the target version of each skill into the store, back up first, record it in the lock. */
 export const runUpstreamUpdate = async (names: readonly string[], o: { all: boolean; to?: string; force: boolean; yes: boolean; backup: boolean; dryRun: boolean; cached: boolean; json: boolean }): Promise<void> =>
   withApp(async (app) => {
@@ -147,70 +89,43 @@ export const runUpstreamUpdate = async (names: readonly string[], o: { all: bool
     if (names.length === 0 && !o.all) return die("name the skills to update, or pass --all");
     const unknown = names.filter((n) => !app.config.upstreams.some((p) => p.skills.includes(n)));
     if (unknown.length > 0) return die(`not supplied by any upstream in config.yaml: ${unknown.join(", ")}`);
-    const ps = app.config.upstreams.filter((p) => o.all || p.skills.some((s) => names.includes(s)));
-    if (o.to !== undefined && ps.length > 1) return die("--to names a ref in one repo; pick skills from one upstream");
-    const lock = await loadLock(app);
-    const reports = await reportsFor(app, lock, ps, { offline: o.cached, ref: o.to === undefined ? none : some(o.to) });
-    reports.forEach((r) => { if (!r.result.ok) say(pc.red(upstreamErrorText(r.result.error))); });
-    const ok = reports.flatMap((r) => (r.result.ok ? [r.result.value] : []));
-    ok.forEach((r) => { if (r.warning.some) say(pc.yellow(`${r.policy.name}: ${r.warning.value}`)); });
-    const picked = ok.flatMap((r) => r.skills.filter((s) => o.all || names.includes(s.skill)).map((s) => ({ r, s, action: updateAction(s.state, o.force) })));
-    const toWrite = picked.filter((x) => x.action === "write");
-    picked.forEach((x) => say(`${x.action === "write" ? pc.cyan("update") : x.action === "refuse" ? pc.yellow("refuse") : pc.dim("skip  ")} ${x.s.skill}  ${x.s.base.some ? x.s.base.value.label : "—"} → ${x.r.target.label}  ${pc.dim(x.s.state.kind)}${x.s.changes.length > 0 ? pc.dim(`, ${x.s.changes.length} commits`) : ""}`));
-    picked.filter((x) => x.action === "refuse").forEach((x) => say(pc.dim(`  ${x.s.skill}: ${stateHint[x.s.state.kind]}`)));
+    if (o.to !== undefined && app.config.upstreams.filter((p) => o.all || p.skills.some((s) => names.includes(s))).length > 1) return die("--to names a ref in one repo; pick skills from one upstream");
+    const planned = await planUpdate(app, o.all ? { kind: "all" } : { kind: "named", names }, { offline: o.cached, ref: o.to === undefined ? none : some(o.to), force: o.force });
+    const plan = planned.ok ? planned.value : die(planned.error);
+    plan.reports.forEach((r) => { if (!r.result.ok) say(pc.red(upstreamErrorText(r.result.error))); });
+    plan.reports.forEach((r) => { if (r.result.ok && r.result.value.warning.some) say(pc.yellow(`${r.policy.name}: ${r.result.value.warning.value}`)); });
+    plan.picked.forEach((x) => say(`${x.action === "write" ? pc.cyan("update") : x.action === "refuse" ? pc.yellow("refuse") : pc.dim("skip  ")} ${x.s.skill}  ${x.s.base.some ? x.s.base.value.label : "—"} → ${x.r.target.label}  ${pc.dim(x.s.state.kind)}${x.s.changes.length > 0 ? pc.dim(`, ${x.s.changes.length} commits`) : ""}`));
+    plan.picked.filter((x) => x.action === "refuse").forEach((x) => say(pc.dim(`  ${x.s.skill}: ${stateHint[x.s.state.kind]}`)));
 
-    // skills already equal to the target still get their lock entry moved to it, so the next edit is detected against the right base
-    const relock = picked.filter((x) => x.s.state.kind === "current" && (!x.s.base.some || x.s.base.value.commit !== x.r.target.commit || x.s.targetDigest.some && x.s.base.value.digest !== x.s.targetDigest.value));
-    const entryFor = (x: (typeof picked)[number]): LockEntry => ({ commit: x.r.target.commit, label: x.r.target.label, digest: x.s.targetDigest.some ? x.s.targetDigest.value : "" });
-    const finish = async (outcomes: readonly UpdateOutcome[], backup: string | null, nextLock: UpstreamLock): Promise<void> => {
-      if (nextLock !== lock) await writeLock(app.skmHome, nextLock);
-      const failed = outcomes.some((x) => x.result === "failed") || reports.some((r) => !r.result.ok);
-      if (o.json) out(JSON.stringify({ backup, outcomes, errors: reports.flatMap((r) => (r.result.ok ? [] : [upstreamErrorText(r.result.error)])) }, null, 2));
+    const errors = plan.reports.flatMap((r) => (r.result.ok ? [] : [upstreamErrorText(r.result.error)]));
+    const finish = (backup: string | null, outcomes: readonly UpdateOutcome[]): void => {
+      const failed = outcomes.some((x) => x.result === "failed") || errors.length > 0;
+      if (o.json) out(JSON.stringify({ backup, outcomes, errors }, null, 2));
       else if (outcomes.some((x) => x.result === "updated")) say(pc.dim("\nnext: `skm plan` to review, then `skm sync` to copy the new versions to every host"));
       // --json readers get each failure in outcomes/errors; the exit code is for people and scripts reading text
       if (failed && !o.json) process.exitCode = 1;
     };
-    const outcomeOf = (x: (typeof picked)[number], result: UpdateOutcome["result"], reason: string): UpdateOutcome =>
-      ({ upstream: x.r.policy.name, skill: x.s.skill, from: x.s.base.some ? x.s.base.value.label : null, to: x.r.target.label, result, reason });
-    const notWritten = picked.filter((x) => x.action !== "write").map((x) => outcomeOf(x, x.action === "refuse" ? "refused" : "skipped", x.action === "refuse" ? stateHint[x.s.state.kind] : x.s.state.kind));
-    const relocked = relock.reduce((l, x) => setLockEntry(l, x.r.policy.name, x.s.skill, entryFor(x)), lock);
 
-    if (toWrite.length === 0) {
+    const writes = toWrite(plan);
+    if (writes.length === 0) {
       say(pc.green("\nnothing to write"));
-      return o.dryRun ? undefined : finish(notWritten, null, relocked);
+      if (o.dryRun) return;
+    } else {
+      if (o.dryRun) return say(pc.dim("\n(dry run — nothing changed)"));
+      if (!o.yes && (o.json || !confirm(`\nwrite ${writes.length} skills into ${app.storeDir}?`))) return say("aborted");
     }
-    if (o.dryRun) return say(pc.dim("\n(dry run — nothing changed)"));
-    if (!o.yes && (o.json || !confirm(`\nwrite ${toWrite.length} skills into ${app.storeDir}?`))) return say("aborted");
-
-    let backup: string | null = null;
-    if (o.backup && app.config.backupBeforeApply) {
-      const hub = hubOf(app.config);
-      const home = homeDir();
-      const tilde = (p: string) => (p.startsWith(`${home}/`) ? `~/${p.slice(home.length + 1)}` : p);
-      const b = await backupHost(hub, localRunner(home, hub.id), [...toWrite.map((x) => tilde(storePath(app, x.s.skill))), tilde(`${app.skmHome}/upstreams.lock.json`)], app.skmHome, nowStamp());
-      if (!b.ok) return die(`${hostErrorText(b.error)} — nothing written`);
-      backup = b.value.dir;
-      say(`backup ${b.value.dir}  restore: ${pc.cyan(`skm restore ${hub.id} ${b.value.ts}`)}`);
-    }
-
-    const written = await toWrite.reduce<Promise<{ lock: UpstreamLock; outcomes: UpdateOutcome[] }>>(async (accP, x) => {
-      const acc = await accP;
-      if (!x.s.entries.some) return { ...acc, outcomes: [...acc.outcomes, outcomeOf(x, "failed", "no files at the target")] };
-      const w = await writeSkill(x.r.gitDir, app.storeDir, x.s.skill, x.s.entries.value);
-      if (!w.ok) {
-        say(`${pc.red("failed")} ${x.s.skill}: ${w.error}`);
-        return { ...acc, outcomes: [...acc.outcomes, outcomeOf(x, "failed", w.error)] };
-      }
-      // read the result back: what landed must hash to what the upstream holds
-      const after = await storeDigest(storePath(app, x.s.skill));
-      if (!after.some || !x.s.targetDigest.some || after.value !== x.s.targetDigest.value) {
-        say(`${pc.red("failed")} ${x.s.skill}: the written files do not match the upstream tree`);
-        return { ...acc, outcomes: [...acc.outcomes, outcomeOf(x, "failed", "written files do not match the upstream tree")] };
-      }
-      say(`${pc.green("updated")} ${x.s.skill} → ${x.r.target.label}`);
-      return { lock: setLockEntry(acc.lock, x.r.policy.name, x.s.skill, entryFor(x)), outcomes: [...acc.outcomes, outcomeOf(x, "updated", "")] };
-    }, Promise.resolve({ lock: relocked, outcomes: [] }));
-    await finish([...written.outcomes, ...notWritten], backup, written.lock);
+    const run = await runUpdate(app, plan, {
+      backup: o.backup,
+      onEvent: (e) => {
+        switch (e.kind) {
+          case "backup": return say(`backup ${e.dir}  restore: ${pc.cyan(`skm restore ${e.host} ${e.ts}`)}`);
+          case "updated": return say(`${pc.green("updated")} ${e.skill} → ${e.label}`);
+          case "failed": return say(`${pc.red("failed")} ${e.skill}: ${e.reason}`);
+        }
+      },
+    });
+    if (!run.ok) return die(run.error);
+    finish(run.value.backup, run.value.outcomes);
   });
 
 /**

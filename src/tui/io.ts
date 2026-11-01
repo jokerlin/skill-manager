@@ -11,6 +11,9 @@ import { backupHost } from "../shell/backup";
 import { type SyncReport, executePlan } from "../shell/sync";
 import { serializeConfig } from "../core/config";
 import { writeFile } from "node:fs/promises";
+import { none } from "../lib/result";
+import { loadStore } from "../shell/store";
+import { type UpdateEvent, type UpdateRun, type UpstreamResult, checkUpstreams, planUpdate, runUpdate } from "../shell/upstreamOps";
 
 /** Every side effect the TUI needs, behind one interface so tests can stub it. */
 export type TuiIo = {
@@ -20,6 +23,12 @@ export type TuiIo = {
   readonly backup: (host: HostConfig, ts: string) => Promise<Result<string, HostError>>;
   readonly apply: (host: HostConfig, ops: readonly Op[], replaceConflicts: boolean, ts: string, log: (l: string) => void) => Promise<SyncReport>;
   readonly now: () => string;
+  /** Every configured upstream against the lock; `offline` reads the local mirrors without fetching. */
+  readonly upstreams: (offline: boolean) => Promise<Result<readonly UpstreamResult[], string>>;
+  /** Write skills from their upstream mirror (no fetch, so what lands is what the TUI showed), backup first. */
+  readonly upstreamUpdate: (skills: readonly string[], force: boolean, onEvent: (e: UpdateEvent) => void) => Promise<Result<UpdateRun, string>>;
+  /** Re-read the store, after something wrote into it. */
+  readonly loadSkills: () => Promise<Result<readonly Skill[], string>>;
 };
 
 export const realIo = (app: AppState): TuiIo => ({
@@ -41,4 +50,13 @@ export const realIo = (app: AppState): TuiIo => ({
       log,
     }),
   now: nowStamp,
+  upstreams: (offline) => checkUpstreams(app, { offline, ref: none }),
+  upstreamUpdate: async (skills, force, onEvent) => {
+    const plan = await planUpdate(app, { kind: "named", names: skills }, { offline: true, ref: none, force });
+    return plan.ok ? runUpdate(app, plan.value, { backup: true, onEvent }) : plan;
+  },
+  loadSkills: async () => {
+    const r = await loadStore(app.storeDir);
+    return r.ok ? { ok: true, value: r.value.skills } : { ok: false, error: `cannot read store ${r.error.dir}: ${r.error.message}` };
+  },
 });

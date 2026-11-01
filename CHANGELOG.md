@@ -4,6 +4,10 @@ All notable changes to Skill Manager. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+### Added
+
+- The TUI shows the upstream state of each skill: a mark in the skills list (`↑` update available, `✎` edited locally, `≠` unknown base, `✗` gone upstream), and the repo, version and upstream commits in the detail panel. `u` updates the selected skill and `U` updates every skill with a new version, backup first; a copy you edited is overwritten only after its own prompt. The TUI checks the local mirrors when it starts, then fetches; `r` checks again.
+
 ## [0.5.4] - 2026-11-01
 
 ### Fixed

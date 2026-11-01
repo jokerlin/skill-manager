@@ -221,6 +221,8 @@ skm sync                         # copy them to every host, as for any store cha
 
 `adopt` finds the version of a copy you installed by hand: it looks for the newest upstream commit whose files equal the store copy. By default skm follows the newest release tag (`vX.Y.Z`); set `ref:` to follow a branch, or pass `--to <ref>` for one update. Only the hub needs `git`. skm writes files from the git objects, so `.gitattributes` export rules do not change what lands in the store.
 
+The TUI marks each upstream skill in the skills list (`↑` update available, `✎` edited locally, `≠` unknown base, `✗` gone upstream) and shows the upstream commits in the detail panel. `u` updates the selected skill and `U` updates every skill with a new version; both ask first. A copy you edited is overwritten only after its own prompt.
+
 ## Updates
 
 The desktop app checks GitHub Releases for a newer version once each time it starts (turn this off in Settings → General, or check by hand from About).

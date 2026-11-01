@@ -8,6 +8,8 @@ const rows: readonly (readonly [string, string])[] = [
   ["o", "sort key: name → listing tokens → body tokens (costs start descending)"],
   ["O", "flip the sort direction"],
   ["m", "edit targets grid: h j k l move, space toggles host×agent for the skill (saved to config.yaml)"],
+  ["u (skills)", "update the selected skill from its upstream repo; an edited copy is overwritten only after its own confirm (backup first)"],
+  ["U (skills)", "update every skill whose upstream has a newer version (asks first)"],
   ["u (plugins)", "update the selected plugin on every host: refresh marketplaces, backup, update (asks first)"],
   ["s / Enter (changes)", "apply the pending changes: confirm → backup → rsync → link on every reachable host"],
   ["c (in confirm)", "toggle replace-conflicts: move real dirs / foreign links into the backup and link the store"],
@@ -24,6 +26,7 @@ export const HelpView = (): React.ReactElement => (
     <Text> </Text>
     <Text color="gray">store: one skill per directory under ~/.skm/skills. Agent dirs hold only symlinks into it. Remote hosts get an rsync mirror of the store, then the same symlinks.</Text>
     <Text color="gray">cost columns: listing = description tokens (loaded every turn); body = SKILL.md tokens (loaded when the skill activates).</Text>
+    <Text color="gray">upstream marks: ↑ update available  + not in store  ✎ edited locally  ≠ unknown base  ✗ gone upstream (from upstreams: in config.yaml; r re-checks)</Text>
     <Text color="gray">enabled on: where the skill is wanted after the next apply, in the desktop app's words ("Everywhere", "Only mini", "All but Codex", "7 of 12").</Text>
   </Box>
 );
