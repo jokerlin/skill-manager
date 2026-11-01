@@ -75,9 +75,10 @@ App 的文案在 `desktop/src/renderer/src/i18n/en.ts` 和 `zh.ts`。新增语�
 
 维护者从 `main` 发布：
 
-1. 在 `package.json` 和 `desktop/package.json` 里写同一个版本号，然后提交。
-2. 运行 `sh desktop/scripts/release.sh`。脚本检查两个版本号一致、工作区干净，然后创建并推送 tag `v<版本>`。
-3. Release 工作流跑测试，构建 macOS 和 Linux 的 CLI、arm64 和 x64 的 App，给 App 签名并公证，给 `latest-mac.json` 签名，生成 `SHA256SUMS`，加上构建来源证明，再发布 GitHub release。
+1. 把 `CHANGELOG.md` 里 `[Unreleased]` 下的条目移到新的 `## [<版本>] - <日期>` 标题下。release 说明取自这一节。
+2. 在 `package.json` 和 `desktop/package.json` 里写同一个版本号，然后提交。
+3. 运行 `sh desktop/scripts/release.sh`。脚本检查两个版本号一致、工作区干净，然后创建并推送 tag `v<版本>`。
+4. Release 工作流跑测试，构建 macOS 和 Linux 的 CLI、arm64 和 x64 的 App，给 App 签名并公证，给 `latest-mac.json` 签名，生成 `SHA256SUMS`，加上构建来源证明，再发布 GitHub release。
 
 警告：推送 tag 会发布一个公开 release，已安装的 App 会把它当作更新提示给用户。
 
