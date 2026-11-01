@@ -17,17 +17,17 @@
   },
   "dependencies": {
     "commander": "^15.0.0",
-    "gpt-tokenizer": "^4.0.0",
+    "gpt-tokenizer": "^4.1.0",
     "ink": "^7.1.1",
     "ink-text-input": "^6.0.0",
     "picocolors": "^1.1.1",
-    "react": "^19.2.8",
-    "ts-pattern": "^5.9.0",
-    "yaml": "^2.9.0"
+    "react": "^19.3.1",
+    "ts-pattern": "^5.9.2",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
-    "@types/bun": "^1.4.1",
-    "@types/react": "^19.2.18",
+    "@types/bun": "^1.4.4",
+    "@types/react": "^19.3.0",
     "ink-testing-library": "^4.0.0",
     "typescript": "^7.0.2"
   },
