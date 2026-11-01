@@ -47,11 +47,7 @@ mini:~/.skm/skills  devbox:~/.skm/skills   ← rsync 镜像，在各主机本地
 
 1. 从 [Releases](https://github.com/jokerlin/skill-manager/releases) 下载 `skill-manager-<版本>-arm64-mac.zip`（Apple 芯片）或 `-x64-mac.zip`（Intel）。
 2. 解压，把 `Skill Manager.app` 移到 `/Applications`。
-3. 首次打开时，在 **系统设置 → 隐私与安全性 → 仍要打开** 里放行。App 目前没有经过 Apple 公证，macOS 会拦截第一次启动。也可以运行：
-
-   ```sh
-   xattr -dr com.apple.quarantine "/Applications/Skill Manager.app"
-   ```
+3. 打开它。从 0.4.1 起，App 用 Developer ID 签名并经过 Apple 公证。macOS 只会问一次「是否打开从互联网下载的 App」，点 **打开** 即可。
 
 App 里自带 `skm` CLI，不用另外安装。之后的新版本在 App 内安装（见[更新](#更新)）。
 
@@ -186,10 +182,11 @@ tools:
 
 - 每个 release 带一个清单文件 `latest-mac.json`，记录每个 zip 的 SHA-512 和大小。发布流水线用 Ed25519 私钥给清单签名，App 用 `desktop/package.json` 里的公钥验证签名。签名验证不通过，App 不安装这个更新。
 - App 下载对应架构的 zip，按签名清单里的 SHA-512 校验，在重启时替换 App。上一个版本保留在 `~/Library/Application Support/Skill Manager/updates/previous.app`。
+- App 用 Developer ID 签名。已签名的 App 只安装代码签名校验通过、且 Team ID 相同的新版本。
 - release 没有签名清单，或构建里没有 `updatePublicKey` 时，App 只打开 release 页面，不自动安装。自己发布 release 的 fork 需要换成自己的密钥（见 [CONTRIBUTING.md](CONTRIBUTING.md#releases)）。
 - release 里的文件带 GitHub [构建来源证明](https://docs.github.com/actions/security-for-github-actions/using-artifact-attestations)。用 `gh attestation verify <文件> --repo jokerlin/skill-manager` 校验下载。
 
-skm 没有用 Squirrel.Mac（`electron-updater`），因为它要求 App 用 Apple Developer ID 签名。App 完成公证后，这份签名清单照样保留。
+skm 用自己的更新器，没有用 Squirrel.Mac（`electron-updater`）。这样没有 Developer ID 的 fork 或本地构建，也能通过签名清单更新。
 
 设置环境变量 `SKM_UPDATE_API`，可以把 App 的更新源换成其他 GitHub 兼容 API（镜像、GitHub Enterprise、本地测试服务器）。
 

@@ -77,7 +77,7 @@ App 的文案在 `desktop/src/renderer/src/i18n/en.ts` 和 `zh.ts`。新增语�
 
 1. 在 `package.json` 和 `desktop/package.json` 里写同一个版本号，然后提交。
 2. 运行 `sh desktop/scripts/release.sh`。脚本检查两个版本号一致、工作区干净，然后创建并推送 tag `v<版本>`。
-3. Release 工作流跑测试，构建 macOS 和 Linux 的 CLI、arm64 和 x64 的 App，给 `latest-mac.json` 签名，生成 `SHA256SUMS`，加上构建来源证明，再发布 GitHub release。
+3. Release 工作流跑测试，构建 macOS 和 Linux 的 CLI、arm64 和 x64 的 App，给 App 签名并公证，给 `latest-mac.json` 签名，生成 `SHA256SUMS`，加上构建来源证明，再发布 GitHub release。
 
 警告：推送 tag 会发布一个公开 release，已安装的 App 会把它当作更新提示给用户。
 
@@ -93,6 +93,13 @@ App 的文案在 `desktop/src/renderer/src/i18n/en.ts` 和 `zh.ts`。新增语�
   ```
 
   `update-signing-key.pem` 放在仓库之外。
+
+代码签名和公证（macOS）：
+
+- 工作流用 Developer ID Application 证书签名 App，并用 App Store Connect API Key 提交公证。它读取五个 secret：`MAC_CSC_LINK`（含证书、私钥和 Developer ID G2 中间证书的 `.p12`，base64）、`MAC_CSC_KEY_PASSWORD`、`APPLE_API_KEY`（`.p8`，单行 base64）、`APPLE_API_KEY_ID`、`APPLE_API_ISSUER`。
+- 构建后对每个 App 运行 `codesign --verify`、`spctl --assess` 和 `stapler validate`，任何一项失败，工作流就失败。
+- 没有这些 secret 时（fork、本地 `bun run pack`），electron-builder 跳过签名，App 是 ad-hoc 签名，用户需要在 系统设置 → 隐私与安全性 里放行。
+- 警告：已签名的 App 会锁定 Team ID。其他团队签名或未签名的 release，已签名 App 的更新器会拒绝安装。
 
 ## 行为准则
 

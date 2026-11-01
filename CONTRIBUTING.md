@@ -77,7 +77,7 @@ Maintainers release from `main`:
 
 1. Set the same version in `package.json` and `desktop/package.json`, and commit.
 2. Run `sh desktop/scripts/release.sh`. It checks the versions and a clean tree, then creates and pushes the tag `v<version>`.
-3. The Release workflow tests, builds the CLI for macOS and Linux and the app for arm64 and x64, signs `latest-mac.json`, writes `SHA256SUMS`, adds build provenance, and publishes the GitHub release.
+3. The Release workflow tests, builds the CLI for macOS and Linux and the app for arm64 and x64, signs and notarizes the app, signs `latest-mac.json`, writes `SHA256SUMS`, adds build provenance, and publishes the GitHub release.
 
 Warning: pushing the tag publishes a public release. Installed apps offer it as an update.
 
@@ -93,6 +93,13 @@ The update signing key:
   ```
 
   Keep `update-signing-key.pem` outside the repository.
+
+Code signing and notarization (macOS):
+
+- The workflow signs the app with a Developer ID Application certificate and notarizes it with an App Store Connect API key. It reads five secrets: `MAC_CSC_LINK` (the `.p12` with the certificate, its private key and the Developer ID G2 intermediate, base64), `MAC_CSC_KEY_PASSWORD`, `APPLE_API_KEY` (the `.p8`, base64 on one line), `APPLE_API_KEY_ID` and `APPLE_API_ISSUER`.
+- After the build it runs `codesign --verify`, `spctl --assess` and `stapler validate` on each app, and fails if any of them fails.
+- Without these secrets (a fork, a local `bun run pack`) electron-builder skips signing and the app is ad-hoc signed. Users then have to allow it in System Settings → Privacy & Security.
+- Warning: the signed app pins its Team ID. A release signed by another team, or not signed at all, is refused by the updater of a signed app.
 
 ## Code of conduct
 

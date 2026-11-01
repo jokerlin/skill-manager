@@ -47,11 +47,7 @@ Most skill managers handle one agent on one machine. skm treats your setup as a 
 
 1. Download `skill-manager-<version>-arm64-mac.zip` (Apple silicon) or `-x64-mac.zip` (Intel) from [Releases](https://github.com/jokerlin/skill-manager/releases).
 2. Unzip it and move `Skill Manager.app` to `/Applications`.
-3. Open it once from **System Settings → Privacy & Security → Open Anyway**. The app is not notarized by Apple yet, so macOS blocks the first launch. You can also run:
-
-   ```sh
-   xattr -dr com.apple.quarantine "/Applications/Skill Manager.app"
-   ```
+3. Open it. From 0.4.1 on, the app is signed with a Developer ID and notarized by Apple, so macOS asks once whether to open an app downloaded from the internet. Click **Open**.
 
 The app contains the `skm` CLI, so you do not need to install it separately. Later versions install from inside the app (see [Updates](#updates)).
 
@@ -186,10 +182,11 @@ The desktop app checks GitHub Releases for a newer version (you can turn this of
 
 - Each release has a manifest, `latest-mac.json`, with the SHA-512 and size of each zip. The release workflow signs the manifest with an Ed25519 key, and the app checks the signature against the public key in `desktop/package.json`. If the signature does not verify, the app does not install the update.
 - The app downloads the zip for its architecture, checks the SHA-512 from the signed manifest, and swaps the app when you restart. The previous version stays in `~/Library/Application Support/Skill Manager/updates/previous.app`.
+- The app is signed with a Developer ID. A signed app installs an update only if the new app's code signature verifies and has the same Team ID.
 - A release without a signed manifest, or a build without `updatePublicKey`, shows the release page instead of installing. A fork that publishes its own releases sets its own key (see [CONTRIBUTING.md](CONTRIBUTING.md#releases)).
 - Release assets have GitHub [build provenance attestations](https://docs.github.com/actions/security-for-github-actions/using-artifact-attestations). Check a download with `gh attestation verify <file> --repo jokerlin/skill-manager`.
 
-skm does not use Squirrel.Mac (`electron-updater`), because it requires an app signed with an Apple Developer ID. When the app is notarized, the same signed manifest stays in place.
+skm uses its own updater instead of Squirrel.Mac (`electron-updater`), so a fork or a local build without a Developer ID can still update from a signed manifest.
 
 Set `SKM_UPDATE_API` to point the app at another GitHub-compatible API (a mirror, GitHub Enterprise, a local test server).
 

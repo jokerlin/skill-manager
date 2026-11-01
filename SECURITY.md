@@ -28,7 +28,7 @@ Out of scope: problems that need an attacker who can already write to your `~/.s
 - The release workflow signs `latest-mac.json` with an Ed25519 key that only exists as a GitHub Actions secret. The app installs an update only when the signature verifies against the public key built into it, and the zip matches the signed SHA-512.
 - Every release asset has a build provenance attestation: `gh attestation verify <file> --repo jokerlin/skill-manager`.
 - `SHA256SUMS` lists the checksum of every asset.
-- The app is not notarized by Apple yet.
+- From 0.4.1 the app is signed with a Developer ID (Team ID `A5T4ZJ88AT`) and notarized by Apple. A signed app installs an update only if the new bundle's code signature verifies and has the same Team ID.
 
 ---
 
@@ -60,4 +60,4 @@ Out of scope: problems that need an attacker who can already write to your `~/.s
 - Release 工作流用 Ed25519 私钥给 `latest-mac.json` 签名，私钥只存在于 GitHub Actions secret 里。只有签名能用 App 内置的公钥验证通过、且 zip 和签名里的 SHA-512 一致时，App 才安装更新。
 - 每个 release 文件都带构建来源证明：`gh attestation verify <文件> --repo jokerlin/skill-manager`。
 - `SHA256SUMS` 列出每个文件的校验和。
-- App 目前没有经过 Apple 公证。
+- 从 0.4.1 起，App 用 Developer ID（Team ID `A5T4ZJ88AT`）签名并经过 Apple 公证。已签名的 App 只安装代码签名校验通过、且 Team ID 相同的新版本。
