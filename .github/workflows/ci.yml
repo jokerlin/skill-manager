@@ -37,3 +37,5 @@ jobs:
         working-directory: desktop
       - run: bun run build
         working-directory: desktop
+      - run: bun run test
+        working-directory: desktop

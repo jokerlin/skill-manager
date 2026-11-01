@@ -1,9 +1,9 @@
 import { describe, expect, mock, test, beforeEach } from "bun:test";
-import type { RunResult } from "../desktop/src/shared/types";
+import type { RunResult } from "../src/shared/types";
 
 // The renderer imports through the desktop's `@/` alias, which only the desktop tsconfig knows: point it at the real files.
-// Paths sit in variables so the root `tsc` does not follow them (the desktop typecheck covers those files).
-const RENDERER = "../desktop/src/renderer/src";
+// Paths sit in variables so no typecheck follows them into renderer files under a tsconfig without the alias.
+const RENDERER = "../src/renderer/src";
 mock.module("@/i18n", () => import(`${RENDERER}/i18n/index.ts`));
 mock.module("@/lib/skm", () => import(`${RENDERER}/lib/skm.ts`));
 
