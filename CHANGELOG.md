@@ -4,6 +4,8 @@ All notable changes to Skill Manager. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-11-01
+
 ### Added
 
 - Skills can track the git repo they came from. Declare it under `upstreams:` in `config.yaml`, or run `skm upstream adopt <name> --repo <url>`; adopt also finds which upstream commit each store copy equals. `skm upstream` shows each skill's state (current, update available, edited locally) and the upstream commits since your version. `skm upstream update` backs up, writes the new version into the store and records it; it does not overwrite a copy you edited unless you pass `--force`. Then `skm sync` copies it to every host.
@@ -86,7 +88,8 @@ First public release.
 - Self-update from GitHub Releases with an Ed25519-signed manifest and SHA-512 checks.
 - Release workflow with build provenance attestations and `SHA256SUMS`.
 
-[Unreleased]: https://github.com/jokerlin/skill-manager/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/jokerlin/skill-manager/compare/v0.5.3...HEAD
+[0.5.3]: https://github.com/jokerlin/skill-manager/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/jokerlin/skill-manager/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/jokerlin/skill-manager/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/jokerlin/skill-manager/compare/v0.4.3...v0.5.0
