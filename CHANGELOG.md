@@ -4,6 +4,8 @@ All notable changes to Skill Manager. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-11-01
+
 ### Fixed
 
 - When the app's upstream check failed at launch (for example, the installed `skm` CLI was older than 0.5.3, or `config.yaml` had an error), the Skills view showed no upstream information until the app restarted. Refresh (⌘R) now checks the upstreams again, and a check you start that fails shows an error.
@@ -93,7 +95,8 @@ First public release.
 - Self-update from GitHub Releases with an Ed25519-signed manifest and SHA-512 checks.
 - Release workflow with build provenance attestations and `SHA256SUMS`.
 
-[Unreleased]: https://github.com/jokerlin/skill-manager/compare/v0.5.3...HEAD
+[Unreleased]: https://github.com/jokerlin/skill-manager/compare/v0.5.4...HEAD
+[0.5.4]: https://github.com/jokerlin/skill-manager/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/jokerlin/skill-manager/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/jokerlin/skill-manager/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/jokerlin/skill-manager/compare/v0.5.0...v0.5.1
