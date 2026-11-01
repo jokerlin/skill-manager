@@ -128,6 +128,12 @@ owned:                                 # 由其他 CLI 自己安装和更新的 
     ensure: acme skill install acme    # 目录缺失且主机有该 CLI 时执行
     lock: { file: ~/.local/share/acme/skill-lock.json, version: "skills.{skill}.version" }
     fallback: store                    # 主机没有该 CLI 时：链接 store 副本（或 `none`）
+upstreams:                             # store 副本来自某个 git 仓库的 skill（`skm upstream`）
+  kit:
+    repo: https://github.com/acme/kit  # `git clone` 能接受的地址都行
+    ref: main                          # 可选：分支、tag 或 commit；默认跟最新的 vX.Y.Z tag
+    path: skills/{skill}               # 可选：skill 在仓库里的位置（这是默认值）
+    skills: [review, debug]
 eval: { agent: claude }
 agentOverrides:                        # 可选：改某个 agent 的 skill 目录或更新命令
   pi: { dir: ~/.pi/agent/skills, update: "pi update --all" }
@@ -154,6 +160,7 @@ backupBeforeApply: true
 | `skm scope <name> <host/agent> on\|off` | 开关一个单元格（plugin 加 `--plugin`） |
 | `skm config` / `skm config patch` | 打印配置；从 stdin 读 JSON，校验后写回 |
 | `skm pull <host> [skills…]` | 把远端独有的 skill 拉回 store |
+| `skm upstream` / `skm upstream update` / `skm upstream adopt` | 来自 git 仓库的 skill：上游改了什么；把新版本写进 store；开始跟踪 store 里的 skill |
 | `skm rules infer` | 按各主机现状推导主机规则 |
 | `skm backup` / `skm backups` / `skm restore <host> <ts>` | 快照和一键还原 |
 | `skm doctor` | 规范检查、预算模拟、跨主机 plugin 漂移 |
@@ -191,6 +198,28 @@ tools:
 ```
 
 扩展只包含数据。只有你运行 `skm harness update` 或在 App 里点更新时，skm 才执行其中的命令。完整格式见 [docs/zh-CN/extensions.md](docs/zh-CN/extensions.md)。ChatGPT 桌面版的支持是内置扩展 `chatgpt-desktop`，用 `disabledExtensions: [chatgpt-desktop]` 关闭。
+
+## 上游 skill
+
+从某个仓库复制来的 skill（比如 GitHub 上的一套 skill）可以跟踪这个仓库。skm 在 `~/.skm/cache/upstreams/` 保存仓库的 bare 镜像，并在 `~/.skm/upstreams.lock.json` 记录每个 store 副本来自上游哪个 commit。
+
+```sh
+skm upstream adopt kit --repo https://github.com/acme/kit   # 仓库里也有的 store skill 全部纳入
+skm upstream                     # 先 fetch，再列出每个 skill 的状态和你的版本之后的上游 commit
+skm upstream update --all        # 备份 → 把新版本写进 store → 记录版本
+skm sync                         # 和其他 store 改动一样，同步到每台主机
+```
+
+| 状态 | 含义 | `update` 的行为 |
+|---|---|---|
+| current | store 副本等于目标版本 | 不动 |
+| update available | store 副本是 skm 写入的版本，上游有了新版本 | 写入目标版本 |
+| edited locally | skm 写入之后，store 副本被改过 | 拒绝；`--force` 先备份再覆盖 |
+| unknown base | 没有版本记录，且文件和目标版本不同 | 拒绝；运行 `skm upstream adopt` 找出版本，或用 `--force` |
+| not in store | 列在 `skills:` 里，但 store 里没有 | 写入 |
+| gone upstream | 目标 ref 里没有这个目录 | 不动 store 副本 |
+
+`adopt` 能找出手动安装的副本是哪个版本：它找文件和 store 副本完全相同的最新上游 commit。skm 默认跟最新的 release tag（`vX.Y.Z`）。要跟某个分支，设置 `ref:`；只想这一次换 ref，用 `--to <ref>`。只有 hub 需要 `git`。skm 直接从 git 对象写文件，所以 `.gitattributes` 的 export 规则不影响写进 store 的内容。
 
 ## 更新
 

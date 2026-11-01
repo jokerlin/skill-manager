@@ -128,6 +128,12 @@ owned:                                 # skills that another CLI installs and up
     ensure: acme skill install acme    # runs when the dir is missing and the host has the CLI
     lock: { file: ~/.local/share/acme/skill-lock.json, version: "skills.{skill}.version" }
     fallback: store                    # host without the CLI: link the store copy (or `none`)
+upstreams:                             # skills whose store copy comes from a git repo (`skm upstream`)
+  kit:
+    repo: https://github.com/acme/kit  # anything `git clone` accepts
+    ref: main                          # optional: branch, tag or commit; default = newest vX.Y.Z tag
+    path: skills/{skill}               # optional: where a skill lives in the repo (this is the default)
+    skills: [review, debug]
 eval: { agent: claude }
 agentOverrides:                        # optional: another skill dir or update command for an agent
   pi: { dir: ~/.pi/agent/skills, update: "pi update --all" }
@@ -154,6 +160,7 @@ A cell is on when the host selector and the agent selector both match, after the
 | `skm scope <name> <host/agent> on\|off` | Toggle one cell (add `--plugin` for a plugin) |
 | `skm config` / `skm config patch` | Print the config; apply a validated JSON patch from stdin |
 | `skm pull <host> [skills…]` | Copy remote-only skills into the store |
+| `skm upstream` / `skm upstream update` / `skm upstream adopt` | Skills that come from a git repo: what changed upstream; write the new version into the store; start tracking store skills |
 | `skm rules infer` | Infer host rules from what each host has |
 | `skm backup` / `skm backups` / `skm restore <host> <ts>` | Snapshots and one-step restore |
 | `skm doctor` | Spec checks, budget simulation, cross-host plugin drift |
@@ -191,6 +198,28 @@ tools:
 ```
 
 Extensions are data. skm runs their commands only when you run `skm harness update` or press update in the app. See [docs/extensions.md](docs/extensions.md) for the full format. The ChatGPT desktop app support ships as the built-in extension `chatgpt-desktop`; turn it off with `disabledExtensions: [chatgpt-desktop]`.
+
+## Upstream skills
+
+A skill you copied from a repo (for example a skill collection on GitHub) can track that repo. skm keeps a bare mirror of the repo in `~/.skm/cache/upstreams/` and records, in `~/.skm/upstreams.lock.json`, which upstream commit each store copy came from.
+
+```sh
+skm upstream adopt kit --repo https://github.com/acme/kit   # every store skill the repo also has
+skm upstream                     # fetch, then the state of each skill and the upstream commits since your version
+skm upstream update --all        # backup → write the new versions into the store → record them
+skm sync                         # copy them to every host, as for any store change
+```
+
+| State | Meaning | `update` |
+|---|---|---|
+| current | The store copy equals the target version | Nothing to do |
+| update available | The store copy is the version skm wrote; the upstream moved on | Writes the target version |
+| edited locally | The store copy changed since skm wrote it | Refuses; `--force` overwrites after the backup |
+| unknown base | No record of the version and the files differ from the target | Refuses; run `skm upstream adopt` to find the version, or `--force` |
+| not in store | Listed under `skills:`, missing from the store | Writes it |
+| gone upstream | The target ref has no such dir | Leaves the store copy alone |
+
+`adopt` finds the version of a copy you installed by hand: it looks for the newest upstream commit whose files equal the store copy. By default skm follows the newest release tag (`vX.Y.Z`); set `ref:` to follow a branch, or pass `--to <ref>` for one update. Only the hub needs `git`. skm writes files from the git objects, so `.gitattributes` export rules do not change what lands in the store.
 
 ## Updates
 
