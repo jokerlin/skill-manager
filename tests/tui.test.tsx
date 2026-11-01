@@ -259,7 +259,7 @@ describe("one-line header and footer", () => {
 
 describe("aligned with the desktop app", () => {
   // two hosts where superpowers is 6.3.0 on local and 6.1.1 on dev (Claude); Codex reads the Git marketplace "official"
-  const pluginInv = (version: string) => ({
+  const pluginInv = (version: string, codexVersion = "6.3.0") => ({
     ...emptyInventory("/h"),
     tools: { claude: "/bin/claude", codex: "/bin/codex" },
     files: {
@@ -269,7 +269,7 @@ describe("aligned with the desktop app", () => {
     },
     pluginCache: [
       { agent: "claude", marketplace: "official", plugin: "superpowers", version, dir: `/h/.claude/plugins/cache/official/superpowers/${version}` },
-      { agent: "codex", marketplace: "official", plugin: "superpowers", version: "6.3.0", dir: "/h/.codex/plugins/cache/official/superpowers/6.3.0" },
+      { agent: "codex", marketplace: "official", plugin: "superpowers", version: codexVersion, dir: `/h/.codex/plugins/cache/official/superpowers/${codexVersion}` },
     ],
   });
   const pluginIo = (applied: { host: string; ops: readonly Op[] }[], backups: string[]): TuiIo => ({
@@ -309,6 +309,15 @@ describe("aligned with the desktop app", () => {
     expect(applied.map((a) => a.host).sort()).toEqual(["dev", "local"]);
     expect(applied.flatMap((a) => a.ops).some((o) => o.op === "plugin-update" && o.plugin === "superpowers@official")).toBe(true);
     expect(lastFrame()).toContain("pending changes"); // the log of what ran is in the changes view
+    unmount();
+  });
+
+  test("plugins list shows a long version whole (Codex app plugins are 26.1027.51404, 13 characters)", async () => {
+    const long = "26.1027.51404";
+    const longIo: TuiIo = { ...io, probe: async () => ({ ok: true, value: pluginInv(long, long) }) };
+    const { lastFrame, stdin, unmount } = render(<App app={app()} io={longIo} />); await tick();
+    stdin.write("2"); await tick();
+    expect(lastFrame()).toMatch(/superpowers\s+26\.1027\.51404/);
     unmount();
   });
 

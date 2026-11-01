@@ -45,6 +45,17 @@ mini:~/.skm/skills  devbox:~/.skm/skills   ← rsync 镜像，在各主机本地
 
 ## 安装
 
+### Homebrew
+
+```sh
+brew tap jokerlin/tap
+brew trust jokerlin/tap                 # Homebrew 7 起，第三方 tap 要先 trust 才会加载
+brew install --cask skill-manager       # macOS App（自带 skm CLI）
+brew install skill-manager-cli          # 或者只装 skm CLI 和 TUI（macOS 和 Linux）
+```
+
+App 自己会更新（见[更新](#更新)），所以 `brew upgrade` 会跳过它。`brew upgrade skill-manager-cli` 更新 CLI。formula 不叫 `skm`，因为 homebrew-core 里已经有一个 `skm`（SSH key 管理工具）。两者都会装一个 `skm` 命令，所以互相冲突。
+
 ### 桌面 App（macOS）
 
 1. 从 [Releases](https://github.com/jokerlin/skill-manager/releases) 下载 `skill-manager-<版本>-arm64-mac.zip`（Apple 芯片）或 `-x64-mac.zip`（Intel）。

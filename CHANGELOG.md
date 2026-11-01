@@ -4,6 +4,14 @@ All notable changes to Skill Manager. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+### Added
+
+- Homebrew tap: `brew install --cask skill-manager` for the app, `brew install skill-manager-cli` for the CLI (after `brew tap jokerlin/tap` and `brew trust jokerlin/tap`). Each release updates the tap.
+
+### Fixed
+
+- The TUI Plugins list shows long versions whole: a 13-character version such as `26.1027.51404` lost its first digit.
+
 ## [0.5.0] - 2026-11-01
 
 ### Added
