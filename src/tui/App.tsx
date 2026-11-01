@@ -8,10 +8,12 @@ import { agentsOn } from "../shell/hosts";
 import type { AppState } from "../shell/app";
 import { hostErrorText } from "../shell/probe";
 import type { TuiIo } from "./io";
-import { type State, fitCount, initialState, reduce, selectedSkill, visibleSkills } from "./state";
+import { pluginUpdateOps } from "../core/pluginUpdate";
+import { type State, VIEWS, fitCount, initialState, pendingTotal, pluginRowsOf, pluginUpdatable, reduce, selectedSkill, visibleSkills } from "./state";
 import { SkillsView } from "./views/Skills";
+import { PluginsView } from "./views/Plugins";
 import { HostsView, clampOffset, hostLines } from "./views/Hosts";
-import { SyncView } from "./views/Sync";
+import { ChangesView } from "./views/Changes";
 import { HelpView } from "./views/Help";
 
 export type AppProps = { readonly app: AppState; readonly io: TuiIo; readonly autoProbe?: boolean };
@@ -72,8 +74,8 @@ export const App = ({ app, io, autoProbe = true }: AppProps): React.ReactElement
     if (st.busy) return;
     const ts = io.now();
     const targets = st.config.hosts.filter((h) => { const x = st.hosts[h.id]; return x?.kind === "ready" && x.ops.some((o) => isMutation(o) || (st.replaceConflicts && o.op === "conflict")); });
-    if (targets.length === 0) { dispatch({ type: "message", text: "nothing to sync" }); dispatch({ type: "confirmSync", on: false }); return; }
-    dispatch({ type: "confirmSync", on: false });
+    if (targets.length === 0) { dispatch({ type: "message", text: "nothing to apply" }); dispatch({ type: "confirm", confirm: { kind: "none" } }); return; }
+    dispatch({ type: "confirm", confirm: { kind: "none" } });
     dispatch({ type: "busy", what: `syncing ${targets.map((h) => h.id).join(", ")}` });
     await Promise.all(
       targets.map(async (host) => {
@@ -102,8 +104,36 @@ export const App = ({ app, io, autoProbe = true }: AppProps): React.ReactElement
       dispatch({ type: "log", line: b.ok ? `${h.id}: backup ${b.value}  (restore: skm restore ${h.id} ${ts})` : `${h.id}: ${hostErrorText(b.error)}` });
     }));
     dispatch({ type: "busy", what: undefined });
-    dispatch({ type: "view", view: "sync" });
+    dispatch({ type: "view", view: "changes" });
   }, [io]);
+
+  /** The desktop app's "Update everywhere": refresh marketplaces and update one plugin on every reachable host, backup first. */
+  const runPluginUpdate = useCallback(async (plugin: string) => {
+    const st = stateRef.current;
+    dispatch({ type: "confirm", confirm: { kind: "none" } });
+    if (st.busy) return;
+    const ts = io.now();
+    const jobs = st.config.hosts.flatMap((host) => {
+      const x = st.hosts[host.id];
+      if (x?.kind !== "ready" || !x.view) return [];
+      const ops = pluginUpdateOps(host.id, x.view.states, x.view.facts, x.inventory.tools, { plugins: [plugin], agents: [] });
+      return ops.some(isMutation) ? [{ host, ops }] : [];
+    });
+    if (jobs.length === 0) return dispatch({ type: "message", text: `${plugin}: nothing to update` });
+    dispatch({ type: "busy", what: `updating ${plugin} on ${jobs.map((j) => j.host.id).join(", ")}` });
+    await Promise.all(jobs.map(async ({ host, ops }) => {
+      if (st.config.backupBeforeApply) {
+        const b = await io.backup(host, ts);
+        if (!b.ok) { dispatch({ type: "log", line: `${host.id}: backup failed: ${hostErrorText(b.error)} — skipped` }); return; }
+        dispatch({ type: "log", line: `${host.id}: backup ${b.value}  (restore: skm restore ${host.id} ${ts})` });
+      }
+      const r = await io.apply(host, ops, false, ts, (l) => dispatch({ type: "log", line: l }));
+      dispatch({ type: "log", line: r.error ? `${host.id}: ${hostErrorText(r.error)}` : `${host.id}: ${plugin} — ${r.commands.filter((c) => c.ok).length} commands ok${r.commands.some((c) => !c.ok) ? `, ${r.commands.filter((c) => !c.ok).length} failed` : ""}` });
+      probe(host.id);
+    }));
+    dispatch({ type: "busy", what: undefined });
+    dispatch({ type: "view", view: "changes" });
+  }, [io, probe]);
 
   useInput((input, key) => {
     const st = stateRef.current;
@@ -113,18 +143,39 @@ export const App = ({ app, io, autoProbe = true }: AppProps): React.ReactElement
       if (input && !key.ctrl && !key.meta) return dispatch({ type: "filter", text: st.filter + input });
       return;
     }
-    if (st.confirmSync) {
-      if (input === "y") return void runSync();
-      if (input === "c") return dispatch({ type: "toggleReplace" });
-      return dispatch({ type: "confirmSync", on: false });
+    const c = st.confirm;
+    switch (c.kind) {
+      case "apply":
+        if (input === "y") return void runSync();
+        if (input === "c") return dispatch({ type: "toggleReplace" });
+        return dispatch({ type: "confirm", confirm: { kind: "none" } });
+      case "plugin-update":
+        if (input === "y") return void runPluginUpdate(c.plugin);
+        return dispatch({ type: "confirm", confirm: { kind: "none" } });
+      case "none":
+        break;
     }
     if (input === "q") return exit();
     if (key.tab) return dispatch({ type: "nextView" });
     if (input === "?") return dispatch({ type: "view", view: "help" });
-    const viewKey = { "1": "skills", "2": "hosts", "3": "sync", "4": "help" } as const;
-    if (input in viewKey) return dispatch({ type: "view", view: viewKey[input as keyof typeof viewKey] });
+    const n = Number(input);
+    if (Number.isInteger(n) && n >= 1 && n <= VIEWS.length) return dispatch({ type: "view", view: VIEWS[n - 1] ?? "skills" });
     if (input === "r") return probeAll();
-    if (input === "s") { dispatch({ type: "view", view: "sync" }); return dispatch({ type: "confirmSync", on: true }); }
+    const askApply = () => { dispatch({ type: "view", view: "changes" }); dispatch({ type: "confirm", confirm: { kind: "apply" } }); };
+    if (input === "s") return askApply();
+    if (st.view === "changes" && key.return) return askApply();
+    if (st.view === "plugins") {
+      if (input === "j" || key.downArrow) return dispatch({ type: "movePlugin", delta: 1 });
+      if (input === "k" || key.upArrow) return dispatch({ type: "movePlugin", delta: -1 });
+      if (input === "g") return dispatch({ type: "movePlugin", delta: -1_000_000 });
+      if (input === "G") return dispatch({ type: "movePlugin", delta: 1_000_000 });
+      if (input === "u") {
+        const row = pluginRowsOf(st)[st.pluginSel];
+        if (!row) return;
+        if (!pluginUpdatable(row)) return dispatch({ type: "message", text: `${row.name} ships with an app: update the app with skm harness update` });
+        return dispatch({ type: "confirm", confirm: { kind: "plugin-update", plugin: row.name } });
+      }
+    }
     if (input === "b") return void runBackup();
     if (st.view === "skills") {
       if (input === "/") return dispatch({ type: "editFilter", on: true });
@@ -160,7 +211,8 @@ export const App = ({ app, io, autoProbe = true }: AppProps): React.ReactElement
 
   // Header and footer must stay one line each: a wrapped line pushes the body down by a row. Content is fitted by whole
   // segments (a host, a key hint) instead of letting Yoga shrink the Text, which wraps it.
-  const tabs = (["skills", "hosts", "sync", "help"] as const).map((v, i) => ({ v, label: ` ${i + 1}:${v} ` }));
+  const pending = pendingTotal(s);
+  const tabs = VIEWS.map((v, i) => ({ v, label: ` ${i + 1}:${v}${v === "changes" && pending > 0 ? ` ${pending}` : ""} ` }));
   const tabsWidth = " skm ".length + tabs.reduce((n, t) => n + 1 + t.label.length, 0);
   const hostSegs = s.config.hosts.map((h) => {
     const st = s.hosts[h.id];
@@ -181,7 +233,7 @@ export const App = ({ app, io, autoProbe = true }: AppProps): React.ReactElement
           {tabs.map(({ v, label }) => (
             <Text key={v}>
               {" "}
-              <Text inverse={s.view === v} bold={s.view === v}>{label}</Text>
+              <Text inverse={s.view === v} bold={s.view === v} {...(v === "changes" && pending > 0 ? { color: "yellow" } : {})}>{label}</Text>
             </Text>
           ))}
         </Text>
@@ -204,7 +256,9 @@ export const App = ({ app, io, autoProbe = true }: AppProps): React.ReactElement
 
   const hints = s.editingFilter ? [`filter: ${s.filter}▏`]
     : s.view === "skills" && s.focus === "grid" ? ["grid: hjkl move", "space toggle", "m back"]
-    : ["j/k move", "/ filter", "o sort", "O flip", "m targets", "s sync", "b backup", "r reprobe", "Tab view", "q quit"];
+    : s.view === "plugins" ? ["j/k move", "u update everywhere", "s apply changes", "r reprobe", "Tab view", "q quit"]
+    : s.view === "changes" ? ["Enter apply", "c replace-conflicts (when asked)", "b backup", "r reprobe", "Tab view", "q quit"]
+    : ["j/k move", "/ filter", "o sort", "O flip", "m targets", "s apply changes", "b backup", "r reprobe", "Tab view", "q quit"];
   const busyText = s.busy ? `⏳ ${s.busy}  ` : "";
   // ⏳ takes two columns; the message keeps one trailing space
   const hintRoom = cols - (busyText ? busyText.length + 1 : 0) - (s.message.length + 1);
@@ -221,8 +275,9 @@ export const App = ({ app, io, autoProbe = true }: AppProps): React.ReactElement
 
   const body = match(s.view)
     .with("skills", () => <SkillsView s={s} width={cols} height={rows - 3} />)
+    .with("plugins", () => <PluginsView s={s} width={cols} height={rows - 3} />)
     .with("hosts", () => <HostsView s={s} height={rows - 3} offset={s.hostsOffset} />)
-    .with("sync", () => <SyncView s={s} height={rows - 3} />)
+    .with("changes", () => <ChangesView s={s} height={rows - 3} />)
     .with("help", () => <HelpView />)
     .exhaustive();
 

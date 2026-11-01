@@ -131,7 +131,7 @@ A cell is on when the host selector and the agent selector both match, after the
 
 | Command | What it does |
 |---|---|
-| `skm` | TUI with skills, hosts, sync and help views (`?` lists the keys) |
+| `skm` | TUI with skills, plugins, hosts, changes and help views (`?` lists the keys) |
 | `skm init` | Create the config and the store; list unmanaged skills |
 | `skm adopt <path…> \| --from <agent…>` | Move real skill dirs into the store and leave symlinks |
 | `skm ls` / `skm show <skill>` | Store skills with context cost; one skill's details and grid |

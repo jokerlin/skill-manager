@@ -131,7 +131,7 @@ backupBeforeApply: true
 
 | 命令 | 作用 |
 |---|---|
-| `skm` | TUI：skills、hosts、sync、help 四个视图（`?` 列出按键） |
+| `skm` | TUI：skills、plugins、hosts、changes、help 五个视图（`?` 列出按键） |
 | `skm init` | 创建配置和 store，列出未纳管的 skill |
 | `skm adopt <path…> \| --from <agent…>` | 把真实目录搬进 store 并留下软链 |
 | `skm ls` / `skm show <skill>` | store 里的 skill 及上下文成本；单个 skill 的详情和网格 |

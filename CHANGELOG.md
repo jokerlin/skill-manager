@@ -4,6 +4,18 @@ All notable changes to Skill Manager. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-01
+
+### Added
+
+- TUI Plugins view (key `2`): every plugin with its version on each host × agent, drift in red, and `u` to update a plugin on every host (marketplace refresh, then plugin update; backup first when that setting is on).
+- TUI skills list has an "enabled on" column with the same phrase as the app (`Everywhere`, `Only studio`, `All but Pi`, `5 of 9`).
+
+### Changed
+
+- The TUI sync view is now the changes view (key `4`). Its tab shows how many changes are pending, and `s` (from any view) or Enter (in the changes view) applies them after a confirm.
+- The app and the TUI share one implementation for the "enabled on" phrase and for picking the newest plugin version.
+
 ### Fixed
 
 - The TUI lays itself out again when the terminal is resized.
@@ -49,7 +61,8 @@ First public release.
 - Self-update from GitHub Releases with an Ed25519-signed manifest and SHA-512 checks.
 - Release workflow with build provenance attestations and `SHA256SUMS`.
 
-[Unreleased]: https://github.com/jokerlin/skill-manager/compare/v0.4.3...HEAD
+[Unreleased]: https://github.com/jokerlin/skill-manager/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/jokerlin/skill-manager/compare/v0.4.3...v0.5.0
 [0.4.3]: https://github.com/jokerlin/skill-manager/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/jokerlin/skill-manager/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/jokerlin/skill-manager/compare/v0.4.0...v0.4.1

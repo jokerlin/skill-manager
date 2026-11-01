@@ -12,7 +12,9 @@ export default defineConfig({
   },
   renderer: {
     root: resolve(__dirname, "src/renderer"),
-    resolve: { alias: { "@": resolve(__dirname, "src/renderer/src"), "@shared": resolve(__dirname, "src/shared") } },
+    // @core: dependency-free pure modules shared with the CLI (src/core/coverage.ts, src/core/version.ts)
+    resolve: { alias: { "@": resolve(__dirname, "src/renderer/src"), "@shared": resolve(__dirname, "src/shared"), "@core": resolve(__dirname, "../src/core") } },
+    server: { fs: { allow: [resolve(__dirname, "..")] } },
     plugins: [react(), tailwindcss()],
     build: { rollupOptions: { input: resolve(__dirname, "src/renderer/index.html") } },
   },

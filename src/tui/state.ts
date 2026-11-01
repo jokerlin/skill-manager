@@ -1,13 +1,21 @@
 import { match } from "ts-pattern";
 import type { Config } from "../core/config";
 import type { Inventory } from "../core/inventory";
-import type { Op } from "../core/plan";
+import { type Op, isMutation } from "../core/plan";
 import type { Skill } from "../core/skill";
 import type { HostView } from "../core/view";
+import { type CoverageSummary, summarize } from "../core/coverage";
+import { type PluginRow, pluginRows } from "../core/pluginUpdate";
+import { isDesired } from "../core/scope";
+import { agentsOn } from "../shell/hosts";
 import type { HostError } from "../shell/probe";
 
-export type View = "skills" | "hosts" | "sync" | "help";
-export const VIEWS: readonly View[] = ["skills", "hosts", "sync", "help"];
+/** Same order and names as the desktop app: Skills, Plugins, Hosts, then the pending changes. */
+export type View = "skills" | "plugins" | "hosts" | "changes" | "help";
+export const VIEWS: readonly View[] = ["skills", "plugins", "hosts", "changes", "help"];
+
+/** What a y/n prompt would start: apply every pending change, or update one plugin on every host. */
+export type Confirm = { readonly kind: "none" } | { readonly kind: "apply" } | { readonly kind: "plugin-update"; readonly plugin: string };
 
 export type HostStatus =
   | { readonly kind: "probing" }
@@ -42,10 +50,11 @@ export type State = {
   readonly focus: Focus;
   readonly grid: { readonly host: number; readonly agent: number };
   readonly hostsOffset: number;          // first visible row of the hosts view
+  readonly pluginSel: number;            // index into pluginRowsOf(state)
   readonly hosts: Readonly<Record<string, HostStatus>>;
   readonly log: readonly string[];
   readonly busy: string | undefined;     // what a long-running IO is doing
-  readonly confirmSync: boolean;
+  readonly confirm: Confirm;
   readonly replaceConflicts: boolean;
   readonly message: string;
 };
@@ -56,6 +65,7 @@ export type Action =
   | { readonly type: "move"; readonly delta: number }
   | { readonly type: "moveGrid"; readonly dHost: number; readonly dAgent: number }
   | { readonly type: "scrollHosts"; readonly offset: number }
+  | { readonly type: "movePlugin"; readonly delta: number }
   | { readonly type: "focus"; readonly focus: Focus }
   | { readonly type: "filter"; readonly text: string }
   | { readonly type: "editFilter"; readonly on: boolean }
@@ -65,7 +75,7 @@ export type Action =
   | { readonly type: "host"; readonly id: string; readonly status: HostStatus }
   | { readonly type: "log"; readonly line: string }
   | { readonly type: "busy"; readonly what: string | undefined }
-  | { readonly type: "confirmSync"; readonly on: boolean }
+  | { readonly type: "confirm"; readonly confirm: Confirm }
   | { readonly type: "toggleReplace" }
   | { readonly type: "message"; readonly text: string };
 
@@ -84,10 +94,30 @@ export const selectedSkill = (s: State): Skill | undefined => visibleSkills(s)[s
 
 const clamp = (n: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, n));
 
+const NO_CONFIRM: Confirm = { kind: "none" };
+
+/** Every plugin across the hosts probed so far, one row per name (the desktop app's Plugins view). Pure. */
+export const pluginRowsOf = (s: State): PluginRow[] =>
+  pluginRows(s.config.hosts.flatMap((h) => {
+    const st = s.hosts[h.id];
+    return st?.kind === "ready" && st.view ? [{ host: h.id, states: st.view.states, facts: st.view.facts }] : [];
+  }));
+
+/** Pending changes across every reachable host: what the desktop app's bottom bar counts. */
+export const pendingTotal = (s: State): number =>
+  Object.values(s.hosts).reduce((n, st) => n + (st.kind === "ready" ? st.ops.filter(isMutation).length : 0), 0);
+
+/** Where a skill is wanted, over every enabled host × agent cell: the same summary as the desktop app's coverage column. */
+export const skillCoverage = (s: State, skill: string): CoverageSummary =>
+  summarize(s.config.hosts.flatMap((h) => agentsOn(s.config, h).map((a) => ({ host: h.id, agent: a.id, on: isDesired(s.config, skill, h.id, a.id) }))));
+
+/** Whether `skm plugin update` can move the plugin: some enabled copy comes from a Git/URL marketplace (not one an app writes locally). */
+export const pluginUpdatable = (row: PluginRow): boolean => row.cells.some((c) => c.enabled === "on" && c.source === "portable");
+
 export const reduce = (s: State, a: Action): State =>
   match(a)
-    .with({ type: "view" }, ({ view }) => ({ ...s, view, confirmSync: false }))
-    .with({ type: "nextView" }, () => ({ ...s, view: VIEWS[(VIEWS.indexOf(s.view) + 1) % VIEWS.length] ?? "skills", confirmSync: false }))
+    .with({ type: "view" }, ({ view }): State => ({ ...s, view, confirm: NO_CONFIRM }))
+    .with({ type: "nextView" }, (): State => ({ ...s, view: VIEWS[(VIEWS.indexOf(s.view) + 1) % VIEWS.length] ?? "skills", confirm: NO_CONFIRM }))
     .with({ type: "move" }, ({ delta }) => ({ ...s, selected: clamp(s.selected + delta, 0, Math.max(0, visibleSkills(s).length - 1)) }))
     .with({ type: "moveGrid" }, ({ dHost, dAgent }) => ({
       ...s,
@@ -97,6 +127,7 @@ export const reduce = (s: State, a: Action): State =>
       },
     }))
     .with({ type: "scrollHosts" }, ({ offset }) => ({ ...s, hostsOffset: Math.max(0, offset) }))
+    .with({ type: "movePlugin" }, ({ delta }) => ({ ...s, pluginSel: clamp(s.pluginSel + delta, 0, Math.max(0, pluginRowsOf(s).length - 1)) }))
     .with({ type: "focus" }, ({ focus }) => ({ ...s, focus }))
     .with({ type: "filter" }, ({ text }) => ({ ...s, filter: text, selected: 0 }))
     .with({ type: "editFilter" }, ({ on }) => ({ ...s, editingFilter: on }))
@@ -106,7 +137,7 @@ export const reduce = (s: State, a: Action): State =>
     .with({ type: "host" }, ({ id, status }) => ({ ...s, hosts: { ...s.hosts, [id]: status } }))
     .with({ type: "log" }, ({ line }) => ({ ...s, log: [...s.log.slice(-199), line] }))
     .with({ type: "busy" }, ({ what }) => ({ ...s, busy: what }))
-    .with({ type: "confirmSync" }, ({ on }) => ({ ...s, confirmSync: on }))
+    .with({ type: "confirm" }, ({ confirm }) => ({ ...s, confirm }))
     .with({ type: "toggleReplace" }, () => ({ ...s, replaceConflicts: !s.replaceConflicts }))
     .with({ type: "message" }, ({ text }) => ({ ...s, message: text }))
     .exhaustive();
@@ -122,10 +153,11 @@ export const initialState = (config: Config, skills: readonly Skill[]): State =>
   focus: "list",
   grid: { host: 0, agent: 0 },
   hostsOffset: 0,
+  pluginSel: 0,
   hosts: Object.fromEntries(config.hosts.map((h) => [h.id, { kind: "probing" as const }])),
   log: [],
   busy: undefined,
-  confirmSync: false,
+  confirm: NO_CONFIRM,
   replaceConflicts: false,
   message: "",
 });

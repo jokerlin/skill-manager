@@ -16,24 +16,12 @@ import { cn } from "@/lib/utils";
 import { type Key, useT } from "@/i18n";
 import { type HarnessAppView, appOfMarketplace, harnessApps } from "@/lib/harness";
 import { useApp, useGrid } from "@/store/app";
+import { newestVersion } from "@core/version";
 
 type Filter = "all" | "drift" | "declared";
 
-const numeric = (v: string): number[] | undefined => (/^\d+(\.\d+)*$/.test(v) ? v.split(".").map(Number) : undefined);
-const cmpNum = (a: readonly number[], b: readonly number[]): number => {
-  for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
-    const d = (a[i] ?? 0) - (b[i] ?? 0);
-    if (d !== 0) return d;
-  }
-  return 0;
-};
-
-/** The newest version when every version is dotted-numeric; null for commit hashes and mixed schemes (no order to trust). */
-export const newestOf = (versions: readonly string[]): string | null => {
-  const parsed = versions.map((v) => ({ v, n: numeric(v) }));
-  if (parsed.length === 0 || parsed.some((p) => p.n === undefined)) return null;
-  return parsed.reduce((best, p) => (cmpNum(p.n ?? [], best.n ?? []) > 0 ? p : best)).v;
-};
+/** The newest version when every version is dotted-numeric; null for commit hashes and mixed schemes. Shared with the TUI. */
+export const newestOf = newestVersion;
 
 /** Whether `skm plugin update` can move this plugin: at least one enabled cell comes from a Git/URL marketplace. */
 export const updatable = (p: PluginRow): boolean => p.cells.some((c) => c.enabled === "on" && c.source === "portable");
