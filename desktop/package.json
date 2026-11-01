@@ -1,0 +1,63 @@
+{
+  "name": "skill-manager",
+  "productName": "Skill Manager",
+  "private": true,
+  "version": "0.4.0",
+  "description": "Skill Manager: one place for agent skills and plugins across every machine and every coding agent",
+  "author": {
+    "name": "jokerlin",
+    "url": "https://github.com/jokerlin"
+  },
+  "homepage": "https://github.com/jokerlin/skill-manager",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jokerlin/skill-manager.git"
+  },
+  "updatePublicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAAPCAbIY9bsUmOwHz2elsUyprlyukz3jNnfotQ1Epkqc=\n-----END PUBLIC KEY-----",
+  "main": "out/main/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "pack": "bun run cli && electron-vite build && electron-builder --mac dir --config electron-builder.yml",
+    "install-app": "sh scripts/install.sh",
+    "dist": "bun run cli && electron-vite build && electron-builder --mac zip --arm64 --x64 --config electron-builder.yml",
+    "release": "sh scripts/release.sh",
+    "cli": "cd .. && bun run build:mac"
+  },
+  "trustedDependencies": [
+    "electron",
+    "esbuild"
+  ],
+  "devDependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
+    "electron": "^45.2.1",
+    "electron-builder": "^26.18.0",
+    "electron-vite": "^6.0.0",
+    "lucide-react": "^1.66.0",
+    "motion": "^14.9.0",
+    "radix-ui": "^1.8.1",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-resizable-panels": "^4.15.3",
+    "sonner": "^2.0.8",
+    "tailwind-merge": "^3.7.0",
+    "tailwindcss": "^4.3.3",
+    "tw-animate-css": "^1.4.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5",
+    "zustand": "^5.0.16"
+  },
+  "license": "MIT"
+}

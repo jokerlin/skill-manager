@@ -1,0 +1,24 @@
+appId: dev.skm.app
+productName: Skill Manager
+copyright: Copyright © 2026 jokerlin
+artifactName: skill-manager-${version}-${arch}-mac.${ext}
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**
+  - package.json
+# the skm CLI the app drives, built per architecture by `bun run build:mac` in the repo root
+extraResources:
+  - from: ../dist/skm-darwin-${arch}
+    to: bin/skm
+asar: true
+mac:
+  category: public.app-category.developer-tools
+  icon: build/icon.icns
+  target:
+    - dir
+  identity: null
+  hardenedRuntime: false
+  extendInfo:
+    LSMinimumSystemVersion: "13.0"
