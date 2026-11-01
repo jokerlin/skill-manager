@@ -130,3 +130,51 @@ export const swapRefusal = (current: Signer, next: Signer, nextVerifies: boolean
       }
   }
 };
+
+/** A byte range of the update zip, [start, end). */
+export type Chunk = { readonly start: number; readonly end: number };
+
+/** Split [0, size) into chunks of `chunk` bytes; the last one is shorter. Pure. */
+export const planChunks = (size: number, chunk: number): Chunk[] =>
+  Array.from({ length: Math.ceil(size / chunk) }, (_, i) => ({ start: i * chunk, end: Math.min(size, (i + 1) * chunk) }));
+
+/** The HTTP Range header for a chunk (HTTP ranges include their last byte). */
+export const rangeHeader = (c: Chunk): string => `bytes=${c.start}-${c.end - 1}`;
+
+/** One download connection: bytes/s over the last window, how long it has been open, bytes left in its chunk. */
+export type Pace = { readonly id: number; readonly rate: number; readonly ageMs: number; readonly remaining: number };
+
+/**
+ * Connections to give up and reopen. Through a proxy, the speed of a connection is luck: in one measured round four
+ * parallel connections ran at 2106, 24, 23 and 1742 KB/s. A connection open for at least `minAgeMs` with more than
+ * `minRemaining` bytes left is slow when it runs under `ratio` × the fastest connection open now, or, while some
+ * connections sit idle at the end, × `idleBest`: the best speed of the chunks finished in the last few seconds.
+ * Earlier speeds do not count: when the whole line slows down (all four fell to 0-9 KB/s for 20 s in one trace),
+ * comparing with them reopened every connection again and again, and each reopen waits about 2 s for its first byte.
+ * When nothing moves there is nothing to compare with; the stall timeout handles that. Pure.
+ */
+export const slowWorkers = (paces: readonly Pace[], idleBest: number, o: { readonly minAgeMs: number; readonly ratio: number; readonly minRemaining: number }): number[] => {
+  const best = Math.max(idleBest, ...paces.map((p) => p.rate));
+  if (best <= 0) return [];
+  return paces.filter((p) => p.ageMs >= o.minAgeMs && p.remaining > o.minRemaining && p.rate < best * o.ratio).map((p) => p.id);
+};
+
+/**
+ * Folders in the updates directory that can go: one per downloaded version, for versions up to the running one (the
+ * update was installed, or is older). previous.app is the rollback copy and stays; a newer version's folder may be a
+ * download in progress. Pure.
+ */
+export const staleUpdateDirs = (names: readonly string[], running: string): string[] =>
+  names.filter((n) => /^\d+\.\d+\.\d+$/.test(n) && compareVersions(n, running) <= 0);
+
+/**
+ * When the queue is empty, an idle connection takes the second half of the open chunk with the most bytes left, so
+ * every connection keeps working to the end instead of waiting for the slowest one. Measured before this: the last
+ * 2 to 9 MB took 15 s on one slow connection while three sat idle. Only a range of more than 2 × `min` bytes is split.
+ * Returns the connection to shorten and where its range now ends, or null. Pure.
+ */
+export const splitPoint = (open: readonly { readonly id: number; readonly pos: number; readonly limit: number }[], min: number): { readonly id: number; readonly mid: number } | null => {
+  const best = open.reduce<(typeof open)[number] | null>((a, w) => (a === null || w.limit - w.pos > a.limit - a.pos ? w : a), null);
+  if (best === null || best.limit - best.pos <= 2 * min) return null;
+  return { id: best.id, mid: best.pos + Math.floor((best.limit - best.pos) / 2) };
+};
