@@ -1,4 +1,4 @@
-import type { ApplyEvent, ConfigSummary, HarnessReport, HostPlan, HostStatus, PluginsReport, SkillRow } from "@shared/types";
+import type { ApplyEvent, ConfigSummary, HarnessReport, HostPlan, HostStatus, PluginsReport, SkillRow, Upstream, UpstreamSkill, UpstreamsReport } from "@shared/types";
 import { create } from "zustand";
 import { useI18n } from "@/i18n";
 import { type SkmError, errorText, skm, streamEvents } from "@/lib/skm";
@@ -44,6 +44,11 @@ type State = {
   /** agent CLI versions per host (cached result first, then a live check) */
   readonly harness: HarnessReport | null;
   readonly harnessChecking: boolean;
+  /** skills that come from a git repo (cached mirror first, then a fetch) */
+  readonly upstreams: UpstreamsReport | null;
+  readonly upstreamChecking: boolean;
+  /** skills with an upstream update in flight */
+  readonly upstreamBusy: ReadonlySet<string>;
   /** live probe state per host */
   readonly probe: Readonly<Record<string, ProbeState>>;
   /** cells with a scope write in flight: "skill|host/agent" or "plugin:name|host/agent" */
@@ -72,6 +77,9 @@ type Actions = {
   readonly updatePlugins: (names: readonly string[], o?: { host?: string; agent?: string }) => Promise<void>;
   readonly checkHarness: (o?: { cached?: boolean; host?: string }) => Promise<void>;
   readonly updateHarness: (o?: { host?: string; agent?: string }) => Promise<void>;
+  readonly checkUpstreams: (o?: { cached?: boolean }) => Promise<void>;
+  /** Write the upstream version of skills into the store; the change then waits in the pending bar like any store edit. */
+  readonly updateUpstream: (skills: readonly string[], o?: { force?: boolean }) => Promise<void>;
   /** Plugins another app writes: update that app where it is behind (it rewrites them on launch), then reinstall the plugins from each host's copy. */
   readonly updateBundled: (names: readonly string[], o: { apps: readonly string[]; agent: string; host?: string }) => Promise<void>;
   readonly setPanel: (p: Partial<Pick<State, "reviewOpen" | "settingsOpen" | "paletteOpen" | "aboutOpen">>) => void;
@@ -167,6 +175,9 @@ export const useApp = create<AppStore>()((set, get) => {
     plugins: null,
     harness: null,
     harnessChecking: false,
+    upstreams: null,
+    upstreamChecking: false,
+    upstreamBusy: new Set(),
     probe: {},
     saving: new Set(),
     runs: [],
@@ -202,6 +213,7 @@ export const useApp = create<AppStore>()((set, get) => {
       set({ booted: true });
       void get().refreshLive();
       void get().checkHarness({ cached: true }).then(() => get().checkHarness());
+      void get().checkUpstreams({ cached: true }).then(() => get().checkUpstreams());
     },
 
     refreshLive: async (only) => {
@@ -277,6 +289,24 @@ export const useApp = create<AppStore>()((set, get) => {
       if (o.agent !== undefined && (get().harness?.apps ?? []).some((a) => a.id === o.agent)) await get().refreshLive(o.host);
     },
 
+    checkUpstreams: async (o = {}) => {
+      if (!o.cached) set({ upstreamChecking: true });
+      const r = await skm.upstreams({ cached: o.cached ?? false });
+      set((s) => ({ upstreamChecking: o.cached ? s.upstreamChecking : false, ...(r.ok ? { upstreams: r.value } : {}) }));
+    },
+
+    updateUpstream: async (skills, o = {}) => {
+      if (skills.length === 0) return;
+      set((s) => ({ upstreamBusy: new Set([...s.upstreamBusy, ...skills]) }));
+      const r = await skm.upstreamUpdate(skills, { force: o.force ?? false });
+      const failed = r.ok ? r.value.outcomes.filter((x) => x.result === "failed").map((x) => `${x.skill}: ${x.reason}`).concat(r.value.errors) : [];
+      set((s) => ({
+        upstreamBusy: new Set([...s.upstreamBusy].filter((x) => !skills.includes(x))),
+        ...(!r.ok ? { error: errorText(r.error) } : failed.length > 0 ? { error: failed.join("\n") } : {}),
+      }));
+      await Promise.all([get().checkUpstreams({ cached: true }), refreshDerived()]);
+    },
+
     updateBundled: async (names, o) => {
       if (get().runs.some((r) => r.status === "running")) return;
       for (const app of o.apps) await get().updateHarness({ agent: app, ...(o.host !== undefined ? { host: o.host } : {}) });
@@ -289,6 +319,15 @@ export const useApp = create<AppStore>()((set, get) => {
 });
 
 // ---------- selectors (pure) ----------
+
+export type UpstreamOf = { readonly upstream: Upstream; readonly skill: UpstreamSkill };
+
+/** skill name → its upstream and state, for skills under upstreams: in config.yaml. */
+export const upstreamIndex = (r: UpstreamsReport | null): ReadonlyMap<string, UpstreamOf> =>
+  new Map((r?.upstreams ?? []).flatMap((u) => u.skills.map((s) => [s.skill, { upstream: u, skill: s }] as const)));
+
+/** States `skm upstream update` writes without --force. */
+export const updatable = (s: UpstreamSkill): boolean => s.state === "behind" || s.state === "absent";
 
 export type PendingSummary = { readonly mutations: number; readonly hosts: readonly string[]; readonly conflicts: number; readonly blocked: number };
 

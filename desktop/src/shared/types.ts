@@ -222,6 +222,37 @@ export type HarnessReport = {
   readonly hosts: readonly HarnessHost[];
 };
 
+/** `skm upstream --json`: skills whose store copy comes from a git repo. */
+export type UpstreamState = "current" | "behind" | "modified" | "unbased" | "absent" | "gone";
+export type UpstreamChange = { readonly commit: string; readonly date: string; readonly subject: string };
+export type UpstreamSkill = {
+  readonly skill: string;
+  readonly state: UpstreamState;
+  /** the upstream version skm last wrote (from the lock); null = no record */
+  readonly base: { readonly commit: string; readonly label: string } | null;
+  /** upstream commits between base and target that touch this skill, newest first */
+  readonly changes: readonly UpstreamChange[];
+};
+export type Upstream = {
+  readonly name: string;
+  readonly repo: string;
+  readonly ref: string | null;
+  readonly target: { readonly commit: string; readonly label: string } | null;
+  readonly warning: string | null;
+  readonly error: string | null;
+  readonly skills: readonly UpstreamSkill[];
+  /** skill dirs the repo has that upstreams.<name>.skills does not list */
+  readonly unlisted: readonly string[];
+};
+export type UpstreamsReport = { readonly upstreams: readonly Upstream[] };
+
+/** `skm upstream update -y --json` */
+export type UpstreamUpdateResult = {
+  readonly backup: string | null;
+  readonly outcomes: readonly { readonly upstream: string; readonly skill: string; readonly from: string | null; readonly to: string; readonly result: "updated" | "skipped" | "refused" | "failed"; readonly reason: string }[];
+  readonly errors: readonly string[];
+};
+
 /** NDJSON events from `skm sync --events` / `skm plugin update --events`. */
 export type ApplyEvent =
   | { readonly type: "host-start"; readonly host: string; readonly ops: number }

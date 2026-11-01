@@ -1,4 +1,4 @@
-import type { ApplyEvent, ConfigPatch, ConfigSummary, HarnessReport, HostPlan, HostStatus, PluginsReport, RunResult, SkillRow } from "@shared/types";
+import type { ApplyEvent, ConfigPatch, ConfigSummary, HarnessReport, HostPlan, HostStatus, PluginsReport, RunResult, SkillRow, UpstreamUpdateResult, UpstreamsReport } from "@shared/types";
 
 /** A failed CLI call, as a value. */
 export type SkmError = { readonly kind: "not-found" } | { readonly kind: "failed"; readonly code: number | null; readonly message: string } | { readonly kind: "decode"; readonly message: string };
@@ -41,6 +41,10 @@ export const skm = {
     fromRun(await window.skm.run(["scope", ...(plugin ? ["--plugin"] : []), name, cell, on ? "on" : "off"])),
   patchConfig: async (p: ConfigPatch): Promise<Res<string>> => fromRun(await window.skm.run(["config", "patch"], JSON.stringify(p))),
   harness: (o: { cached: boolean; host?: string }) => json<HarnessReport>(["harness", "--json", ...(o.cached ? ["--cached"] : []), ...host(o.host)]),
+  upstreams: (o: { cached: boolean }) => json<UpstreamsReport>(["upstream", "--json", ...(o.cached ? ["--cached"] : [])]),
+  /** Writes from the local mirror (--cached), so what lands is the version the app showed. */
+  upstreamUpdate: (skills: readonly string[], o: { force: boolean }) =>
+    json<UpstreamUpdateResult>(["upstream", "update", ...skills, "-y", "--json", "--cached", ...(o.force ? ["--force"] : [])]),
 };
 
 /** Run a streamed `--events` command; resolves with the exit code once it ends. */

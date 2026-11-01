@@ -139,7 +139,7 @@ upstream
   .option("-y, --yes", "no confirmation", false)
   .option("--no-backup", "skip the automatic backup")
   // --json/--cached are declared on `upstream` too; Commander hands them to the parent, so read them with optsWithGlobals()
-  .option("--json", "machine-readable result (needs -y)", false)
+  .option("--json", "machine-readable result (needs -y); failures are reported in it, exit code 0", false)
   .option("--cached", "use the local mirror, do not fetch", false)
   .action((skills: string[], _o: unknown, cmd: Command) => {
     const o = cmd.optsWithGlobals<{ all: boolean; to?: string; force: boolean; dryRun: boolean; yes: boolean; backup: boolean; json: boolean; cached: boolean }>();
