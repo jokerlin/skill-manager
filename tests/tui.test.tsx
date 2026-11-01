@@ -14,7 +14,9 @@ import { inferRules, compressGlobs } from "../src/cli/rules";
 import { pullCandidates } from "../src/cli/pull";
 import { HostsView, clampOffset, hostLines } from "../src/tui/views/Hosts";
 import { SkillsView } from "../src/tui/views/Skills";
-import { cellGlyph, fitCount, initialState, reduce, visibleSkills } from "../src/tui/state";
+import { cellGlyph, fitCount, initialState, pendingTotal, reduce, skillCoverage, visibleSkills } from "../src/tui/state";
+import { coverageText } from "../src/tui/views/Skills";
+import type { Op } from "../src/core/plan";
 import { buildHostView } from "../src/core/view";
 
 const mk = (name: string, desc: string) => buildSkill(name, `/s/${name}`, `---\nname: ${name}\ndescription: ${desc}\n---\n# ${name}\nbody\n`, [{ rel: "SKILL.md", bytes: 10 }]);
@@ -110,7 +112,7 @@ describe("TUI", () => {
     stdin.write("\r"); await tick();
     stdin.write("\t"); await tick(); // hosts view
     expect(lastFrame()).toContain("hosts");
-    stdin.write("3"); await tick(); // sync view shows the plan
+    stdin.write("4"); await tick(); // the changes view lists the plan
     expect(lastFrame()).toContain("link codex/pdf-tools");
   });
   test("targets grid toggle calls saveConfig", async () => {
@@ -199,7 +201,7 @@ describe("skills view", () => {
     const rows = (r.lastFrame() ?? "").split("\n");
     expect(rows.some((l) => /skill\s+listing\s+body/.test(l))).toBe(true);
     for (const name of ["incident-runbook", "pdf-tools", "kb-doc"]) expect(rows.some((l) => new RegExp(`${name}\\s+\\d+t\\s+\\S+t`).test(l))).toBe(true);
-    expect(rows[0]?.indexOf("┐")).toBe(Math.floor(100 * 0.42) - 1); // the list keeps the width it asked for
+    expect(rows[0]?.indexOf("┐")).toBe(Math.floor(100 * 0.5) - 1); // the list keeps the width it asked for
     r.unmount();
   });
   test("names are cut to fit the narrowest list instead of wrapping the row", async () => {
@@ -246,11 +248,79 @@ describe("one-line header and footer", () => {
     const { lastFrame, unmount } = render(<App app={{ ...base, config: { ...base.config, hosts } }} io={io} />);
     await tick();
     const lines = (lastFrame() ?? "").split("\n");
-    expect(lines[0]).toContain("4:help");
-    expect(lines[0]).toMatch(/ \+5\s*$/); // 3 of 8 hosts fit next to the tabs in 100 columns
+    expect(lines[0]).toContain("5:help");
+    expect(lines[0]).toMatch(/ \+6\s*$/); // 2 of 8 hosts fit next to the tabs in 100 columns
     expect(lines[0]).not.toContain("build-server-7");
     expect(lines[1]?.startsWith("┌")).toBe(true); // the header did not wrap onto a second line
     expect(lines.at(-1)).toMatch(/^j\/k move/); // the footer is still the last line
     unmount();
+  });
+});
+
+describe("aligned with the desktop app", () => {
+  // two hosts where superpowers is 6.3.0 on local and 6.1.1 on dev (Claude); Codex reads the Git marketplace "official"
+  const pluginInv = (version: string) => ({
+    ...emptyInventory("/h"),
+    tools: { claude: "/bin/claude", codex: "/bin/codex" },
+    files: {
+      "claude-settings": JSON.stringify({ enabledPlugins: { "superpowers@official": true } }),
+      "claude-installed": JSON.stringify({ version: 2, plugins: { "superpowers@official": [{ scope: "user", installPath: `/h/.claude/plugins/cache/official/superpowers/${version}`, version }] } }),
+      "codex-config": ['[marketplaces.official]', 'source_type = "git"', 'source = "https://example.com/official.git"', '[plugins."superpowers@official"]', 'enabled = true'].join("\n"),
+    },
+    pluginCache: [
+      { agent: "claude", marketplace: "official", plugin: "superpowers", version, dir: `/h/.claude/plugins/cache/official/superpowers/${version}` },
+      { agent: "codex", marketplace: "official", plugin: "superpowers", version: "6.3.0", dir: "/h/.codex/plugins/cache/official/superpowers/6.3.0" },
+    ],
+  });
+  const pluginIo = (applied: { host: string; ops: readonly Op[] }[], backups: string[]): TuiIo => ({
+    ...io,
+    probe: async (h) => ({ ok: true, value: pluginInv(h.id === "local" ? "6.3.0" : "6.1.1") }),
+    backup: async (h) => { backups.push(h.id); return { ok: true, value: `/h/.skm/backups/${h.id}` }; },
+    apply: async (h, ops) => { applied.push({ host: h.id, ops }); return { host: h.id, rsynced: [], applied: [], skipped: [], conflicts: [], commands: [], error: undefined }; },
+  });
+
+  test("view keys follow the app: 1 skills, 2 plugins, 3 hosts, 4 changes (with the pending count), 5 help", async () => {
+    const { lastFrame, stdin, unmount } = render(<App app={app()} io={io} />); await tick();
+    expect(lastFrame()?.split("\n")[0]).toMatch(/1:skills\s+2:plugins\s+3:hosts\s+4:changes 2\s+5:help/);
+    stdin.write("4"); await tick();
+    expect(lastFrame()).toContain("pending changes");
+    expect(lastFrame()).toContain("dev: 1 change");
+    stdin.write("\r"); await tick(); // Enter asks before applying
+    expect(lastFrame()).toContain("apply now? y = yes");
+    stdin.write("n"); await tick();
+    expect(lastFrame()).not.toContain("apply now?");
+    unmount();
+  });
+
+  test("plugins view shows drift; u asks, y backs up and updates the plugin on every host that has it", async () => {
+    const applied: { host: string; ops: readonly Op[] }[] = [];
+    const backups: string[] = [];
+    const { lastFrame, stdin, unmount } = render(<App app={app()} io={pluginIo(applied, backups)} />); await tick();
+    stdin.write("2"); await tick();
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("1 plugins · 1 drifting");
+    expect(frame).toMatch(/superpowers\s+2 versions/);
+    expect(frame).toContain("6.3.0 (newest)");
+    expect(frame).toMatch(/dev\/claude\s+6\.1\.1/);
+    stdin.write("u"); await tick();
+    expect(lastFrame()).toContain("update superpowers on local, dev? y = yes");
+    stdin.write("y"); await tick(); await tick();
+    expect(backups.sort()).toEqual(["dev", "local"]);
+    expect(applied.map((a) => a.host).sort()).toEqual(["dev", "local"]);
+    expect(applied.flatMap((a) => a.ops).some((o) => o.op === "plugin-update" && o.plugin === "superpowers@official")).toBe(true);
+    expect(lastFrame()).toContain("pending changes"); // the log of what ran is in the changes view
+    unmount();
+  });
+
+  test("skills list shows where each skill is enabled, in the app's words, fitted to the column", () => {
+    const base = app();
+    const config = { ...base.config, rules: [{ skills: ["kb-doc"], hosts: some({ kind: "only" as const, globs: ["dev"] }), agents: none, on: [], off: [] }] };
+    const s = initialState(config, skills);
+    expect(skillCoverage(s, "pdf-tools")).toEqual({ kind: "everywhere" });
+    expect(coverageText(skillCoverage(s, "kb-doc"), 20)).toBe("Only dev");
+    expect(coverageText({ kind: "except-agents", agents: ["codex"] }, 20)).toBe("All but Codex");
+    expect(coverageText({ kind: "only-hosts", hosts: ["studio", "gpu-box"] }, 12)).toBe("Only 2 hosts"); // names do not fit, so a count
+    expect(coverageText({ kind: "partial", on: 7, total: 12 }, 20)).toBe("7 of 12");
+    expect(pendingTotal(s)).toBe(0);
   });
 });
