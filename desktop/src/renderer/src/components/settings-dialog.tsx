@@ -313,7 +313,6 @@ const Extensions = () => {
     [
       e.agents.length > 0 ? t("settings.extAgents", { list: e.agents.join(", ") }) : "",
       e.apps.length > 0 ? t("settings.extApps", { list: e.apps.join(", ") }) : "",
-      e.tools.length > 0 ? t("settings.extTools", { list: e.tools.join(", ") }) : "",
     ].filter((x) => x !== "").join(" · ");
   return (
     <div className="flex flex-col gap-3 py-3">
@@ -335,6 +334,7 @@ const Extensions = () => {
             </div>
             {!builtin ? <div className="mt-1 truncate font-mono text-[11px] text-muted-foreground selectable">{e.source}</div> : null}
             {parts(e) !== "" ? <div className="mt-1.5 text-[12px]">{parts(e)}</div> : null}
+            {(e.warnings ?? []).map((w) => <div key={w} className="mt-1.5 rounded-md bg-pending-soft px-2.5 py-1.5 font-mono text-[11px] text-pending selectable">{w}</div>)}
             {e.error !== null ? <div className="mt-1.5 rounded-md bg-danger-soft px-2.5 py-1.5 font-mono text-[11px] text-danger selectable">{e.error}</div> : null}
           </section>
         );

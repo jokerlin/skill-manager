@@ -40,7 +40,7 @@ Most skill managers handle one agent on one machine. skm treats your setup as a 
 - Plugin updates across hosts (`skm plugin update`), including plugins that ship inside a desktop app.
 - Harness updates: run each agent CLI's own update command on every host in parallel.
 - LLM evaluation of your skills (`skm eval`) with `claude -p` or `codex exec`.
-- Extensions: add agents, desktop apps and update tasks with a YAML file, no code.
+- Extensions: add agents and desktop apps with a YAML file, no code.
 - English and Simplified Chinese UI. Light and dark themes.
 
 ## Install
@@ -155,7 +155,7 @@ A cell is on when the host selector and the agent selector both match, after the
 | `skm status` / `skm inventory` | Probe hosts: what each agent loads from every source |
 | `skm plan` / `skm sync` | Compute and apply the sync; backs up first, re-probes after |
 | `skm plugins` / `skm plugin update` | Plugin versions on every host × agent; update the ones that drift |
-| `skm harness` / `skm harness update` | Agent CLI, desktop app and extension tool versions; update them |
+| `skm harness` / `skm harness update` | Agent CLI and desktop app versions; update them |
 | `skm extensions` | Loaded extensions and errors |
 | `skm scope <name> <host/agent> on\|off` | Toggle one cell (add `--plugin` for a plugin) |
 | `skm config` / `skm config patch` | Print the config; apply a validated JSON patch from stdin |
@@ -184,17 +184,15 @@ The app is an Electron shell over the CLI. All logic stays in `skm`: the app rea
 
 ## Extensions
 
-An extension is a YAML file in `~/.skm/extensions/`. It can add an agent, a desktop app that writes plugin marketplaces, or a tool that `skm harness` checks and updates on each host:
+An extension is a YAML file in `~/.skm/extensions/`. It can add an agent or a desktop app that writes plugin marketplaces:
 
 ```yaml
-# ~/.skm/extensions/my-tools.yaml
-name: my-tools
-tools:
-  - id: magpie
-    bin: magpie
-    update: magpie update
-    onChange: magpie daemon restart   # runs only when the version changed
-    hosts: { only: [mini] }
+# ~/.skm/extensions/opencode.yaml
+agents:
+  - id: opencode
+    name: OpenCode
+    skillsDir: ~/.config/opencode/skills
+    cli: { bin: opencode, update: opencode upgrade }
 ```
 
 Extensions are data. skm runs their commands only when you run `skm harness update` or press update in the app. See [docs/extensions.md](docs/extensions.md) for the full format. The ChatGPT desktop app support ships as the built-in extension `chatgpt-desktop`; turn it off with `disabledExtensions: [chatgpt-desktop]`.

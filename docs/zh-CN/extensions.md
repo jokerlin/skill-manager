@@ -2,7 +2,7 @@
 
 [English](../extensions.md) | 简体中文
 
-扩展用来加入内置 skm 不认识的东西：另一个编程 agent、一个会写 plugin marketplace 的桌面应用，或一个需要在各主机上检查和更新的工具。个人或公司专用的功能都放进扩展，skm 核心保持通用。
+扩展用来加入内置 skm 不认识的东西：另一个编程 agent，或一个会写 plugin marketplace 的桌面应用。个人或公司专用的功能都放进扩展，skm 核心保持通用。
 
 ## 扩展放在哪里
 
@@ -17,7 +17,7 @@ skm extensions --json
 
 扩展只包含数据，skm 读文件时不执行任何代码。文件里的 shell 命令只在你发起更新时执行（`skm harness update`，或 App 里的更新按钮）。命令在文件选中的主机上、在登录 shell 里运行，方式和内置 agent 的更新命令相同。
 
-警告：扩展的 `update` 和 `onChange` 命令会以你的用户权限在每台选中的主机上执行。只安装可信来源的扩展文件，并且先读一遍。
+警告：扩展的 `update` 命令会以你的用户权限在每台选中的主机上执行。只安装可信来源的扩展文件，并且先读一遍。
 
 ## 格式
 
@@ -41,16 +41,11 @@ apps:                       # agent 的 macOS 桌面应用，会安装 plugin ma
     marker: .myapp/bundled/.ready                # $HOME 下的文件，应用更新后会重写它
     settle: { file: .cache/myapp/runtime.json, busy: ".cache/myapp/install-*" }   # 可选
 
-tools:                      # 其他需要 `skm harness` 在各主机上检查和更新的东西
-  - id: magpie
-    name: Magpie
-    bin: magpie             # 用 `<bin> --version` 检查；默认等于 id
-    update: magpie update   # 必填
-    onChange: magpie daemon restart   # 可选；只在版本变化时执行
-    hosts: { only: [mini, devbox] }   # all（默认）、{ only: [...] } 或 { except: [...] }；支持 glob
 ```
 
-三个列表都可选。文件顶层出现未知字段时 skm 会拒绝加载，拼写错误不会被悄悄忽略。
+两个列表都可选。文件顶层出现未知字段时 skm 会拒绝加载，拼写错误不会被悄悄忽略。
+
+skm 0.6 删除了 `tools:` 列表。文件里还有这个列表时，扩展照常加载，`skm extensions` 和 App 里显示一条警告，skm 忽略这个列表。从文件里删掉它，警告就会消失。
 
 ### Agent
 
@@ -75,10 +70,6 @@ tools:                      # 其他需要 `skm harness` 在各主机上检查�
 
 ChatGPT 桌面版（它安装 Codex 的 `openai-bundled` 和 `openai-primary-runtime` 两个 marketplace）作为内置扩展 `chatgpt-desktop` 提供。
 
-### 工具
-
-工具是你希望在每台主机上保持同一版本的命令行程序，比如 agent 会调用的守护进程。`skm harness` 显示它在每台主机上的版本，`skm harness update` 执行 `update`，版本有变化时再执行 `onChange`。
-
 ## 关闭扩展
 
 ```yaml
@@ -91,7 +82,7 @@ App 里 **设置 → 扩展** 的开关写的也是这个字段。
 ## 冲突和错误
 
 - 扩展用到的 id 已经被内置 agent 或排在前面的扩展占用时，skm 跳过整个扩展，并报告哪些 id 冲突。文件按文件名顺序加载。
-- 文件解析失败时，skm 跳过它，并报告第一个问题及其路径，例如 `tools[0].update: expected a non-empty string`。
+- 文件解析失败时，skm 跳过它，并报告第一个问题及其路径，例如 `agents[0].skillsDir: expected a non-empty string`。
 - 应用指向一个不存在的 agent 时，skm 报告错误，不挂载该应用。
 
 被跳过的扩展会在 `skm extensions` 和 App 里列出原因。

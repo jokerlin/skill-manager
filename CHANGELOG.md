@@ -4,6 +4,10 @@ All notable changes to Skill Manager. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+### Removed
+
+- Extensions can no longer declare `tools:` for `skm harness` to check and update. `skm harness`, the TUI hosts view and the app's Agent CLIs section show only the agent CLIs and desktop apps. A file that still has `tools:` loads with a warning in `skm extensions` and in **Settings → Extensions**; skm ignores that list, and the file's agents and apps still load.
+
 ### Fixed
 
 - Switching a plugin that is not under `plugins:` yet (in the app, or with `skm scope --plugin`) could switch it off on a host skm had never probed. The first switch copies where the plugin is enabled today, and a host with no probe result added no cells, so the next apply there disabled it. skm now refuses that switch and names the hosts to probe first (`skm status <host>`).

@@ -102,7 +102,7 @@ plugin
   );
 const harness = program
   .command("harness")
-  .description("agent CLI, desktop app and extension tool versions on every host")
+  .description("agent CLI and desktop app versions on every host")
   .option("--json", "machine-readable", false)
   .option("--cached", "show the last result instead of checking over ssh", false)
   .option("--host <id>")
@@ -156,7 +156,7 @@ upstream
     const o = cmd.optsWithGlobals<{ repo?: string; path?: string; ref?: string; json: boolean }>();
     return runUpstreamAdopt(name, skills, { json: o.json, ...(o.repo !== undefined ? { repo: o.repo } : {}), ...(o.path !== undefined ? { path: o.path } : {}), ...(o.ref !== undefined ? { ref: o.ref } : {}) });
   });
-program.command("extensions").description("extensions in ~/.skm/extensions: extra agents, desktop apps and harness tools").option("--json", "machine-readable", false).action((o: { json: boolean }) => runExtensions(o.json));
+program.command("extensions").description("extensions in ~/.skm/extensions: extra agents and desktop apps").option("--json", "machine-readable", false).action((o: { json: boolean }) => runExtensions(o.json));
 program.command("pull <host> [skills...]").description("copy remote-only skills from a host's store into the hub").option("--all", "every remote-only skill", false).option("--force", "overwrite hub copy", false).action((host: string, skills: string[], o: { all: boolean; force: boolean }) => runPull(host, skills, o.all, o.force));
 program.command("backup [hosts...]").description("snapshot store + agent dirs on hosts; writes restore.sh").action(runBackup);
 program.command("backups [host]").description("list backups").action(runBackups);

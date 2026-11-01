@@ -259,7 +259,7 @@ export const initialState = (config: Config, skills: readonly Skill[]): State =>
   harness: { runs: [], checking: false },
 });
 
-/** A row of the agent CLIs section: each agent's CLI, each app an agent ships, and each tool an extension declares. */
+/** A row of the agent CLIs section: each agent's CLI, and each app an agent ships. */
 export type HarnessToolRow = { readonly id: string; readonly name: string; readonly kind: "cli" | "app" };
 
 /** Pure. */
@@ -268,7 +268,6 @@ export const harnessTools = (c: Config): readonly HarnessToolRow[] => {
   return [
     ...agents.map((a): HarnessToolRow => ({ id: a.id, name: a.id, kind: "cli" })),
     ...agents.flatMap((a): HarnessToolRow[] => (a.app !== undefined ? [{ id: a.app.id, name: `${a.app.name} app`, kind: "app" }] : [])),
-    ...c.registry.tools.map((t): HarnessToolRow => ({ id: t.id, name: t.name, kind: "cli" })),
   ];
 };
 

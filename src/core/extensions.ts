@@ -1,9 +1,6 @@
 import { parse as parseYaml } from "yaml";
 import { type Result, err, ok } from "../lib/result";
 import { AGENTS, type Agent, type AgentApp, dirFn } from "./agents";
-import type { Selector } from "./config";
-
-const ALL: Selector = { kind: "all" };
 
 /**
  * Extensions: YAML files in `~/.skm/extensions/` that add what the built-in registry does not know.
@@ -19,23 +16,13 @@ const ALL: Selector = { kind: "all" };
  *       cli: { bin: opencode, update: opencode upgrade }
  *   apps:                              # an agent's macOS desktop app that writes plugin marketplaces
  *     - { id: chatgpt, agent: codex, name: ChatGPT, bundle: /Applications/ChatGPT.app, feed: <appcast url>, marketplaces: [...], marker: <~/ file> }
- *   tools:                             # anything else `skm harness` should check and update on each host
- *     - id: magpie
- *       bin: magpie
- *       update: magpie update
- *       onChange: magpie daemon restart   # runs only when the version changed
- *       hosts: { only: [mini] }
+ *
+ * A key skm used to read and no longer does (`tools:`) loads with a warning, so an old file keeps its other parts.
  */
 
-/** A tool from an extension: checked with `<bin> --version`, updated with `update`, then `onChange` when the version moved. */
-export type ExtensionTool = {
-  readonly id: string;
-  readonly name: string;
-  readonly bin: string;
-  readonly update: string;
-  readonly onChange: string;
-  readonly hosts: Selector;
-  readonly extension: string;
+/** Keys older versions read; skm ignores them now and says so. */
+const RETIRED_KEYS: Readonly<Record<string, string>> = {
+  tools: "tools: is no longer read (skm 0.6 dropped extension tools); skm ignores it, delete it from this file",
 };
 
 export type ExtensionAgent = {
@@ -54,7 +41,8 @@ export type Extension = {
   readonly source: string;
   readonly agents: readonly ExtensionAgent[];
   readonly apps: readonly ExtensionApp[];
-  readonly tools: readonly Omit<ExtensionTool, "extension">[];
+  /** problems that did not stop the file from loading */
+  readonly warnings: readonly string[];
 };
 
 /** What one extension contributed, or why it was not loaded. */
@@ -64,14 +52,13 @@ export type ExtensionInfo = {
   readonly enabled: boolean;
   readonly agents: readonly string[];
   readonly apps: readonly string[];
-  readonly tools: readonly string[];
+  readonly warnings: readonly string[];
   readonly error: string | null;
 };
 
-/** Every agent skm can use (built-in + extensions, desktop apps attached) and the extra harness tools. */
+/** Every agent skm can use (built-in + extensions, desktop apps attached). */
 export type Registry = {
   readonly agents: readonly Agent[];
-  readonly tools: readonly ExtensionTool[];
   readonly extensions: readonly ExtensionInfo[];
 };
 
@@ -92,7 +79,7 @@ export const BUILTIN_EXTENSIONS: readonly Extension[] = [
       marker: ".codex/.tmp/bundled-marketplaces/openai-bundled/.materialization-key",
       settle: { file: ".cache/codex-runtimes/codex-primary-runtime/runtime.json", busy: ".cache/codex-runtimes/codex-runtime-install-*" },
     }],
-    tools: [],
+    warnings: [],
   },
 ];
 
@@ -115,13 +102,6 @@ const list = <T>(v: unknown, path: string, each: (x: unknown, p: string) => Resu
 
 const id = (v: unknown, path: string): Result<string, Fail> =>
   typeof v === "string" && ID.test(v) ? ok(v) : err(`${path}: expected an id (lowercase letters, digits, dashes)`);
-
-const hostsSel = (v: unknown, path: string): Result<Selector, Fail> => {
-  if (v === undefined || v === "all") return ok(ALL);
-  if (isRecord(v) && Array.isArray(v["only"]) && v["only"].every((x) => typeof x === "string")) return ok({ kind: "only", globs: v["only"] as string[] });
-  if (isRecord(v) && Array.isArray(v["except"]) && v["except"].every((x) => typeof x === "string")) return ok({ kind: "except", globs: v["except"] as string[] });
-  return err(`${path}: expected all, { only: [...] } or { except: [...] }`);
-};
 
 const parseAgent = (v: unknown, path: string): Result<ExtensionAgent, Fail> => {
   if (!isRecord(v)) return err(`${path}: expected a map`);
@@ -164,21 +144,6 @@ const parseApp = (v: unknown, path: string): Result<ExtensionApp, Fail> => {
   });
 };
 
-const parseTool = (v: unknown, path: string): Result<Omit<ExtensionTool, "extension">, Fail> => {
-  if (!isRecord(v)) return err(`${path}: expected a map`);
-  const i = id(v["id"], `${path}.id`);
-  if (!i.ok) return i;
-  const bin = str(v["bin"], `${path}.bin`, false);
-  if (!bin.ok) return bin;
-  const update = str(v["update"], `${path}.update`);
-  if (!update.ok) return update;
-  const onChange = str(v["onChange"], `${path}.onChange`, false);
-  if (!onChange.ok) return onChange;
-  const hosts = hostsSel(v["hosts"], `${path}.hosts`);
-  if (!hosts.ok) return hosts;
-  return ok({ id: i.value, name: typeof v["name"] === "string" ? v["name"] : i.value, bin: bin.value || i.value, update: update.value, onChange: onChange.value, hosts: hosts.value });
-};
-
 /** One extension file → an Extension, or the first problem in it. Pure. */
 export const parseExtension = (text: string, source: string, fallbackName: string): Result<Extension, Fail> => {
   let doc: unknown;
@@ -187,8 +152,8 @@ export const parseExtension = (text: string, source: string, fallbackName: strin
   } catch (e) {
     return err(e instanceof Error ? e.message : String(e));
   }
-  if (!isRecord(doc)) return err("expected a map with agents / apps / tools");
-  const unknownKeys = Object.keys(doc).filter((k) => !["name", "agents", "apps", "tools"].includes(k));
+  if (!isRecord(doc)) return err("expected a map with agents / apps");
+  const unknownKeys = Object.keys(doc).filter((k) => !["name", "agents", "apps"].includes(k) && RETIRED_KEYS[k] === undefined);
   if (unknownKeys.length > 0) return err(`unknown keys: ${unknownKeys.join(", ")}`);
   const name = doc["name"] === undefined ? ok(fallbackName) : id(doc["name"], "name");
   if (!name.ok) return name;
@@ -196,9 +161,8 @@ export const parseExtension = (text: string, source: string, fallbackName: strin
   if (!agents.ok) return agents;
   const apps = list(doc["apps"], "apps", parseApp);
   if (!apps.ok) return apps;
-  const tools = list(doc["tools"], "tools", parseTool);
-  if (!tools.ok) return tools;
-  return ok({ name: name.value, source, agents: agents.value, apps: apps.value, tools: tools.value });
+  const warnings = Object.keys(doc).flatMap((k) => (RETIRED_KEYS[k] !== undefined ? [RETIRED_KEYS[k]] : []));
+  return ok({ name: name.value, source, agents: agents.value, apps: apps.value, warnings });
 };
 
 const agentOf = (e: ExtensionAgent, extension: string): Agent => ({
@@ -213,7 +177,7 @@ const agentOf = (e: ExtensionAgent, extension: string): Agent => ({
 
 const info = (e: Extension, enabled: boolean, error: string | null): ExtensionInfo => ({
   name: e.name, source: e.source, enabled, error,
-  agents: e.agents.map((a) => a.id), apps: e.apps.map((a) => a.id), tools: e.tools.map((t) => t.id),
+  agents: e.agents.map((a) => a.id), apps: e.apps.map((a) => a.id), warnings: e.warnings,
 });
 
 /**
@@ -225,20 +189,19 @@ export const buildRegistry = (
   disabled: readonly string[],
   failed: readonly { readonly name: string; readonly source: string; readonly error: string }[] = [],
 ): Registry => {
-  type Acc = { agents: Agent[]; apps: ExtensionApp[]; tools: ExtensionTool[]; infos: ExtensionInfo[] };
-  const start: Acc = { agents: [...AGENTS], apps: [], tools: [], infos: [] };
+  type Acc = { agents: Agent[]; apps: ExtensionApp[]; infos: ExtensionInfo[] };
+  const start: Acc = { agents: [...AGENTS], apps: [], infos: [] };
   const acc = extensions.reduce<Acc>((a, e) => {
     if (disabled.includes(e.name) || a.infos.some((i) => i.name === e.name)) {
       return { ...a, infos: [...a.infos, info(e, false, disabled.includes(e.name) ? null : `another extension is already named ${e.name}`)] };
     }
-    const taken = new Set([...a.agents.map((x) => x.id), ...a.apps.map((x) => x.id), ...a.tools.map((x) => x.id)]);
-    const ids = [...e.agents.map((x) => x.id), ...e.apps.map((x) => x.id), ...e.tools.map((x) => x.id)];
+    const taken = new Set([...a.agents.map((x) => x.id), ...a.apps.map((x) => x.id)]);
+    const ids = [...e.agents.map((x) => x.id), ...e.apps.map((x) => x.id)];
     const clash = ids.filter((x, i) => taken.has(x) || ids.indexOf(x) !== i);
     if (clash.length > 0) return { ...a, infos: [...a.infos, info(e, false, `ids already in use: ${[...new Set(clash)].join(", ")}`)] };
     return {
       agents: [...a.agents, ...e.agents.map((x) => agentOf(x, e.name))],
       apps: [...a.apps, ...e.apps],
-      tools: [...a.tools, ...e.tools.map((t) => ({ ...t, extension: e.name }))],
       infos: [...a.infos, info(e, true, null)],
     };
   }, start);
@@ -256,8 +219,7 @@ export const buildRegistry = (
   });
   return {
     agents,
-    tools: acc.tools,
-    extensions: [...infos, ...failed.map((f) => ({ name: f.name, source: f.source, enabled: false, agents: [], apps: [], tools: [], error: f.error }))],
+    extensions: [...infos, ...failed.map((f) => ({ name: f.name, source: f.source, enabled: false, agents: [], apps: [], warnings: [], error: f.error }))],
   };
 };
 

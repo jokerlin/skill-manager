@@ -158,7 +158,8 @@ export type ExtensionInfo = {
   readonly enabled: boolean;
   readonly agents: readonly string[];
   readonly apps: readonly string[];
-  readonly tools: readonly string[];
+  /** problems that did not stop the file from loading (e.g. a key skm no longer reads) */
+  readonly warnings: readonly string[];
   readonly error: string | null;
 };
 
@@ -217,8 +218,6 @@ export type HarnessApp = { readonly id: string; readonly agent: string; readonly
 export type HarnessReport = {
   readonly agents: readonly { readonly id: string; readonly bin: string; readonly update: string }[];
   readonly apps?: readonly HarnessApp[];
-  /** extra tools extensions ask `skm harness` to check and update */
-  readonly tools?: readonly { readonly id: string; readonly name: string; readonly bin: string; readonly update: string; readonly extension: string }[];
   readonly hosts: readonly HarnessHost[];
 };
 

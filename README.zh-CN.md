@@ -40,7 +40,7 @@ mini:~/.skm/skills  devbox:~/.skm/skills   ← rsync 镜像，在各主机本地
 - 跨主机更新 plugin（`skm plugin update`），包括随桌面应用分发的 plugin。
 - Harness 更新：在每台主机上并行执行各 agent CLI 自带的更新命令。
 - 用 `claude -p` 或 `codex exec` 让 LLM 评估你的 skill（`skm eval`）。
-- 扩展：写一个 YAML 文件就能加入 agent、桌面应用和更新任务，不用写代码。
+- 扩展：写一个 YAML 文件就能加入 agent 和桌面应用，不用写代码。
 - 界面支持英文和简体中文，支持浅色和深色主题。
 
 ## 安装
@@ -155,7 +155,7 @@ backupBeforeApply: true
 | `skm status` / `skm inventory` | 探测主机：每个 agent 从各个来源加载的内容 |
 | `skm plan` / `skm sync` | 计算并执行同步；先备份，完成后重新探测 |
 | `skm plugins` / `skm plugin update` | 每个 主机 × agent 的 plugin 版本；更新不一致的 plugin |
-| `skm harness` / `skm harness update` | agent CLI、桌面应用和扩展工具的版本；执行更新 |
+| `skm harness` / `skm harness update` | agent CLI 和桌面应用的版本；执行更新 |
 | `skm extensions` | 已加载的扩展和错误 |
 | `skm scope <name> <host/agent> on\|off` | 开关一个单元格（plugin 加 `--plugin`） |
 | `skm config` / `skm config patch` | 打印配置；从 stdin 读 JSON，校验后写回 |
@@ -184,17 +184,15 @@ App 是 CLI 外面的一层 Electron 外壳，所有逻辑都在 `skm` 里：App
 
 ## 扩展
 
-扩展是 `~/.skm/extensions/` 里的一个 YAML 文件。它可以加入一个 agent、一个会写 plugin marketplace 的桌面应用，或一个由 `skm harness` 在各主机上检查和更新的工具：
+扩展是 `~/.skm/extensions/` 里的一个 YAML 文件。它可以加入一个 agent，或一个会写 plugin marketplace 的桌面应用：
 
 ```yaml
-# ~/.skm/extensions/my-tools.yaml
-name: my-tools
-tools:
-  - id: magpie
-    bin: magpie
-    update: magpie update
-    onChange: magpie daemon restart   # 只在版本变化时执行
-    hosts: { only: [mini] }
+# ~/.skm/extensions/opencode.yaml
+agents:
+  - id: opencode
+    name: OpenCode
+    skillsDir: ~/.config/opencode/skills
+    cli: { bin: opencode, update: opencode upgrade }
 ```
 
 扩展只包含数据。只有你运行 `skm harness update` 或在 App 里点更新时，skm 才执行其中的命令。完整格式见 [docs/zh-CN/extensions.md](docs/zh-CN/extensions.md)。ChatGPT 桌面版的支持是内置扩展 `chatgpt-desktop`，用 `disabledExtensions: [chatgpt-desktop]` 关闭。

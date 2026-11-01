@@ -2,7 +2,7 @@
 
 English | [简体中文](zh-CN/extensions.md)
 
-An extension adds something that the built-in skm does not know: another coding agent, a desktop app that writes plugin marketplaces, or a tool to check and update on your hosts. Use extensions for anything personal or company-specific, so the core stays generic.
+An extension adds something that the built-in skm does not know: another coding agent, or a desktop app that writes plugin marketplaces. Use extensions for anything personal or company-specific, so the core stays generic.
 
 ## Where extensions live
 
@@ -17,7 +17,7 @@ In the desktop app, open **Settings → Extensions** to see the same list, switc
 
 An extension is data only. skm runs no code when it loads the file. The shell commands in a file run only when you start an update (`skm harness update`, or the update buttons in the app), on the hosts that the file selects, in a login shell, the same way the built-in agent update commands run.
 
-Warning: an extension's `update` and `onChange` commands run on every selected host with your user's permissions. Install extension files only from people you trust, and read them first.
+Warning: an extension's `update` commands run on every selected host with your user's permissions. Install extension files only from people you trust, and read them first.
 
 ## Format
 
@@ -41,16 +41,11 @@ apps:                       # an agent's macOS desktop app that installs plugin 
     marker: .myapp/bundled/.ready                # file under $HOME the app rewrites after an update
     settle: { file: .cache/myapp/runtime.json, busy: ".cache/myapp/install-*" }   # optional
 
-tools:                      # anything else `skm harness` checks and updates on each host
-  - id: magpie
-    name: Magpie
-    bin: magpie             # checked with `<bin> --version`; defaults to the id
-    update: magpie update   # required
-    onChange: magpie daemon restart   # optional; runs only when the version changed
-    hosts: { only: [mini, devbox] }   # all (default), { only: [...] } or { except: [...] }; globs work
 ```
 
-All three lists are optional. skm rejects a file with an unknown top-level key, so a typo does not go unnoticed.
+Both lists are optional. skm rejects a file with an unknown top-level key, so a typo does not go unnoticed.
+
+skm 0.6 removed the `tools:` list. A file that still has it loads with a warning in `skm extensions` and in the app, and skm ignores that list. Delete it from the file to clear the warning.
 
 ### Agents
 
@@ -75,10 +70,6 @@ The app's `marketplaces` show in the Plugins view as "ships with the app". Updat
 
 The ChatGPT desktop app (which installs Codex's `openai-bundled` and `openai-primary-runtime` marketplaces) ships as the built-in extension `chatgpt-desktop`.
 
-### Tools
-
-A tool is a command-line program you want at the same version on every host, for example a daemon your agents talk to. `skm harness` shows its version per host, and `skm harness update` runs `update`, then `onChange` if the version moved.
-
 ## Turning extensions off
 
 ```yaml
@@ -91,7 +82,7 @@ The app's switch in **Settings → Extensions** writes the same field.
 ## Conflicts and errors
 
 - If an extension uses an id that a built-in agent or an earlier extension already uses, skm skips the whole extension and reports which ids clash. Files load in name order.
-- If a file does not parse, skm skips it and reports the first problem with its path, for example `tools[0].update: expected a non-empty string`.
+- If a file does not parse, skm skips it and reports the first problem with its path, for example `agents[0].skillsDir: expected a non-empty string`.
 - An app that names an unknown agent is reported and not attached.
 
 Skipped extensions show in `skm extensions` and in the app, with the reason.

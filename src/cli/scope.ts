@@ -66,7 +66,7 @@ export const runConfigPatch = async (): Promise<void> =>
     out(`${pc.green("ok")} saved ${app.configPath}`);
   });
 
-/** `skm extensions`: what each extension adds (agents, desktop apps, harness tools), and why one did not load. */
+/** `skm extensions`: what each extension adds (agents, desktop apps), what in it skm ignored, and why one did not load. */
 export const runExtensions = async (json: boolean): Promise<void> =>
   withApp(async (app) => {
     const r = app.config.registry;
@@ -77,11 +77,11 @@ export const runExtensions = async (json: boolean): Promise<void> =>
       const what = [
         e.agents.length > 0 ? `agents: ${e.agents.join(", ")}` : "",
         e.apps.length > 0 ? `apps: ${e.apps.join(", ")}` : "",
-        e.tools.length > 0 ? `tools: ${e.tools.join(", ")}` : "",
       ].filter((x) => x !== "").join(" · ");
       const state = e.error !== null ? pc.red(`error: ${e.error}`) : e.enabled ? pc.green("on") : pc.dim("off (disabledExtensions)");
       out(`${pc.bold(e.name)}  ${state}`);
       out(pc.dim(`  ${e.source}`));
       if (what !== "") out(`  ${what}`);
+      e.warnings.forEach((w) => out(pc.yellow(`  warning: ${w}`)));
     });
   });

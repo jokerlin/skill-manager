@@ -15,21 +15,31 @@ agents:
     skillsDir: ~/.config/opencode/skills
     alsoReads: [~/.claude/skills]
     cli: { bin: opencode, update: opencode upgrade }
-tools:
+`;
+
+// a file written for skm 0.5, with the tools: key 0.6 dropped
+const LEGACY_TOOLS = `${OPENCODE}tools:
   - id: magpie
     update: magpie update
-    onChange: magpie daemon restart
-    hosts: { only: [mini] }
 `;
 
 describe("extensions", () => {
-  test("parses agents and tools, with defaults filled in", () => {
+  test("parses agents, with defaults filled in", () => {
     const r = parseExtension(OPENCODE, "/x/mine.yaml", "mine");
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.value.name).toBe("mine");
     expect(r.value.agents[0]).toEqual({ id: "opencode", name: "OpenCode", skillsDir: "~/.config/opencode/skills", alsoReads: ["~/.claude/skills"], cli: { bin: "opencode", update: "opencode upgrade" } });
-    expect(r.value.tools[0]).toMatchObject({ id: "magpie", bin: "magpie", onChange: "magpie daemon restart", hosts: { kind: "only", globs: ["mini"] } });
+    expect(r.value.warnings).toEqual([]);
+  });
+
+  test("a retired tools: key loads with a warning and keeps the rest of the file", () => {
+    const r = parseExtension(LEGACY_TOOLS, "/x/mine.yaml", "mine");
+    if (!r.ok) throw new Error(r.error);
+    expect(r.value.agents.map((a) => a.id)).toEqual(["opencode"]);
+    expect(r.value.warnings).toEqual(["tools: is no longer read (skm 0.6 dropped extension tools); skm ignores it, delete it from this file"]);
+    const reg = buildRegistry([r.value], []);
+    expect(reg.extensions[0]).toMatchObject({ name: "mine", enabled: true, error: null, warnings: r.value.warnings });
   });
 
   test("reports the first problem with its path", () => {
@@ -48,7 +58,6 @@ describe("extensions", () => {
     expect(a.some && a.value.alsoReads.map((f) => f("/home/u"))).toEqual(["/home/u/.claude/skills"]);
     expect(a.some && a.value.listing).toEqual({ kind: "plain" });
     expect(a.some && a.value.extension).toBe("mine");
-    expect(reg.tools.map((t) => t.id)).toEqual(["magpie"]);
   });
 
   test("the built-in ChatGPT app attaches to Codex and can be switched off", () => {
@@ -59,10 +68,10 @@ describe("extensions", () => {
   });
 
   test("an extension that reuses an id is skipped whole and says why", () => {
-    const clash = parseExtension("agents: [{ id: claude, skillsDir: ~/x }]\ntools: [{ id: t1, update: x }]", "f", "clash");
+    const clash = parseExtension("agents: [{ id: claude, skillsDir: ~/x }, { id: other, skillsDir: ~/y }]", "f", "clash");
     if (!clash.ok) throw new Error(clash.error);
     const reg = buildRegistry([clash.value], []);
-    expect(reg.tools).toHaveLength(0);
+    expect(reg.agents.map((a) => a.id)).not.toContain("other");
     expect(reg.extensions[0]).toMatchObject({ name: "clash", enabled: false, error: "ids already in use: claude" });
   });
 
