@@ -278,7 +278,7 @@ export const en = {
   "about.error": "Could not check: {msg}",
   "about.releaseNotes": "Release page",
   "about.auto": "Check automatically",
-  "about.autoHint": "On launch and every 6 hours, from GitHub Releases.",
+  "about.autoHint": "Once each time the app starts, from GitHub Releases.",
   "about.idle": "Not checked yet",
   "settings.updates": "Updates",
   "pending.updatingHarness": "Updating agent CLIs on {n} hosts",

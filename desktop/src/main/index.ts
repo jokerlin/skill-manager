@@ -26,14 +26,9 @@ const menu = (c: MenuCommand) => () => send("menu", c);
 
 // SKM_UPDATE_API points the updater at another GitHub-compatible API (a fork's mirror, GitHub Enterprise, a local test server)
 const updater = createUpdater({ repo: repoSlug(pkg.repository.url), api: process.env["SKM_UPDATE_API"] ?? "https://api.github.com", publicKey: (pkg as { updatePublicKey?: string }).updatePublicKey ?? null, onChange: (s: UpdateState) => send("update", s) });
-const UPDATE_EVERY_MS = 6 * 60 * 60 * 1000;
-let updateTimer: NodeJS.Timeout | undefined;
-const scheduleUpdates = (p: Prefs): void => {
-  if (updateTimer !== undefined) clearInterval(updateTimer);
-  updateTimer = undefined;
-  if (!p.autoUpdate || !app.isPackaged) return;
-  void updater.check();
-  updateTimer = setInterval(() => void updater.check(), UPDATE_EVERY_MS);
+/** "Check automatically" means once per launch; About → Check for updates covers the rest. */
+const checkOnLaunch = (p: Prefs): void => {
+  if (p.autoUpdate && app.isPackaged) void updater.check();
 };
 
 const appInfo = (): AppInfo => ({
@@ -131,7 +126,6 @@ ipcMain.handle("prefs:set", async (_e, patch: Partial<Prefs>) => {
   await writePrefs(prefsFile(), prefs);
   applyTheme(prefs);
   buildMenu();
-  if (patch.autoUpdate !== undefined) scheduleUpdates(prefs);
   return prefs;
 });
 ipcMain.handle("skm:resolved", async () => (await command())?.join(" ") ?? null);
@@ -146,7 +140,7 @@ app.whenReady().then(async () => {
   applyTheme(p);
   buildMenu();
   await createWindow();
-  scheduleUpdates(p);
+  checkOnLaunch(p);
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) void createWindow(); });
 });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });

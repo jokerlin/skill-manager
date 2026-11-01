@@ -178,7 +178,7 @@ tools:
 
 ## 更新
 
-桌面 App 会在 GitHub Releases 上检查新版本（可在 设置 → 通用 里关闭）。
+桌面 App 每次启动时在 GitHub Releases 上检查一次新版本（可在 设置 → 通用 里关闭，也可以在「关于」里手动检查）。
 
 - 每个 release 带一个清单文件 `latest-mac.json`，记录每个 zip 的 SHA-512 和大小。发布流水线用 Ed25519 私钥给清单签名，App 用 `desktop/package.json` 里的公钥验证签名。签名验证不通过，App 不安装这个更新。
 - App 下载对应架构的 zip，按签名清单里的 SHA-512 校验，在重启时替换 App。上一个版本保留在 `~/Library/Application Support/Skill Manager/updates/previous.app`。

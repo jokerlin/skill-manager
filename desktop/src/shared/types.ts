@@ -242,7 +242,7 @@ export type Prefs = {
   readonly theme: Theme;
   /** argv prefix for the CLI, e.g. "~/.local/bin/skm" or "bun run /repo/bin/skm.ts"; "" = search the usual places */
   readonly skmCommand: string;
-  /** check GitHub releases for a newer build on launch and every 6 hours */
+  /** check GitHub releases for a newer build once each time the app starts */
   readonly autoUpdate: boolean;
 };
 

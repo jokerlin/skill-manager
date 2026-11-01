@@ -178,7 +178,7 @@ Extensions are data. skm runs their commands only when you run `skm harness upda
 
 ## Updates
 
-The desktop app checks GitHub Releases for a newer version (you can turn this off in Settings → General).
+The desktop app checks GitHub Releases for a newer version once each time it starts (turn this off in Settings → General, or check by hand from About).
 
 - Each release has a manifest, `latest-mac.json`, with the SHA-512 and size of each zip. The release workflow signs the manifest with an Ed25519 key, and the app checks the signature against the public key in `desktop/package.json`. If the signature does not verify, the app does not install the update.
 - The app downloads the zip for its architecture, checks the SHA-512 from the signed manifest, and swaps the app when you restart. The previous version stays in `~/Library/Application Support/Skill Manager/updates/previous.app`.
