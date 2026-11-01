@@ -280,7 +280,7 @@ export const zh: Readonly<Record<keyof typeof en, string>> = {
   "about.error": "无法检查：{msg}",
   "about.releaseNotes": "发布页",
   "about.auto": "自动检查",
-  "about.autoHint": "启动时和每 6 小时检查一次 GitHub Releases。",
+  "about.autoHint": "每次启动时检查一次 GitHub Releases。",
   "about.idle": "尚未检查",
   "settings.updates": "更新",
   "pending.updatingHarness": "正在 {n} 台主机上更新 agent CLI",
