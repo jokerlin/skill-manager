@@ -1,2 +1,6 @@
 [install]
 registry = "https://registry.npmjs.org"
+
+[test]
+# renderer tests need the desktop dependencies (zustand); the CLI tests live in ../tests
+root = "tests"

@@ -6,6 +6,7 @@ All notable changes to Skill Manager. The format follows [Keep a Changelog](http
 
 ### Fixed
 
+- When the app's upstream check failed at launch (for example, the installed `skm` CLI was older than 0.5.3, or `config.yaml` had an error), the Skills view showed no upstream information until the app restarted. Refresh (⌘R) now checks the upstreams again, and a check you start that fails shows an error.
 - `skm upstream` printed every skill a repo has but `config.yaml` does not track, on one line. For a repo like bytedcli that was 266 names. It now prints the count and three examples when there are more than three; `skm upstream --json` still lists every name.
 
 ## [0.5.3] - 2026-11-01

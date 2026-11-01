@@ -19,6 +19,7 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "test": "bun test",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "pack": "bun run cli && electron-vite build && electron-builder --mac dir --config electron-builder.yml",
     "install-app": "sh scripts/install.sh",

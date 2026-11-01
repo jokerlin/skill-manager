@@ -56,7 +56,7 @@ The desktop app never computes state itself. It runs `skm … --json` and writes
 ```sh
 bun run typecheck
 bun test
-(cd desktop && bun run typecheck && bun run build)
+(cd desktop && bun run typecheck && bun test && bun run build)
 ```
 
 - Add or update tests for behavior changes. A bug fix comes with a test that fails without the fix.
