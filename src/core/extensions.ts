@@ -1,14 +1,12 @@
 import { parse as parseYaml } from "yaml";
 import { type Result, err, ok } from "../lib/result";
-import { AGENTS, type Agent, type AgentApp, dirFn } from "./agents";
-import type { Selector } from "./config";
-
-const ALL: Selector = { kind: "all" };
+import { AGENTS, type Agent, dirFn } from "./agents";
+import { RESERVED_PARAMS } from "./upstream";
 
 /**
- * Extensions: YAML files in `~/.skm/extensions/` that add what the built-in registry does not know.
- * They are data only (no code runs at load time); the shell commands they name run the same way as an agent's
- * own update command, on the hosts they select.
+ * Extensions: YAML files in `~/.skm/extensions/` that add what the built-in registry does not know: agents that
+ * consume skills, and sources that serve them. They are data only (no code runs at load time); the commands they
+ * name run when an update or an upstream check needs them.
  *
  *   name: my-setup                     # optional, defaults to the file name
  *   agents:                            # agents beyond claude / codex / pi
@@ -17,25 +15,19 @@ const ALL: Selector = { kind: "all" };
  *       skillsDir: ~/.config/opencode/skills
  *       alsoReads: [~/.claude/skills]  # dirs it also loads (reported, never managed)
  *       cli: { bin: opencode, update: opencode upgrade }
- *   apps:                              # an agent's macOS desktop app that writes plugin marketplaces
- *     - { id: chatgpt, agent: codex, name: ChatGPT, bundle: /Applications/ChatGPT.app, feed: <appcast url>, marketplaces: [...], marker: <~/ file> }
- *   tools:                             # anything else `skm harness` should check and update on each host
- *     - id: magpie
- *       bin: magpie
- *       update: magpie update
- *       onChange: magpie daemon restart   # runs only when the version changed
- *       hosts: { only: [mini] }
+ *   sources:                           # where `upstreams:` entries with `source: <id>` get their skills
+ *     - id: my-registry
+ *       params: [namespace]            # keys each upstream must set; reach the commands as $NAMESPACE
+ *       latest: my-registry latest "$NAMESPACE/$SKILL"          # prints the newest version
+ *       fetch: my-registry get "$NAMESPACE/$SKILL@$VERSION" -o "$OUT"   # writes the skill's files into $OUT
+ *
+ * A key skm used to read and no longer does (`tools:`, `apps:`) loads with a warning, so an old file keeps its other parts.
  */
 
-/** A tool from an extension: checked with `<bin> --version`, updated with `update`, then `onChange` when the version moved. */
-export type ExtensionTool = {
-  readonly id: string;
-  readonly name: string;
-  readonly bin: string;
-  readonly update: string;
-  readonly onChange: string;
-  readonly hosts: Selector;
-  readonly extension: string;
+/** Keys older versions read; skm ignores them now and says so. */
+const RETIRED_KEYS: Readonly<Record<string, string>> = {
+  tools: "tools: is no longer read (skm 0.6 dropped extension tools); skm ignores it, delete it from this file",
+  apps: "apps: is no longer read (skm 0.6 builds the ChatGPT app into the codex agent and dropped extension apps); skm ignores it, delete it from this file",
 };
 
 export type ExtensionAgent = {
@@ -46,55 +38,51 @@ export type ExtensionAgent = {
   readonly cli: { readonly bin: string; readonly update: string };
 };
 
-export type ExtensionApp = AgentApp & { readonly agent: string };
+/**
+ * A skill source run with shell commands. Both commands get $SKILL and the upstream's params (upper-cased).
+ * `latest` prints the newest version of $SKILL (its last non-empty stdout line counts). `fetch` gets $VERSION,
+ * an empty dir $OUT and a scratch dir $WORK, and writes the files of $SKILL at $VERSION into $OUT
+ * (SKILL.md at its root, or in its only subdir).
+ */
+export type ExtensionSource = {
+  readonly id: string;
+  readonly name: string;
+  readonly params: readonly string[];
+  readonly latest: string;
+  readonly fetch: string;
+};
+
+/** A source as the registry holds it: which extension defined it. */
+export type RegistrySource = ExtensionSource & { readonly extension: string };
 
 export type Extension = {
   readonly name: string;
-  /** file path, or "builtin" */
+  /** the file it came from */
   readonly source: string;
   readonly agents: readonly ExtensionAgent[];
-  readonly apps: readonly ExtensionApp[];
-  readonly tools: readonly Omit<ExtensionTool, "extension">[];
+  readonly sources: readonly ExtensionSource[];
+  /** problems that did not stop the file from loading */
+  readonly warnings: readonly string[];
 };
 
 /** What one extension contributed, or why it was not loaded. */
 export type ExtensionInfo = {
   readonly name: string;
   readonly source: string;
+  /** false when `error` is set */
   readonly enabled: boolean;
   readonly agents: readonly string[];
-  readonly apps: readonly string[];
-  readonly tools: readonly string[];
+  readonly sources: readonly string[];
+  readonly warnings: readonly string[];
   readonly error: string | null;
 };
 
-/** Every agent skm can use (built-in + extensions, desktop apps attached) and the extra harness tools. */
+/** Every agent skm can use (built-in + extensions), and every skill source extensions define. */
 export type Registry = {
   readonly agents: readonly Agent[];
-  readonly tools: readonly ExtensionTool[];
+  readonly sources: readonly RegistrySource[];
   readonly extensions: readonly ExtensionInfo[];
 };
-
-/** Shipped with skm, switchable off with config `disabledExtensions: [chatgpt-desktop]`. */
-export const BUILTIN_EXTENSIONS: readonly Extension[] = [
-  {
-    name: "chatgpt-desktop",
-    source: "builtin",
-    agents: [],
-    // ChatGPT.app (bundle id com.openai.codex) materializes openai-bundled and installs the runtime that holds openai-primary-runtime
-    apps: [{
-      id: "chatgpt",
-      agent: "codex",
-      name: "ChatGPT",
-      bundle: "/Applications/ChatGPT.app",
-      feed: "https://persistent.oaistatic.com/codex-app-prod/appcast.xml",
-      marketplaces: ["openai-bundled", "openai-primary-runtime"],
-      marker: ".codex/.tmp/bundled-marketplaces/openai-bundled/.materialization-key",
-      settle: { file: ".cache/codex-runtimes/codex-primary-runtime/runtime.json", busy: ".cache/codex-runtimes/codex-runtime-install-*" },
-    }],
-    tools: [],
-  },
-];
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const ID = /^[a-z][a-z0-9-]{0,31}$/;
@@ -116,13 +104,6 @@ const list = <T>(v: unknown, path: string, each: (x: unknown, p: string) => Resu
 const id = (v: unknown, path: string): Result<string, Fail> =>
   typeof v === "string" && ID.test(v) ? ok(v) : err(`${path}: expected an id (lowercase letters, digits, dashes)`);
 
-const hostsSel = (v: unknown, path: string): Result<Selector, Fail> => {
-  if (v === undefined || v === "all") return ok(ALL);
-  if (isRecord(v) && Array.isArray(v["only"]) && v["only"].every((x) => typeof x === "string")) return ok({ kind: "only", globs: v["only"] as string[] });
-  if (isRecord(v) && Array.isArray(v["except"]) && v["except"].every((x) => typeof x === "string")) return ok({ kind: "except", globs: v["except"] as string[] });
-  return err(`${path}: expected all, { only: [...] } or { except: [...] }`);
-};
-
 const parseAgent = (v: unknown, path: string): Result<ExtensionAgent, Fail> => {
   if (!isRecord(v)) return err(`${path}: expected a map`);
   const i = id(v["id"], `${path}.id`);
@@ -141,42 +122,22 @@ const parseAgent = (v: unknown, path: string): Result<ExtensionAgent, Fail> => {
   return ok({ id: i.value, name, skillsDir: dir.value, alsoReads: also.value, cli: { bin: bin.value || i.value, update: update.value } });
 };
 
-const parseApp = (v: unknown, path: string): Result<ExtensionApp, Fail> => {
-  if (!isRecord(v)) return err(`${path}: expected a map`);
-  const i = id(v["id"], `${path}.id`);
-  if (!i.ok) return i;
-  const fields = ["agent", "bundle", "feed", "marker"] as const;
-  const vals: Record<string, string> = {};
-  for (const f of fields) {
-    const r = str(v[f], `${path}.${f}`);
-    if (!r.ok) return r;
-    vals[f] = r.value;
-  }
-  if (!/^https:\/\//.test(vals["feed"] ?? "")) return err(`${path}.feed: expected an https URL`);
-  const mks = strList(v["marketplaces"], `${path}.marketplaces`);
-  if (!mks.ok) return mks;
-  const settle = v["settle"];
-  if (settle !== undefined && !(isRecord(settle) && typeof settle["file"] === "string" && typeof settle["busy"] === "string")) return err(`${path}.settle: expected { file, busy }`);
-  return ok({
-    id: i.value, agent: vals["agent"] ?? "", name: typeof v["name"] === "string" ? v["name"] : i.value,
-    bundle: vals["bundle"] ?? "", feed: vals["feed"] ?? "", marker: vals["marker"] ?? "", marketplaces: mks.value,
-    ...(isRecord(settle) ? { settle: { file: String(settle["file"]), busy: String(settle["busy"]) } } : {}),
-  });
-};
+const PARAM = /^[a-z][a-z0-9_]*$/;
 
-const parseTool = (v: unknown, path: string): Result<Omit<ExtensionTool, "extension">, Fail> => {
+const parseSource = (v: unknown, path: string): Result<ExtensionSource, Fail> => {
   if (!isRecord(v)) return err(`${path}: expected a map`);
   const i = id(v["id"], `${path}.id`);
   if (!i.ok) return i;
-  const bin = str(v["bin"], `${path}.bin`, false);
-  if (!bin.ok) return bin;
-  const update = str(v["update"], `${path}.update`);
-  if (!update.ok) return update;
-  const onChange = str(v["onChange"], `${path}.onChange`, false);
-  if (!onChange.ok) return onChange;
-  const hosts = hostsSel(v["hosts"], `${path}.hosts`);
-  if (!hosts.ok) return hosts;
-  return ok({ id: i.value, name: typeof v["name"] === "string" ? v["name"] : i.value, bin: bin.value || i.value, update: update.value, onChange: onChange.value, hosts: hosts.value });
+  const latest = str(v["latest"], `${path}.latest`);
+  if (!latest.ok) return latest;
+  const fetch = str(v["fetch"], `${path}.fetch`);
+  if (!fetch.ok) return fetch;
+  const params = strList(v["params"], `${path}.params`);
+  if (!params.ok) return params;
+  const bad = params.value.filter((p) => !PARAM.test(p) || (RESERVED_PARAMS as readonly string[]).includes(p));
+  if (bad.length > 0) return err(`${path}.params: not a param name: ${bad.join(", ")} (lowercase letters, digits and '_'; not ${RESERVED_PARAMS.join(", ")})`);
+  const name = typeof v["name"] === "string" && v["name"].trim() !== "" ? v["name"].trim() : i.value;
+  return ok({ id: i.value, name, params: params.value, latest: latest.value, fetch: fetch.value });
 };
 
 /** One extension file → an Extension, or the first problem in it. Pure. */
@@ -187,18 +148,17 @@ export const parseExtension = (text: string, source: string, fallbackName: strin
   } catch (e) {
     return err(e instanceof Error ? e.message : String(e));
   }
-  if (!isRecord(doc)) return err("expected a map with agents / apps / tools");
-  const unknownKeys = Object.keys(doc).filter((k) => !["name", "agents", "apps", "tools"].includes(k));
+  if (!isRecord(doc)) return err("expected a map with agents / sources");
+  const unknownKeys = Object.keys(doc).filter((k) => !["name", "agents", "sources"].includes(k) && RETIRED_KEYS[k] === undefined);
   if (unknownKeys.length > 0) return err(`unknown keys: ${unknownKeys.join(", ")}`);
   const name = doc["name"] === undefined ? ok(fallbackName) : id(doc["name"], "name");
   if (!name.ok) return name;
   const agents = list(doc["agents"], "agents", parseAgent);
   if (!agents.ok) return agents;
-  const apps = list(doc["apps"], "apps", parseApp);
-  if (!apps.ok) return apps;
-  const tools = list(doc["tools"], "tools", parseTool);
-  if (!tools.ok) return tools;
-  return ok({ name: name.value, source, agents: agents.value, apps: apps.value, tools: tools.value });
+  const sources = list(doc["sources"], "sources", parseSource);
+  if (!sources.ok) return sources;
+  const warnings = Object.keys(doc).flatMap((k) => (RETIRED_KEYS[k] !== undefined ? [RETIRED_KEYS[k]] : []));
+  return ok({ name: name.value, source, agents: agents.value, sources: sources.value, warnings });
 };
 
 const agentOf = (e: ExtensionAgent, extension: string): Agent => ({
@@ -211,55 +171,40 @@ const agentOf = (e: ExtensionAgent, extension: string): Agent => ({
   extension,
 });
 
-const info = (e: Extension, enabled: boolean, error: string | null): ExtensionInfo => ({
-  name: e.name, source: e.source, enabled, error,
-  agents: e.agents.map((a) => a.id), apps: e.apps.map((a) => a.id), tools: e.tools.map((t) => t.id),
+const info = (e: Extension, error: string | null): ExtensionInfo => ({
+  name: e.name, source: e.source, enabled: error === null, error, agents: e.agents.map((a) => a.id), sources: e.sources.map((x) => x.id), warnings: e.warnings,
 });
 
 /**
- * Built-in agents + every enabled extension. An extension whose ids clash with something already registered
+ * Built-in agents + every extension. An extension whose ids clash with something already registered
  * is skipped as a whole (with the reason), so one bad file never changes what another one means. Pure.
  */
 export const buildRegistry = (
   extensions: readonly Extension[],
-  disabled: readonly string[],
   failed: readonly { readonly name: string; readonly source: string; readonly error: string }[] = [],
 ): Registry => {
-  type Acc = { agents: Agent[]; apps: ExtensionApp[]; tools: ExtensionTool[]; infos: ExtensionInfo[] };
-  const start: Acc = { agents: [...AGENTS], apps: [], tools: [], infos: [] };
+  type Acc = { readonly agents: readonly Agent[]; readonly sources: readonly RegistrySource[]; readonly infos: readonly ExtensionInfo[] };
+  // agents and sources are separate id spaces: an upstream names a source, a rule names an agent
+  const clashes = (taken: readonly string[], ids: readonly string[]) => ids.filter((x, i) => taken.includes(x) || ids.indexOf(x) !== i);
   const acc = extensions.reduce<Acc>((a, e) => {
-    if (disabled.includes(e.name) || a.infos.some((i) => i.name === e.name)) {
-      return { ...a, infos: [...a.infos, info(e, false, disabled.includes(e.name) ? null : `another extension is already named ${e.name}`)] };
-    }
-    const taken = new Set([...a.agents.map((x) => x.id), ...a.apps.map((x) => x.id), ...a.tools.map((x) => x.id)]);
-    const ids = [...e.agents.map((x) => x.id), ...e.apps.map((x) => x.id), ...e.tools.map((x) => x.id)];
-    const clash = ids.filter((x, i) => taken.has(x) || ids.indexOf(x) !== i);
-    if (clash.length > 0) return { ...a, infos: [...a.infos, info(e, false, `ids already in use: ${[...new Set(clash)].join(", ")}`)] };
+    if (a.infos.some((i) => i.name === e.name)) return { ...a, infos: [...a.infos, info(e, `another extension is already named ${e.name}`)] };
+    const clash = [
+      ...clashes(a.agents.map((x) => x.id), e.agents.map((x) => x.id)),
+      ...clashes(a.sources.map((x) => x.id), e.sources.map((x) => x.id)),
+    ];
+    if (clash.length > 0) return { ...a, infos: [...a.infos, info(e, `ids already in use: ${[...new Set(clash)].join(", ")}`)] };
     return {
       agents: [...a.agents, ...e.agents.map((x) => agentOf(x, e.name))],
-      apps: [...a.apps, ...e.apps],
-      tools: [...a.tools, ...e.tools.map((t) => ({ ...t, extension: e.name }))],
-      infos: [...a.infos, info(e, true, null)],
+      sources: [...a.sources, ...e.sources.map((x) => ({ ...x, extension: e.name }))],
+      infos: [...a.infos, info(e, null)],
     };
-  }, start);
-  // an app attaches to its agent; one naming an unknown agent is reported, not attached
-  const orphan = acc.apps.filter((p) => !acc.agents.some((g) => g.id === p.agent));
-  const infos = acc.infos.map((i) => {
-    const bad = orphan.filter((p) => i.apps.includes(p.id));
-    return bad.length > 0 && i.error === null ? { ...i, error: `app ${bad.map((p) => p.id).join(", ")} names an unknown agent ${bad.map((p) => p.agent).join(", ")}` } : i;
-  });
-  const agents = acc.agents.map((g) => {
-    const app = acc.apps.find((p) => p.agent === g.id);
-    if (app === undefined) return g;
-    const { agent: _agent, ...rest } = app;
-    return { ...g, app: rest };
-  });
+  }, { agents: AGENTS, sources: [], infos: [] });
   return {
-    agents,
-    tools: acc.tools,
-    extensions: [...infos, ...failed.map((f) => ({ name: f.name, source: f.source, enabled: false, agents: [], apps: [], tools: [], error: f.error }))],
+    agents: acc.agents,
+    sources: acc.sources,
+    extensions: [...acc.infos, ...failed.map((f): ExtensionInfo => ({ name: f.name, source: f.source, enabled: false, agents: [], sources: [], warnings: [], error: f.error }))],
   };
 };
 
-/** The registry with only the built-in extensions (what pure code and tests see without reading ~/.skm/extensions). */
-export const builtinRegistry = (disabled: readonly string[] = []): Registry => buildRegistry(BUILTIN_EXTENSIONS, disabled);
+/** The registry with only the built-in agents (what pure code and tests see without reading ~/.skm/extensions). */
+export const builtinRegistry = (): Registry => buildRegistry([]);

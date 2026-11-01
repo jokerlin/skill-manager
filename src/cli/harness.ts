@@ -62,7 +62,6 @@ export const runHarness = async (o: { json: boolean; cached: boolean; host?: str
       return out(JSON.stringify({
         agents: app.agents.map((a) => ({ id: a.id, bin: a.cli.bin, update: a.cli.update })),
         apps: appsOf(app),
-        tools: app.config.registry.tools.map((t) => ({ id: t.id, name: t.name, bin: t.bin, update: t.update, extension: t.extension })),
         hosts: rows.map((r) => ({
           ...r,
           versions: Object.fromEntries(r.results.map((x) => [x.agent, x.kind === "missing" ? null : versionOf(x)])),
@@ -70,7 +69,7 @@ export const runHarness = async (o: { json: boolean; cached: boolean; host?: str
         })),
       }, null, 2));
     }
-    const cols = [...app.agents.map((a) => a.id), ...appsOf(app).map((a) => a.id), ...app.config.registry.tools.map((t) => t.id)].filter((id) => o.agent === undefined || id === o.agent);
+    const cols = [...app.agents.map((a) => a.id), ...appsOf(app).map((a) => a.id)].filter((id) => o.agent === undefined || id === o.agent);
     out(table(["host", ...cols], rows.map((r) => [
       r.error === null ? r.host : pc.red(r.host),
       ...cols.map((id) => (r.error !== null ? pc.red("unreachable") : cellText(r.results.find((x) => x.agent === id)))),

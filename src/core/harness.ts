@@ -8,7 +8,7 @@ import { HOST_PATH } from "./scripts";
  * `id` is the key in results: the agent id for a CLI, the app id for an app.
  */
 export type HarnessTool =
-  | { readonly kind: "cli"; readonly id: string; readonly bin: string; readonly update: string; readonly onChange?: string }
+  | { readonly kind: "cli"; readonly id: string; readonly bin: string; readonly update: string }
   | { readonly kind: "app"; readonly id: string; readonly bundle: string; readonly feed: string; readonly marker: string; readonly settle?: { readonly file: string; readonly busy: string } };
 
 /** What happened to one tool on one host. `agent` is the tool id. `latest` is the newest version the app's feed offers ("" = unknown). */
@@ -48,7 +48,6 @@ const cliInner = (t: Extract<HarnessTool, { kind: "cli" }>, mode: HarnessMode): 
         `echo ">> ${esc(t.update)}"`,
         `if ${t.update} </dev/null 2>&1; then r=ok; else r=fail; fi`,
         `after=$(ver ${shQuote(t.bin)})`,
-        ...(t.onChange ? [`if [ "$r" = ok ] && [ "$after" != "$before" ]; then echo ">> ${esc(t.onChange)}"; ${t.onChange} </dev/null 2>&1 || echo "onChange failed"; fi`] : []),
         `printf '@@harness\\t%s\\t%s\\t%s\\t%s\\n' ${shQuote(t.id)} "$r" "$before" "$after"`,
       ]),
 ].join("\n");

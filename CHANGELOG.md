@@ -4,6 +4,20 @@ All notable changes to Skill Manager. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+### Added
+
+- Upstreams can come from a skill registry, not only from a git repo. An extension defines a source under `sources:` with two shell commands: `latest` prints the newest version of a skill, and `fetch` downloads a version into `$OUT`. An upstream names it with `source: <id>` plus the params the source needs (for example `namespace:`), and may pin a version with `ref:`. `skm upstream`, `skm upstream update`, the TUI and the app show these skills with the same states, backups and lock as git upstreams, each skill at its own version. skm keeps downloaded versions in `~/.skm/cache/sources/`, so `--cached` runs no command. `skm extensions` and **Settings → Extensions** list each extension's sources.
+
+### Changed
+
+- `~/.skm/upstreams.lock.json` is now version 2: an entry's `commit` is named `rev`, because a source's version is not a commit. skm reads version 1 files and writes version 2 on the next update. Warning: skm 0.5 cannot read a version 2 lock, so after an update with 0.6, going back to 0.5 needs `skm upstream adopt` again. `skm upstream --json` names `base.rev` and `target.rev` the same way, and adds `kind`, `source` and a per-skill `target`.
+- The Codex desktop app (ChatGPT.app) is part of the built-in codex agent, not the built-in extension `chatgpt-desktop`. The app labels it "Codex desktop app (ChatGPT.app)". Version checks, app updates and its bundled plugins work as before.
+
+### Removed
+
+- Extensions can no longer declare `apps:`, and config.yaml no longer reads `disabledExtensions`. An extension file with `apps:` loads with a warning, and skm ignores that list. To turn an extension off, move its file out of `~/.skm/extensions`. **Settings → Extensions** lists the files with their warnings and errors, without switches.
+- Extensions can no longer declare `tools:` for `skm harness` to check and update. `skm harness`, the TUI hosts view and the app's Agent CLIs section show only the agent CLIs and desktop apps. A file that still has `tools:` loads with a warning in `skm extensions` and in **Settings → Extensions**; skm ignores that list, and the file's agents and apps still load.
+
 ### Fixed
 
 - Switching a plugin that is not under `plugins:` yet (in the app, or with `skm scope --plugin`) could switch it off on a host skm had never probed. The first switch copies where the plugin is enabled today, and a host with no probe result added no cells, so the next apply there disabled it. skm now refuses that switch and names the hosts to probe first (`skm status <host>`).

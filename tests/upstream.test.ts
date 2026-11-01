@@ -18,8 +18,8 @@ describe("upstreams in config.yaml", () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.value.upstreams).toEqual([
-      { name: "waza", repo: "https://example.com/waza.git", ref: none, path: "skills/{skill}", skills: ["check", "hunt"] },
-      { name: "kit", repo: "/src/kit", ref: some("main"), path: "{skill}", skills: ["doc"] },
+      { kind: "git", name: "waza", repo: "https://example.com/waza.git", ref: none, path: "skills/{skill}", skills: ["check", "hunt"] },
+      { kind: "git", name: "kit", repo: "/src/kit", ref: some("main"), path: "{skill}", skills: ["doc"] },
     ]);
     const again = parseConfig(serializeConfig(r.value));
     expect(again.ok && again.value.upstreams).toEqual(r.value.upstreams);
@@ -31,6 +31,20 @@ describe("upstreams in config.yaml", () => {
     expect(parseConfig(`${base}upstreams:\n  a: { repo: x, path: "../{skill}", skills: [s] }\n`).ok).toBe(false);
     expect(parseConfig(`${base}upstreams:\n  a: { repo: x, path: skills, skills: [s] }\n`).ok).toBe(false);
     expect(parseConfig(`${base}upstreams:\n  a: { repo: x, skills: [] }\n`).ok).toBe(false);
+  });
+  test("a source upstream keeps its params and writes back the same", () => {
+    const r = parseConfig(`${base}upstreams:\n  reg: { source: my-registry, namespace: team/kit, ref: "1.2.0", skills: [doc] }\n`);
+    if (!r.ok) throw new Error(JSON.stringify(r.error));
+    expect(r.value.upstreams).toEqual([{ kind: "source", name: "reg", source: "my-registry", params: { namespace: "team/kit" }, ref: some("1.2.0"), skills: ["doc"] }]);
+    const again = parseConfig(serializeConfig(r.value));
+    expect(again.ok && again.value.upstreams).toEqual(r.value.upstreams);
+  });
+  test("rejects git keys on a source upstream, reserved or odd param names, and unknown keys on a git upstream", () => {
+    expect(parseConfig(`${base}upstreams:\n  a: { source: reg, repo: x, skills: [s] }\n`).ok).toBe(false);
+    expect(parseConfig(`${base}upstreams:\n  a: { source: reg, version: "1", skills: [s] }\n`).ok).toBe(false);
+    expect(parseConfig(`${base}upstreams:\n  a: { source: reg, Name-Space: x, skills: [s] }\n`).ok).toBe(false);
+    expect(parseConfig(`${base}upstreams:\n  a: { source: reg, namespace: 3, skills: [s] }\n`).ok).toBe(false);
+    expect(parseConfig(`${base}upstreams:\n  a: { repo: x, namespace: y, skills: [s] }\n`).ok).toBe(false);
   });
   test("a config without upstreams writes no upstreams key", () => {
     const r = parseConfig(base);
@@ -85,13 +99,19 @@ describe("refs, digests, lock", () => {
     expect(skillParent("{skill}")).toEqual(some(""));
     expect(skillParent("{skill}/src")).toEqual(none);
   });
-  test("lock round-trips and rejects other shapes", () => {
-    const l = setLockEntry(setLockEntry(EMPTY_LOCK, "waza", "hunt", { commit: "c2", label: "v2", digest: "d2" }), "waza", "check", { commit: "c1", label: "v1", digest: "d1" });
+  test("lock round-trips as version 2 and rejects other shapes", () => {
+    const l = setLockEntry(setLockEntry(EMPTY_LOCK, "waza", "hunt", { rev: "c2", label: "v2", digest: "d2" }), "waza", "check", { rev: "c1", label: "v1", digest: "d1" });
     const text = serializeLock(l);
+    expect(JSON.parse(text).version).toBe(2);
     expect(parseLock(text)).toEqual({ ok: true, value: l });
     expect(text.indexOf("check")).toBeLessThan(text.indexOf("hunt"));
     expect(parseLock("{}").ok).toBe(false);
     expect(parseLock(`{"version":1,"upstreams":{"w":{"s":{"commit":1}}}}`).ok).toBe(false);
+    expect(parseLock(`{"version":2,"upstreams":{"w":{"s":{"commit":"c","label":"v","digest":"d"}}}}`).ok).toBe(false);
+  });
+  test("a version 1 lock (rev named commit) still reads", () => {
+    expect(parseLock(`{"version":1,"upstreams":{"w":{"s":{"commit":"c1","label":"v1","digest":"d1"}}}}`))
+      .toEqual({ ok: true, value: { w: { s: { rev: "c1", label: "v1", digest: "d1" } } } });
   });
 });
 

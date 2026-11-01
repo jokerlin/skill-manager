@@ -1,7 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import type { HostConfig } from "../core/config";
 import { type HarnessHost, type HarnessMode, type HarnessTool, harnessScript, mergeHarness, parseHarnessLine } from "../core/harness";
-import { selects } from "../core/scope";
 import type { AppState } from "./app";
 import { agentsOn, runnerFor } from "./hosts";
 import { runError } from "./runner";
@@ -48,7 +47,6 @@ export const toolsOf = (app: AppState, h: HostConfig, pick: string | undefined, 
       { kind: "cli", id: a.id, bin: a.cli.bin, update: a.cli.update },
       ...(a.app !== undefined ? [{ kind: "app" as const, id: a.app.id, bundle: a.app.bundle, feed: a.app.feed, marker: a.app.marker, ...(a.app.settle !== undefined ? { settle: a.app.settle } : {}) }] : []),
     ])
-    .concat(app.config.registry.tools.filter((t) => selects(t.hosts, h.id)).map((t): HarnessTool => ({ kind: "cli", id: t.id, bin: t.bin, update: t.update, ...(t.onChange !== "" ? { onChange: t.onChange } : {}) })))
     // an agent with no update command (an extension that left it out) is checked, never updated
     .filter((t) => mode === "check" || t.kind === "app" || t.update !== "")
     .filter((t) => (pick === undefined ? mode === "check" || t.kind === "cli" : t.id === pick));

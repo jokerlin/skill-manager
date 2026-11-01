@@ -72,8 +72,6 @@ export type Config = {
   readonly backupBeforeApply: boolean;
   /** agent id → user settings that replace built-in agent values (skills dir, self-update command) */
   readonly agentOverrides: Readonly<Record<string, AgentOverride>>;
-  /** extension names (built-in or from ~/.skm/extensions) that stay switched off */
-  readonly disabledExtensions: readonly string[];
   /** built-in agents plus extensions, filled in when the config is loaded; never written back */
   readonly registry: Registry;
 };
@@ -96,7 +94,6 @@ export const defaultConfig = (): Config => ({
   owned: [],
   upstreams: [],
   eval: { agent: "claude", model: none },
-  disabledExtensions: [],
   registry: builtinRegistry(),
   contextTokens: 1_000_000, // fallback window when a host's model cannot be resolved; Claude Fable/Opus 5/Sonnet 5 and Codex's large models are all ≥ 1M-class
   backupBeforeApply: true,
@@ -302,9 +299,6 @@ export const parseConfig = (text: string): Result<Config, ConfigError> => {
   const backupBeforeApply = doc["backupBeforeApply"] ?? d.backupBeforeApply;
   if (typeof backupBeforeApply !== "boolean") return err(shape("backupBeforeApply", "expected boolean"));
 
-  const disabledExtensions = doc["disabledExtensions"] === undefined ? ok([] as readonly string[]) : parseStringList(doc["disabledExtensions"], "disabledExtensions");
-  if (!disabledExtensions.ok) return disabledExtensions;
-
   const overridesRaw = doc["agentOverrides"] ?? {};
   if (!isRecord(overridesRaw)) return err(shape("agentOverrides", "expected a map of agent id → { dir, update }"));
   const overrides = sequence(Object.entries(overridesRaw).map(([id, v]) => parseAgentOverride(id, v)));
@@ -323,8 +317,7 @@ export const parseConfig = (text: string): Result<Config, ConfigError> => {
     contextTokens,
     backupBeforeApply,
     agentOverrides: Object.fromEntries(overrides.value),
-    disabledExtensions: disabledExtensions.value,
-    registry: builtinRegistry(disabledExtensions.value),
+    registry: builtinRegistry(),
   });
 };
 
@@ -392,7 +385,6 @@ export const serializeConfig = (c: Config): string =>
     contextTokens: c.contextTokens,
     backupBeforeApply: c.backupBeforeApply,
     ...overridesToRaw(c.agentOverrides),
-    ...(c.disabledExtensions.length > 0 ? { disabledExtensions: [...c.disabledExtensions] } : {}),
   });
 
 const overridesToRaw = (o: Readonly<Record<string, AgentOverride>>): Raw => {

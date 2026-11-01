@@ -299,22 +299,8 @@ const Agents = () => {
 const Extensions = () => {
   const t = useT();
   const config = useApp((s) => s.config);
-  const boot = useApp((s) => s.boot);
   if (config === null) return null;
   const list = config.extensions ?? [];
-  const toggle = async (name: string, on: boolean) => {
-    const disabled = (config.disabledExtensions ?? []).filter((x) => x !== name).concat(on ? [] : [name]);
-    const r = await skm.patchConfig({ disabledExtensions: disabled });
-    if (!r.ok) return void toast.error(errorText(r.error));
-    toast.success(t("settings.saved"));
-    await boot();
-  };
-  const parts = (e: (typeof list)[number]): string =>
-    [
-      e.agents.length > 0 ? t("settings.extAgents", { list: e.agents.join(", ") }) : "",
-      e.apps.length > 0 ? t("settings.extApps", { list: e.apps.join(", ") }) : "",
-      e.tools.length > 0 ? t("settings.extTools", { list: e.tools.join(", ") }) : "",
-    ].filter((x) => x !== "").join(" · ");
   return (
     <div className="flex flex-col gap-3 py-3">
       <p className="text-[11.5px] leading-relaxed text-muted-foreground">{t("settings.extensionsHint")}</p>
@@ -322,23 +308,17 @@ const Extensions = () => {
         <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-muted-foreground selectable">{config.extensionsDir}</span>
         <Button variant="outline" size="xs" onClick={() => void window.skm.openDir(config.extensionsDir)}>{t("settings.openExtensions")}</Button>
       </div>
-      {list.map((e) => {
-        const builtin = e.source === "builtin";
-        const off = (config.disabledExtensions ?? []).includes(e.name);
-        return (
-          <section key={`${e.name}:${e.source}`} className={cn("rounded-lg border border-border/80 px-3.5 py-3", !e.enabled && "opacity-75")}>
-            <div className="flex items-center gap-2">
-              <span className="text-[13px] font-semibold">{e.name}</span>
-              <span className="rounded bg-foreground/[0.06] px-1.5 py-px text-[10.5px] text-muted-foreground">{builtin ? t("settings.extBuiltin") : t("settings.extFile")}</span>
-              <span className="flex-1" />
-              {e.error === null || off ? <Switch size="sm" checked={!off} onCheckedChange={(on) => void toggle(e.name, on)} /> : null}
-            </div>
-            {!builtin ? <div className="mt-1 truncate font-mono text-[11px] text-muted-foreground selectable">{e.source}</div> : null}
-            {parts(e) !== "" ? <div className="mt-1.5 text-[12px]">{parts(e)}</div> : null}
-            {e.error !== null ? <div className="mt-1.5 rounded-md bg-danger-soft px-2.5 py-1.5 font-mono text-[11px] text-danger selectable">{e.error}</div> : null}
-          </section>
-        );
-      })}
+      {list.length === 0 ? <p className="text-[12px] text-muted-foreground">{t("settings.extNone")}</p> : null}
+      {list.map((e) => (
+        <section key={`${e.name}:${e.source}`} className={cn("rounded-lg border border-border/80 px-3.5 py-3", !e.enabled && "opacity-75")}>
+          <div className="text-[13px] font-semibold">{e.name}</div>
+          <div className="mt-1 truncate font-mono text-[11px] text-muted-foreground selectable">{e.source}</div>
+          {e.agents.length > 0 ? <div className="mt-1.5 text-[12px]">{t("settings.extAgents", { list: e.agents.join(", ") })}</div> : null}
+          {(e.sources ?? []).length > 0 ? <div className="mt-1.5 text-[12px]">{t("settings.extSources", { list: (e.sources ?? []).join(", ") })}</div> : null}
+          {(e.warnings ?? []).map((w) => <div key={w} className="mt-1.5 rounded-md bg-pending-soft px-2.5 py-1.5 font-mono text-[11px] text-pending selectable">{w}</div>)}
+          {e.error !== null ? <div className="mt-1.5 rounded-md bg-danger-soft px-2.5 py-1.5 font-mono text-[11px] text-danger selectable">{e.error}</div> : null}
+        </section>
+      ))}
     </div>
   );
 };

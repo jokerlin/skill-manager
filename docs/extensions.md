@@ -2,22 +2,25 @@
 
 English | [简体中文](zh-CN/extensions.md)
 
-An extension adds something that the built-in skm does not know: another coding agent, a desktop app that writes plugin marketplaces, or a tool to check and update on your hosts. Use extensions for anything personal or company-specific, so the core stays generic.
+An extension adds what the built-in skm does not know: a coding agent that loads skills (skm ships with Claude Code, Codex and Pi), or a source that serves skills (skm reads git repos itself). Use extensions for anything personal or company-specific, so the core stays generic.
 
 ## Where extensions live
 
 skm loads every `*.yaml` and `*.yml` file in `~/.skm/extensions/` on the hub when a command starts. Each file is one extension.
 
 ```sh
-skm extensions          # loaded extensions, what each adds, and errors
+skm extensions          # loaded extensions, what each adds, warnings and errors
 skm extensions --json
 ```
 
-In the desktop app, open **Settings → Extensions** to see the same list, switch an extension on or off, and open the folder.
+In the desktop app, open **Settings → Extensions** to see the same list and open the folder. To turn an extension off, move its file out of the folder.
 
-An extension is data only. skm runs no code when it loads the file. The shell commands in a file run only when you start an update (`skm harness update`, or the update buttons in the app), on the hosts that the file selects, in a login shell, the same way the built-in agent update commands run.
+An extension is data only. skm runs no code when it loads the file. It runs the commands a file names only when they are needed:
 
-Warning: an extension's `update` and `onChange` commands run on every selected host with your user's permissions. Install extension files only from people you trust, and read them first.
+- An agent's `cli.update` runs when you start an update (`skm harness update`, or the update buttons in the app), on the hosts where that agent is enabled, in a login shell, the same way the built-in agent update commands run.
+- A source's `latest` and `fetch` run on the hub when skm checks or updates an upstream that uses the source (`skm upstream`, the TUI, the app's upstream check).
+
+Warning: these commands run with your user's permissions. Install extension files only from people you trust, and read them first.
 
 ## Format
 
@@ -31,28 +34,18 @@ agents:                     # coding agents beyond claude / codex / pi
     alsoReads: [~/.claude/skills]   # other dirs this agent also loads (reported, never managed)
     cli: { bin: opencode, update: opencode upgrade }   # both optional; bin defaults to the id
 
-apps:                       # an agent's macOS desktop app that installs plugin marketplaces
-  - id: myapp
-    agent: codex            # the agent this app belongs to
-    name: My App
-    bundle: /Applications/My App.app
-    feed: https://example.com/appcast.xml        # Sparkle appcast, https only
-    marketplaces: [my-bundled]                   # marketplaces the app writes
-    marker: .myapp/bundled/.ready                # file under $HOME the app rewrites after an update
-    settle: { file: .cache/myapp/runtime.json, busy: ".cache/myapp/install-*" }   # optional
-
-tools:                      # anything else `skm harness` checks and updates on each host
-  - id: magpie
-    name: Magpie
-    bin: magpie             # checked with `<bin> --version`; defaults to the id
-    update: magpie update   # required
-    onChange: magpie daemon restart   # optional; runs only when the version changed
-    hosts: { only: [mini, devbox] }   # all (default), { only: [...] } or { except: [...] }; globs work
+sources:                    # where upstreams with `source: <id>` get their skills (see Sources)
+  - id: my-registry
+    params: [namespace]
+    latest: my-registry show "$NAMESPACE/$SKILL" --json | jq -r .version
+    fetch: my-registry download "$NAMESPACE/$SKILL" --version "$VERSION" --unpack "$OUT"
 ```
 
-All three lists are optional. skm rejects a file with an unknown top-level key, so a typo does not go unnoticed.
+Both lists are optional. skm rejects a file with an unknown top-level key, so a typo does not go unnoticed.
 
-### Agents
+skm 0.6 removed the `tools:` and `apps:` lists. A file that still has one loads with a warning in `skm extensions` and in the app, and skm ignores that list. Delete it from the file to clear the warning. The Codex desktop app (ChatGPT.app), which 0.5 shipped as the built-in extension `chatgpt-desktop`, is now part of the built-in codex agent.
+
+## Agents
 
 An extension agent behaves like a built-in agent with a plain skill listing:
 
@@ -61,37 +54,42 @@ An extension agent behaves like a built-in agent with a plain skill listing:
 - skm counts the listing cost with the o200k tokenizer and no budget limit, because skm does not know how that agent truncates its listing.
 - `skm harness` shows `cli.bin --version` on each host, and `skm harness update` runs `cli.update`.
 
-### Apps
+## Sources
 
-An app attaches to its agent. When `skm harness update --agent <app id>` runs on a host, skm:
-
-1. reads the newest version from the Sparkle appcast `feed`;
-2. downloads it, then checks the code signature with `codesign --verify --deep --strict`, and checks that the Team ID matches the installed app;
-3. moves the old app to `~/.skm/backups/app/` on that host and installs the new one;
-4. opens the app hidden and waits until it rewrites `marker` (and, when `settle` is set, until `settle.file` stops changing and no `settle.busy` path is left);
-5. quits the app again if it was not running before.
-
-The app's `marketplaces` show in the Plugins view as "ships with the app". Updating such a plugin updates the app first on the hosts where it is behind.
-
-The ChatGPT desktop app (which installs Codex's `openai-bundled` and `openai-primary-runtime` marketplaces) ships as the built-in extension `chatgpt-desktop`.
-
-### Tools
-
-A tool is a command-line program you want at the same version on every host, for example a daemon your agents talk to. `skm harness` shows its version per host, and `skm harness update` runs `update`, then `onChange` if the version moved.
-
-## Turning extensions off
+A source lets an upstream get its skills from somewhere other than a git repo, for example a company skill registry. It names two shell commands:
 
 ```yaml
-# ~/.skm/config.yaml
-disabledExtensions: [chatgpt-desktop, my-setup]
+sources:
+  - id: my-registry           # what upstreams.<name>.source names
+    name: My registry         # optional display name
+    params: [namespace]       # keys every upstream of this source must set
+    # prints the newest version of $SKILL; skm reads the last non-empty line of stdout
+    latest: my-registry show "$NAMESPACE/$SKILL" --json | jq -r .version
+    # writes the files of $SKILL at $VERSION into the empty dir $OUT
+    fetch: |
+      my-registry download "$NAMESPACE/$SKILL" --version "$VERSION" -o "$WORK/skill.zip"
+      unzip -q "$WORK/skill.zip" -d "$OUT"
 ```
 
-The app's switch in **Settings → Extensions** writes the same field.
+| Variable | `latest` | `fetch` | Value |
+|---|---|---|---|
+| `$SKILL` | yes | yes | The skill name, from `upstreams.<name>.skills` |
+| `$VERSION` | | yes | The version to download |
+| `$OUT` | | yes | An empty dir; the skill's files go here |
+| `$WORK` | | yes | A scratch dir; skm deletes it afterwards |
+| each param, upper-cased | yes | yes | From `upstreams.<name>` (`namespace` → `$NAMESPACE`) |
+
+- skm runs the commands with `sh -c` on the hub, with skm's own environment, one skill at a time.
+- `latest` must print a version that can be a file name: letters, digits, `.`, `_`, `+` and `-`.
+- After `fetch`, `$OUT` must hold `SKILL.md`, either at its root or in its only subdir (an archive that unpacks to `<skill>/` works as it is).
+- skm computes the digest of the downloaded files itself, keeps them in `~/.skm/cache/sources/<upstream>/<skill>/<version>/`, and runs `fetch` again only for a version it does not have.
+- A param may not be named `skill`, `version`, `out` or `work`.
+
+An upstream uses a source with `source:`; see [Skills from a registry](../README.md#skills-from-a-registry).
 
 ## Conflicts and errors
 
 - If an extension uses an id that a built-in agent or an earlier extension already uses, skm skips the whole extension and reports which ids clash. Files load in name order.
-- If a file does not parse, skm skips it and reports the first problem with its path, for example `tools[0].update: expected a non-empty string`.
-- An app that names an unknown agent is reported and not attached.
+- If a file does not parse, skm skips it and reports the first problem with its path, for example `agents[0].skillsDir: expected a non-empty string`.
 
 Skipped extensions show in `skm extensions` and in the app, with the reason.

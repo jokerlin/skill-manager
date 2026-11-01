@@ -43,8 +43,6 @@ export const HostsView = () => {
   const checkHarness = useApp((s) => s.checkHarness);
   const updateHarness = useApp((s) => s.updateHarness);
   const views = harnessView(harness, grid.agents);
-  const tools = harness?.tools ?? [];
-  const toolViews = harnessView(harness, tools.map((x) => x.id));
   const apps = harnessApps(harness).filter((a) => Object.values(a.byHost).some((v) => typeof v === "string"));
   const viewOf = (a: string): HarnessAgentView | undefined => views.find((v) => v.agent === a);
   const layout = useDefaultLayout({ id: "hosts-split", storage: layoutStorage });
@@ -82,14 +80,9 @@ export const HostsView = () => {
                 </Tooltip>
               </div>
               <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto_auto] items-baseline gap-x-3 gap-y-1">
-                {[...views, ...toolViews].map((v) => (
+                {views.map((v) => (
                   <div key={v.agent} className="contents">
-                    {(() => {
-                      const tool = tools.find((x) => x.id === v.agent);
-                      return tool === undefined
-                        ? <span className="truncate text-[12px]">{t(agentKey(v.agent))}</span>
-                        : <span className="flex min-w-0 items-baseline gap-1.5"><span className="truncate text-[12px]">{tool.name}</span><span className="shrink-0 text-[10.5px] text-muted-foreground">{t("harness.fromExtension", { name: tool.extension })}</span></span>;
-                    })()}
+                    <span className="truncate text-[12px]">{t(agentKey(v.agent))}</span>
                     <span className={cn("tabular font-mono text-[11.5px]", v.versions.length > 1 ? "text-danger" : "text-foreground/80")}>{v.newest ?? "–"}</span>
                     <span className={cn("text-[11px]", v.versions.length > 1 ? "text-danger" : "text-muted-foreground")}>{v.versions.length > 1 ? t("harness.versions", { n: v.versions.length }) : v.versions.length === 1 ? t("harness.same") : harnessChecking ? t("harness.checking") : "–"}</span>
                   </div>
@@ -99,7 +92,7 @@ export const HostsView = () => {
                 <div key={a.app.id} className="mt-2 flex items-center gap-2 border-t border-border/60 pt-2">
                   <AppWindow className="size-3.5 shrink-0 text-muted-foreground" />
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-[12px]">{t("harness.desktopApp", { name: a.app.name })}</div>
+                    <div className="truncate text-[12px]">{t("harness.desktopApp", { agent: t(agentKey(a.app.agent)), bundle: a.app.bundle.split("/").pop() ?? a.app.name })}</div>
                     <div className={cn("truncate text-[11px]", a.behind.length > 0 ? "text-danger" : "text-muted-foreground")}>
                       {a.behind.length > 0 && a.latest !== null
                         ? `${t("harness.appBehind", { n: a.behind.length, v: a.latest })} · ${a.behind.join(", ")}`

@@ -40,7 +40,7 @@ Most skill managers handle one agent on one machine. skm treats your setup as a 
 - Plugin updates across hosts (`skm plugin update`), including plugins that ship inside a desktop app.
 - Harness updates: run each agent CLI's own update command on every host in parallel.
 - LLM evaluation of your skills (`skm eval`) with `claude -p` or `codex exec`.
-- Extensions: add agents, desktop apps and update tasks with a YAML file, no code.
+- Extensions: add agents and skill sources (a registry, say) with a YAML file, no code.
 - English and Simplified Chinese UI. Light and dark themes.
 
 ## Install
@@ -137,7 +137,6 @@ upstreams:                             # skills whose store copy comes from a gi
 eval: { agent: claude }
 agentOverrides:                        # optional: another skill dir or update command for an agent
   pi: { dir: ~/.pi/agent/skills, update: "pi update --all" }
-disabledExtensions: []                 # e.g. [chatgpt-desktop]
 contextTokens: 1000000                 # fallback context window when skm cannot read the model
 backupBeforeApply: true
 ```
@@ -155,7 +154,7 @@ A cell is on when the host selector and the agent selector both match, after the
 | `skm status` / `skm inventory` | Probe hosts: what each agent loads from every source |
 | `skm plan` / `skm sync` | Compute and apply the sync; backs up first, re-probes after |
 | `skm plugins` / `skm plugin update` | Plugin versions on every host × agent; update the ones that drift |
-| `skm harness` / `skm harness update` | Agent CLI, desktop app and extension tool versions; update them |
+| `skm harness` / `skm harness update` | Agent CLI and desktop app versions; update them |
 | `skm extensions` | Loaded extensions and errors |
 | `skm scope <name> <host/agent> on\|off` | Toggle one cell (add `--plugin` for a plugin) |
 | `skm config` / `skm config patch` | Print the config; apply a validated JSON patch from stdin |
@@ -184,20 +183,28 @@ The app is an Electron shell over the CLI. All logic stays in `skm`: the app rea
 
 ## Extensions
 
-An extension is a YAML file in `~/.skm/extensions/`. It can add an agent, a desktop app that writes plugin marketplaces, or a tool that `skm harness` checks and updates on each host:
+An extension is a YAML file in `~/.skm/extensions/`. It adds an agent skm does not ship with, or a skill source for [upstreams](#skills-from-a-registry):
 
 ```yaml
-# ~/.skm/extensions/my-tools.yaml
-name: my-tools
-tools:
-  - id: magpie
-    bin: magpie
-    update: magpie update
-    onChange: magpie daemon restart   # runs only when the version changed
-    hosts: { only: [mini] }
+# ~/.skm/extensions/opencode.yaml
+agents:
+  - id: opencode
+    name: OpenCode
+    skillsDir: ~/.config/opencode/skills
+    cli: { bin: opencode, update: opencode upgrade }
 ```
 
-Extensions are data. skm runs their commands only when you run `skm harness update` or press update in the app. See [docs/extensions.md](docs/extensions.md) for the full format. The ChatGPT desktop app support ships as the built-in extension `chatgpt-desktop`; turn it off with `disabledExtensions: [chatgpt-desktop]`.
+Extensions are data. skm runs an agent's update command only when you run `skm harness update` or press update in the app, and a source's commands only when it checks or updates an upstream that uses it. See [docs/extensions.md](docs/extensions.md) for the full format.
+
+### Codex desktop app (ChatGPT.app)
+
+The Codex desktop app ships as `/Applications/ChatGPT.app`. It writes two plugin marketplaces of its own, `openai-bundled` and `openai-primary-runtime`, which no CLI command refreshes. skm knows this app as part of the built-in codex agent (id `chatgpt`). `skm harness` shows its version on each host, or "not installed". The Plugins view marks its plugins as "Ships with an app". `skm harness update --agent chatgpt` updates it on one host:
+
+1. skm reads the newest version from the app's Sparkle appcast.
+2. skm downloads it, checks the code signature with `codesign --verify --deep --strict`, and checks that the Team ID matches the installed app.
+3. skm moves the old app to `~/.skm/backups/app/` on that host and installs the new one.
+4. skm opens the app hidden and waits until it has rewritten its marketplaces and finished its runtime download.
+5. skm quits the app again if it was not running before.
 
 ## Upstream skills
 
@@ -220,6 +227,22 @@ skm sync                         # copy them to every host, as for any store cha
 | gone upstream | The target ref has no such dir | Leaves the store copy alone |
 
 `adopt` finds the version of a copy you installed by hand: it looks for the newest upstream commit whose files equal the store copy. By default skm follows the newest release tag (`vX.Y.Z`); set `ref:` to follow a branch, or pass `--to <ref>` for one update. Only the hub needs `git`. skm writes files from the git objects, so `.gitattributes` export rules do not change what lands in the store.
+
+### Skills from a registry
+
+A skill that comes from a registry rather than a git repo uses a source that an [extension](docs/extensions.md#sources) defines. The extension names two shell commands: one prints the newest version of a skill, and one downloads a version. The upstream names the source and the params that source needs:
+
+```yaml
+# ~/.skm/config.yaml
+upstreams:
+  team-kit:
+    source: my-registry     # a source from ~/.skm/extensions
+    namespace: team/kit     # a param of that source; its commands read $NAMESPACE
+    skills: [doc-writer]
+    # ref: 1.4.0            # optional: pin a version instead of following the newest
+```
+
+`skm upstream`, `skm upstream update`, the TUI and the app treat it like a git upstream, with the same states, backups and lock. Each skill has its own version. A registry has no commit history, so skm lists no upstream commits for these skills, and `adopt` does not apply: a copy that already equals the newest version shows as current, and `skm upstream update` records it. skm keeps each downloaded version in `~/.skm/cache/sources/`, so `--cached` checks run no command.
 
 The TUI marks each upstream skill in the skills list (`↑` update available, `✎` edited locally, `≠` unknown base, `✗` gone upstream) and shows the upstream commits in the detail panel. `u` updates the selected skill and `U` updates every skill with a new version; both ask first. A copy you edited is overwritten only after its own prompt.
 

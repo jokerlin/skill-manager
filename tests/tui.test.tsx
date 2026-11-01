@@ -398,15 +398,15 @@ describe("aligned with the desktop app", () => {
 });
 
 describe("upstream state in the TUI", () => {
-  const policy: UpstreamPolicy = { name: "waza", repo: "https://example.com/waza.git", ref: none, path: "skills/{skill}", skills: ["pdf-tools", "kb-doc"] };
+  const policy: UpstreamPolicy = { kind: "git", name: "waza", repo: "https://example.com/waza.git", ref: none, path: "skills/{skill}", skills: ["pdf-tools", "kb-doc"] };
   const change = (i: number) => ({ commit: `c${i}00000`, date: "2026-10-30", subject: `change ${i}` });
   const skillReport = (skill: string, kind: StateKind, changes: number): SkillReport => ({
-    skill, state: { kind } as SkillReport["state"], base: some({ commit: "a".repeat(40), label: "v1.0.0", digest: "d" }), targetDigest: some("t"), entries: none,
+    skill, state: { kind } as SkillReport["state"], base: some({ rev: "a".repeat(40), label: "v1.0.0", digest: "d" }), target: { rev: "b".repeat(40), label: "v1.2.0" }, targetDigest: some("t"), files: none,
     changes: Array.from({ length: changes }, (_, i) => change(i)),
   });
   const results: readonly UpstreamResult[] = [{
     policy,
-    result: { ok: true, value: { policy, gitDir: "/tmp/waza.git", target: { commit: "b".repeat(40), label: "v1.2.0" }, warning: none, skills: [skillReport("pdf-tools", "behind", 7), skillReport("kb-doc", "modified", 1)], unlisted: [] } },
+    result: { ok: true, value: { policy, target: some({ rev: "b".repeat(40), label: "v1.2.0" }), warning: none, skills: [skillReport("pdf-tools", "behind", 7), skillReport("kb-doc", "modified", 1)], unlisted: [] } },
   }];
   /** The detail panel's text with its wrapping undone: the part of each row right of the list. */
   const detail = (frame: string | undefined): string =>

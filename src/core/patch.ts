@@ -24,7 +24,6 @@ export type ConfigPatch = {
   readonly agents?: readonly string[];
   readonly agentOverrides?: Readonly<Record<string, AgentOverridePatch>>;
   readonly store?: string;
-  readonly disabledExtensions?: readonly string[];
   readonly backupBeforeApply?: boolean;
   readonly contextTokens?: number;
 };
@@ -56,8 +55,7 @@ export const parsePatch = (text: string): Result<ConfigPatch, PatchError> => {
     return err({ kind: "bad-json", message: e instanceof Error ? e.message : String(e) });
   }
   if (!isRecord(raw)) return err(invalid("<root>", "expected an object"));
-  const { hosts, agents, backupBeforeApply, contextTokens, agentOverrides, store, disabledExtensions } = raw;
-  if (disabledExtensions !== undefined && !(Array.isArray(disabledExtensions) && disabledExtensions.every((x) => typeof x === "string"))) return err(invalid("disabledExtensions", "expected a list of extension names"));
+  const { hosts, agents, backupBeforeApply, contextTokens, agentOverrides, store } = raw;
   if (store !== undefined && (typeof store !== "string" || store.trim() === "")) return err(invalid("store", "expected a directory path"));
   if (agentOverrides !== undefined && !isRecord(agentOverrides)) return err(invalid("agentOverrides", "expected { agent: { dir, update } }"));
   const parsedOverrides = agentOverrides === undefined ? ok(undefined) : all(Object.entries(agentOverrides).map(([id, v]): Result<readonly [string, AgentOverridePatch], PatchError> => {
@@ -93,7 +91,6 @@ export const parsePatch = (text: string): Result<ConfigPatch, PatchError> => {
     ...(contextTokens !== undefined ? { contextTokens } : {}),
     ...(parsedOverrides.value !== undefined ? { agentOverrides: Object.fromEntries(parsedOverrides.value) } : {}),
     ...(typeof store === "string" ? { store: store.trim() } : {}),
-    ...(Array.isArray(disabledExtensions) ? { disabledExtensions: disabledExtensions as string[] } : {}),
   });
 };
 
@@ -167,7 +164,6 @@ export const patchConfig = (c: Config, p: ConfigPatch): Result<Config, PatchErro
     agents,
     agentOverrides: overrides,
     store: p.store ?? c.store,
-    disabledExtensions: p.disabledExtensions ?? c.disabledExtensions,
     hosts: hosts.value,
     backupBeforeApply: p.backupBeforeApply ?? c.backupBeforeApply,
     contextTokens: p.contextTokens ?? c.contextTokens,
