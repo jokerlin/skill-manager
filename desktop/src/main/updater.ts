@@ -34,6 +34,9 @@ const signerOf = async (bundle: string): Promise<Signer> => {
  * downloads the zip, checks its sha512, unpacks it with ditto, and (when this app has a Developer ID signature)
  * requires the new bundle to verify and carry the same Team ID. A detached shell script swaps it in after quit.
  */
+/** How long a download may receive nothing before it is abandoned. */
+const STALL_MS = 60_000;
+
 export const createUpdater = (o: { readonly repo: string | null; readonly api: string; readonly publicKey: string | null; readonly onChange: (s: UpdateState) => void }) => {
   let state: UpdateState = { kind: "idle" };
   let release: Release | null = null;
@@ -93,21 +96,47 @@ export const createUpdater = (o: { readonly repo: string | null; readonly api: s
       await rawFs.rm(base, { recursive: true, force: true });
       await mkdir(base, { recursive: true });
       const zip = join(base, want.name);
-      const res = await net.fetch(want.url);
-      if (!res.ok || res.body === null) return set({ kind: "error", message: `download failed: ${res.status}` });
+      // A dropped connection can leave the body stream open with no data and no error, so the download would
+      // sit at "downloading" forever. Abort when nothing arrives for STALL_MS.
+      const abort = new AbortController();
+      let stalled = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const arm = () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => { stalled = true; abort.abort(); }, STALL_MS);
+      };
+      arm();
+      const res = await net.fetch(want.url, { signal: abort.signal }).catch((e: unknown) => {
+        clearTimeout(timer);
+        throw e;
+      });
+      if (!res.ok || res.body === null) {
+        clearTimeout(timer);
+        return set({ kind: "error", message: `download failed: ${res.status}` });
+      }
       const total = want.size;
       let got = 0;
       let lastPct = -1;
       const hash = createHash("sha512");
       const body = Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]);
+      abort.signal.addEventListener("abort", () => body.destroy(new Error("aborted")));
       body.on("data", (c: Buffer) => {
+        arm();
         got += c.length;
         hash.update(c);
         const pct = total > 0 ? Math.min(100, Math.floor((got / total) * 100)) : 0;
         if (pct !== lastPct) { lastPct = pct; set({ kind: "downloading", version, percent: pct }); }
       });
       set({ kind: "downloading", version, percent: 0 });
-      await pipeline(body, createWriteStream(zip));
+      try {
+        await pipeline(body, createWriteStream(zip));
+      } catch (e) {
+        await rawFs.rm(base, { recursive: true, force: true });
+        if (stalled) return set({ kind: "error", message: `the download stalled (no data for ${STALL_MS / 1000} s); deleted it. Check for updates to try again` });
+        throw e;
+      } finally {
+        clearTimeout(timer);
+      }
       if (hash.digest("base64") !== want.sha512) {
         await rawFs.rm(base, { recursive: true, force: true });
         return set({ kind: "error", message: "the download does not match the signed checksum; deleted it" });
