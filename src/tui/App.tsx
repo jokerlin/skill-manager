@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useReducer, useRef } from "react";
-import { Box, Text, useApp, useInput, useStdout } from "ink";
+import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import { match } from "ts-pattern";
 import { isMutation } from "../core/plan";
 import { isDesired, setScope } from "../core/scope";
@@ -19,9 +19,8 @@ export type AppProps = { readonly app: AppState; readonly io: TuiIo; readonly au
 export const App = ({ app, io, autoProbe = true }: AppProps): React.ReactElement => {
   const [s, dispatch] = useReducer(reduce, undefined, () => initialState(app.config, app.skills));
   const { exit } = useApp();
-  const { stdout } = useStdout();
-  const cols = stdout?.columns ?? 120;
-  const rows = stdout?.rows ?? 36;
+  // ink 8 types useStdout().stdout as a plain Writable; useWindowSize reads the size and re-renders on resize
+  const { columns: cols, rows } = useWindowSize();
   const stateRef = useRef<State>(s);
   stateRef.current = s;
 
