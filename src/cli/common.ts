@@ -36,7 +36,19 @@ export const table = (header: readonly string[], rows: readonly (readonly string
 const visibleLen = (s: string): number =>
   [...s.replace(/\x1b\[[0-9;]*m/g, "")].reduce((n, ch) => n + (/[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦]/.test(ch) ? 2 : 1), 0);
 
-export const out = (s: string): void => { process.stdout.write(s + "\n"); };
+const isEpipe = (e: unknown): boolean => typeof e === "object" && e !== null && (e as { code?: unknown }).code === "EPIPE";
+
+// The reader went away (`skm ls | head`): stop quietly, as cat and ls do, instead of a stack trace.
+process.stdout.on("error", (e) => { if (isEpipe(e)) process.exit(0); throw e; });
+
+export const out = (s: string): void => {
+  try {
+    process.stdout.write(s + "\n");
+  } catch (e) {
+    if (isEpipe(e)) process.exit(0);
+    throw e;
+  }
+};
 export const warnIf = (cond: boolean, s: string): string => (cond ? pc.yellow(s) : s);
 
 export const confirm = (question: string): boolean => {
