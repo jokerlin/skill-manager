@@ -25,6 +25,10 @@ export const nextSort = (s: SortState): SortState => {
   const by = SORT_KEYS[(SORT_KEYS.indexOf(s.by) + 1) % SORT_KEYS.length] ?? "name";
   return { by, dir: naturalDir(by) };
 };
+/** How many leading segments fit side by side in `width` columns, given each segment's width. Whole segments only. */
+export const fitCount = (widths: readonly number[], width: number): number =>
+  widths.reduce((acc, w) => (acc.full || acc.used + w > width ? { ...acc, full: true } : { n: acc.n + 1, used: acc.used + w, full: false }), { n: 0, used: 0, full: false }).n;
+
 export const sortText = (s: SortState): string => `${s.by} ${s.dir === "asc" ? "↑" : "↓"}`;
 
 export type State = {

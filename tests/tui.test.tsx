@@ -2,6 +2,7 @@ import { emptyInventory, type Entry } from "../src/core/inventory";
 import { describe, expect, test } from "bun:test";
 import React from "react";
 import { render } from "ink-testing-library";
+import { Box } from "ink";
 import { App } from "../src/tui/App";
 import type { TuiIo } from "../src/tui/io";
 import { defaultConfig } from "../src/core/config";
@@ -12,7 +13,8 @@ import type { AppState } from "../src/shell/app";
 import { inferRules, compressGlobs } from "../src/cli/rules";
 import { pullCandidates } from "../src/cli/pull";
 import { HostsView, clampOffset, hostLines } from "../src/tui/views/Hosts";
-import { cellGlyph, initialState, reduce, visibleSkills } from "../src/tui/state";
+import { SkillsView } from "../src/tui/views/Skills";
+import { cellGlyph, fitCount, initialState, reduce, visibleSkills } from "../src/tui/state";
 import { buildHostView } from "../src/core/view";
 
 const mk = (name: string, desc: string) => buildSkill(name, `/s/${name}`, `---\nname: ${name}\ndescription: ${desc}\n---\n# ${name}\nbody\n`, [{ rel: "SKILL.md", bytes: 10 }]);
@@ -186,5 +188,69 @@ describe("hosts view", () => {
     scrolled.unmount();
     expect(clampOffset(-5, 20, 5)).toBe(0);
     expect(clampOffset(99, 20, 5)).toBe(16);
+  });
+});
+
+describe("skills view", () => {
+  test("the list keeps its width next to a wide detail panel, and its header and rows stay on one line (no Yoga shrink)", async () => {
+    const long = buildSkill("incident-runbook", `/private/tmp/${"very-long-directory-name/".repeat(6)}incident-runbook`, "---\nname: incident-runbook\ndescription: Walk through the on-call runbook.\n---\nbody\n", [{ rel: "SKILL.md", bytes: 10 }]);
+    const s = initialState(app().config, [long, ...skills]);
+    const r = render(<SkillsView s={s} width={100} height={20} />); await tick();
+    const rows = (r.lastFrame() ?? "").split("\n");
+    expect(rows.some((l) => /skill\s+listing\s+body/.test(l))).toBe(true);
+    for (const name of ["incident-runbook", "pdf-tools", "kb-doc"]) expect(rows.some((l) => new RegExp(`${name}\\s+\\d+t\\s+\\S+t`).test(l))).toBe(true);
+    expect(rows[0]?.indexOf("┐")).toBe(Math.floor(100 * 0.42) - 1); // the list keeps the width it asked for
+    r.unmount();
+  });
+  test("names are cut to fit the narrowest list instead of wrapping the row", async () => {
+    const s = initialState(app().config, [mk("a-skill-name-much-longer-than-the-list-allows", "Long name."), ...skills]);
+    const r = render(<SkillsView s={s} width={60} height={12} />); await tick();
+    const rows = (r.lastFrame() ?? "").split("\n");
+    expect(rows[0]?.indexOf("┐")).toBe(34 - 1);
+    expect(rows.some((l) => /a-skill-name\S*\s+\d+t\s+\S+t/.test(l))).toBe(true);
+    expect(rows.some((l) => /skills · sort/.test(l) && /│$/.test(l.slice(0, 34)))).toBe(true);
+    r.unmount();
+  });
+});
+
+describe("skills detail in a short panel", () => {
+  test("lines are cut at the border instead of drawn over each other (no Yoga shrink)", async () => {
+    const desc = "Generate or update API reference docs from route handlers and types. Use when endpoints change or docs drift from the code.";
+    const sk = buildSkill("api-docs", `/private/tmp/${"nested/".repeat(8)}api-docs`, `---\nname: api-docs\ndescription: ${desc}\n---\nbody\n`, [{ rel: "SKILL.md", bytes: 10 }]);
+    const hosts = ["local", "studio", "laptop", "gpu-box"].map((id) => ({ id, ssh: id === "local" ? none : some(id), agents: none, skm: "~/.skm" }));
+    const frame = async (h: number): Promise<string[]> => {
+      const s = initialState({ ...app().config, agents: ["claude", "codex", "pi"], hosts }, [sk]);
+      const r = render(<Box width={60} height={h}><SkillsView s={s} width={60} height={h} /></Box>); await tick();
+      const lines = (r.lastFrame() ?? "").split("\n").map((l) => l.slice(l.indexOf("││") + 2));
+      r.unmount();
+      return lines;
+    };
+    const tall = await frame(60);
+    const short = await frame(24);
+    expect(short.length).toBe(24);
+    expect(short.slice(1, 22)).toEqual(tall.slice(1, 22)); // the short panel shows the same first lines, nothing squeezed out
+    expect(tall.some((l) => /^ code\.\s+│$/.test(l))).toBe(true);
+  });
+});
+
+describe("one-line header and footer", () => {
+  test("fitCount takes whole segments while they fit", () => {
+    expect(fitCount([3, 4, 5], 12)).toBe(3);
+    expect(fitCount([3, 4, 5], 11)).toBe(2);
+    expect(fitCount([3, 9, 1], 5)).toBe(1); // stops at the first segment that does not fit
+    expect(fitCount([], 10)).toBe(0);
+  });
+  test("with more hosts than the header can hold, it shows the ones that fit and +N, and every frame line stays one line", async () => {
+    const base = app();
+    const hosts = ["local", ...Array.from({ length: 7 }, (_, i) => `build-server-${i + 1}`)].map((id) => ({ id, ssh: id === "local" ? none : some(id), agents: none, skm: "~/.skm" }));
+    const { lastFrame, unmount } = render(<App app={{ ...base, config: { ...base.config, hosts } }} io={io} />);
+    await tick();
+    const lines = (lastFrame() ?? "").split("\n");
+    expect(lines[0]).toContain("4:help");
+    expect(lines[0]).toMatch(/ \+5\s*$/); // 3 of 8 hosts fit next to the tabs in 100 columns
+    expect(lines[0]).not.toContain("build-server-7");
+    expect(lines[1]?.startsWith("┌")).toBe(true); // the header did not wrap onto a second line
+    expect(lines.at(-1)).toMatch(/^j\/k move/); // the footer is still the last line
+    unmount();
   });
 });
