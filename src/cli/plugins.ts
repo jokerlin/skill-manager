@@ -3,11 +3,20 @@ import { type Cell, PLUGIN_AGENTS } from "../core/config";
 import { isMutation, opText } from "../core/plan";
 import { pluginRows, pluginUpdateOps } from "../core/pluginUpdate";
 import { pluginWanted, setPluginScope, splitPluginId } from "../core/scope";
+import type { AppState } from "../shell/app";
 import { agentsOn } from "../shell/hosts";
 import { hostErrorText } from "../shell/probe";
 import { applyJobs, humanSink, jsonSink } from "./apply";
 import { confirm, die, out, saveConfig, table, withApp } from "./common";
 import { type HostSnapshot, snapshotHosts } from "./status";
+
+/**
+ * Hosts that run Claude or Codex but have no probe result. A plugin's first policy copies today's enabled cells so a
+ * flip changes only one cell; a host skm knows nothing about would get no cells, and the next apply would switch the
+ * plugin off there. Pure.
+ */
+export const unprobedPluginHosts = (app: AppState, snaps: readonly HostSnapshot[]): readonly string[] =>
+  snaps.filter((s) => !s.result.ok && agentsOn(app.config, s.host).some((a) => PLUGIN_AGENTS.includes(a.id))).map((s) => s.host.id);
 
 const okSnaps = (snaps: readonly HostSnapshot[]) =>
   snaps.flatMap((s) => (s.result.ok ? [{ host: s.host.id, states: s.result.view.states, facts: s.result.view.facts }] : []));
@@ -81,6 +90,8 @@ export const runPluginScope = async (plugin: string, cell: Cell, on: boolean): P
     const known = app.config.plugins.some((p) => p.name === name);
     if (!known && splitPluginId(plugin).marketplace === "") return die(`${plugin} is not under plugins: in config.yaml; pass name@marketplace`);
     const snaps = known ? [] : await snapshotHosts(app, undefined, { cached: true });
+    const unprobed = unprobedPluginHosts(app, snaps);
+    if (unprobed.length > 0) return die(`${name} is not under plugins: yet, so skm copies where it is enabled today; it has no probe result for ${unprobed.join(", ")}. Run \`skm status ${unprobed.join(" ")}\`, then try again`);
     const active: Cell[] = known ? [] : okSnaps(snaps).flatMap((h) =>
       Object.entries(h.states).flatMap(([agent, ps]) => (ps.some((p) => p.name === name && p.enabled === "on") ? [{ host: h.host, agent }] : [])));
     const next = setPluginScope(app.config, plugin, cell.host, cell.agent, on, active);
