@@ -4,6 +4,8 @@ All notable changes to Skill Manager. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-02
+
 ### Added
 
 - Upstreams can come from a skill registry, not only from a git repo. An extension defines a source under `sources:` with two shell commands: `latest` prints the newest version of a skill, and `fetch` downloads a version into `$OUT`. An upstream names it with `source: <id>` plus the params the source needs (for example `namespace:`), and may pin a version with `ref:`. `skm upstream`, `skm upstream update`, the TUI and the app show these skills with the same states, backups and lock as git upstreams, each skill at its own version. skm keeps downloaded versions in `~/.skm/cache/sources/`, so `--cached` runs no command. `skm extensions` and **Settings → Extensions** list each extension's sources.
@@ -122,7 +124,8 @@ First public release.
 - Self-update from GitHub Releases with an Ed25519-signed manifest and SHA-512 checks.
 - Release workflow with build provenance attestations and `SHA256SUMS`.
 
-[Unreleased]: https://github.com/jokerlin/skill-manager/compare/v0.5.5...HEAD
+[Unreleased]: https://github.com/jokerlin/skill-manager/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/jokerlin/skill-manager/compare/v0.5.5...v0.6.0
 [0.5.5]: https://github.com/jokerlin/skill-manager/compare/v0.5.4...v0.5.5
 [0.5.4]: https://github.com/jokerlin/skill-manager/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/jokerlin/skill-manager/compare/v0.5.2...v0.5.3
