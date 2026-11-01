@@ -1,8 +1,8 @@
-import { chmod, lstat, mkdir, readdir, readFile, readlink, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, cp, lstat, mkdir, readdir, readFile, readlink, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { type Option, type Result, err, none, ok, some } from "../lib/result";
 import {
-  type LockEntry, type TreeEntry, type UpstreamLock, type UpstreamPolicy,
+  type GitUpstream, type LockEntry, type TreeEntry, type UpstreamLock,
   EMPTY_LOCK, gitBlobId, ignoredFile, latestReleaseTag, parseLock, serializeLock, skillParent, skillPath, treeDigest,
 } from "../core/upstream";
 import { exec, runError } from "./runner";
@@ -27,7 +27,7 @@ const exists = (p: string): Promise<boolean> => lstat(p).then(() => true, () => 
  * Make the bare mirror exist and, unless `offline`, fetch every branch and tag.
  * A failed fetch with an existing mirror degrades to the cached refs and reports a warning.
  */
-export const syncMirror = async (skm: string, p: UpstreamPolicy, offline: boolean): Promise<Result<{ readonly gitDir: string; readonly warning: Option<string> }, UpstreamError>> => {
+export const syncMirror = async (skm: string, p: GitUpstream, offline: boolean): Promise<Result<{ readonly gitDir: string; readonly warning: Option<string> }, UpstreamError>> => {
   const gitDir = mirrorDir(skm, p.name);
   const fail = (step: string, detail: string) => err<UpstreamError>({ upstream: p.name, step, detail });
   if (!(await exists(gitDir))) {
@@ -84,7 +84,7 @@ const lsTree = async (gitDir: string, commit: string, paths: readonly string[]):
 export type UpstreamSkillTree = { readonly skill: string; readonly entries: Option<readonly RawEntry[]>; readonly digest: Option<string> };
 
 /** The policy's skills as the commit holds them. */
-export const skillTrees = async (gitDir: string, p: UpstreamPolicy, commit: string): Promise<Result<readonly UpstreamSkillTree[], UpstreamError>> => {
+export const skillTrees = async (gitDir: string, p: GitUpstream, commit: string): Promise<Result<readonly UpstreamSkillTree[], UpstreamError>> => {
   const t = await lsTree(gitDir, commit, p.skills.map((s) => skillPath(p, s)));
   if (!t.ok) return err({ upstream: p.name, step: "read tree", detail: t.error });
   return ok(p.skills.map((skill) => {
@@ -94,7 +94,7 @@ export const skillTrees = async (gitDir: string, p: UpstreamPolicy, commit: stri
 };
 
 /** Skill dirs (a dir with SKILL.md under the parent of `{skill}`) that the commit has and the policy does not list. */
-export const unlistedSkills = async (gitDir: string, p: UpstreamPolicy, commit: string): Promise<readonly string[]> => {
+export const unlistedSkills = async (gitDir: string, p: GitUpstream, commit: string): Promise<readonly string[]> => {
   const parent = skillParent(p.path);
   if (!parent.some) return [];
   const prefix = parent.value === "" ? "" : `${parent.value}/`;
@@ -124,7 +124,7 @@ export const changesBetween = async (gitDir: string, from: string, to: string, p
  * For each skill, the newest commit (on any branch or tag) whose files equal the store copy.
  * Only commits that touch a skill's path can change it, so those are the candidates.
  */
-export const findBases = async (gitDir: string, p: UpstreamPolicy, digests: ReadonlyMap<string, string>): Promise<ReadonlyMap<string, string>> => {
+export const findBases = async (gitDir: string, p: GitUpstream, digests: ReadonlyMap<string, string>): Promise<ReadonlyMap<string, string>> => {
   const wanted = p.skills.filter((s) => digests.has(s));
   if (wanted.length === 0) return new Map();
   const paths = wanted.map((s) => skillPath(p, s));
@@ -201,25 +201,18 @@ const readBlobs = async (gitDir: string, ids: readonly string[]): Promise<Result
  * Write the skill's files into `<store>/.upstream-<skill>` (a dot dir the store scan skips), then swap it in.
  * The old dir is removed only after the new one is complete, so a failure leaves the store copy as it was.
  */
-export const writeSkill = async (gitDir: string, storeDir: string, skill: string, entries: readonly RawEntry[]): Promise<Result<void, string>> => {
-  const blobs = await readBlobs(gitDir, entries.map((e) => e.blob));
-  if (!blobs.ok) return blobs;
+/**
+ * Fill a fresh dir with `fill`, then swap it in as <store>/<skill>. The old copy is restored when anything fails,
+ * so a skill dir is either the old files or the new ones, never half of each.
+ */
+const swapSkill = async (storeDir: string, skill: string, fill: (tmp: string) => Promise<void>): Promise<Result<void, string>> => {
   const tmp = join(storeDir, `.upstream-${skill}`);
   const dest = join(storeDir, skill);
   const old = join(storeDir, `.upstream-old-${skill}`);
   try {
     await rm(tmp, { recursive: true, force: true });
     await rm(old, { recursive: true, force: true });
-    for (const e of entries) {
-      const f = join(tmp, e.path);
-      await mkdir(dirname(f), { recursive: true });
-      const data = blobs.value.get(e.blob) ?? new Uint8Array();
-      if (e.mode === "120000") await symlink(new TextDecoder().decode(data), f);
-      else {
-        await writeFile(f, data);
-        await chmod(f, e.mode === "100755" ? 0o755 : 0o644);
-      }
-    }
+    await fill(tmp);
     if (await exists(dest)) await rename(dest, old);
     await rename(tmp, dest);
     await rm(old, { recursive: true, force: true });
@@ -230,6 +223,30 @@ export const writeSkill = async (gitDir: string, storeDir: string, skill: string
     return err(e instanceof Error ? e.message : String(e));
   }
 };
+
+/** Write a skill from git blobs in the mirror. */
+export const writeSkill = async (gitDir: string, storeDir: string, skill: string, entries: readonly RawEntry[]): Promise<Result<void, string>> => {
+  const blobs = await readBlobs(gitDir, entries.map((e) => e.blob));
+  if (!blobs.ok) return blobs;
+  return swapSkill(storeDir, skill, async (tmp) => {
+    for (const e of entries) {
+      const f = join(tmp, e.path);
+      await mkdir(dirname(f), { recursive: true });
+      const data = blobs.value.get(e.blob) ?? new Uint8Array();
+      if (e.mode === "120000") await symlink(new TextDecoder().decode(data), f);
+      else {
+        await writeFile(f, data);
+        await chmod(f, e.mode === "100755" ? 0o755 : 0o644);
+      }
+    }
+  });
+};
+
+/** Write a skill by copying a directory (a source's fetched files), skipping what `ignoredFile` drops from the digest. */
+export const writeSkillFromDir = async (dir: string, storeDir: string, skill: string): Promise<Result<void, string>> =>
+  swapSkill(storeDir, skill, async (tmp) => {
+    await cp(dir, tmp, { recursive: true, verbatimSymlinks: true, filter: (src) => src === dir || !ignoredFile(relative(dir, src)) });
+  });
 
 // ---------- lock file ----------
 

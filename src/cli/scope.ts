@@ -65,7 +65,7 @@ export const runConfigPatch = async (): Promise<void> =>
     out(`${pc.green("ok")} saved ${app.configPath}`);
   });
 
-/** `skm extensions`: the agents each extension adds, what in it skm ignored, and why one did not load. */
+/** `skm extensions`: the agents and skill sources each extension adds, what in it skm ignored, and why one did not load. */
 export const runExtensions = async (json: boolean): Promise<void> =>
   withApp(async (app) => {
     const r = app.config.registry;
@@ -77,6 +77,7 @@ export const runExtensions = async (json: boolean): Promise<void> =>
       out(`${pc.bold(e.name)}  ${state}`);
       out(pc.dim(`  ${e.source}`));
       if (e.agents.length > 0) out(`  agents: ${e.agents.join(", ")}`);
+      if (e.sources.length > 0) out(`  sources: ${e.sources.join(", ")}`);
       e.warnings.forEach((w) => out(pc.yellow(`  warning: ${w}`)));
     });
   });

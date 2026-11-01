@@ -301,7 +301,7 @@ export const App = ({ app, io, autoProbe = true }: AppProps): React.ReactElement
         if (!skill) return;
         const up = upstreamOf(st, skill.name);
         if (!up.some) return dispatch({ type: "message", text: st.upstream.checking ? "upstream: still checking" : `${skill.name} has no upstream` });
-        const target = up.value.report.target.label;
+        const target = up.value.skill.target.label;
         switch (up.value.skill.state.kind) {
           case "behind":
           case "absent":

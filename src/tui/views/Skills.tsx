@@ -5,7 +5,7 @@ import { descriptionOf } from "../../core/skill";
 import type { CoverageSummary } from "../../core/coverage";
 import { agentById } from "../../core/agents";
 import { agentsOn } from "../../shell/hosts";
-import { type StateKind, stateLabel } from "../../core/upstream";
+import { type StateKind, originText, stateHint, stateLabel } from "../../core/upstream";
 import { type Option, none, some } from "../../lib/result";
 import { type State, type UpstreamOf, cellGlyph, selectedSkill, skillCoverage, sortText, upstreamFailures, upstreamOf, upstreamUpdatable, visibleSkills } from "../state";
 
@@ -64,9 +64,9 @@ export const upstreamPrompt = (s: State): Option<string> => {
   const backup = `y = yes (backup first: ${s.config.backupBeforeApply ? "on" : "off"}), any other key = cancel`;
   const [one] = c.skills;
   const up = one !== undefined && c.skills.length === 1 ? upstreamOf(s, one) : none;
-  const to = up.some ? ` with ${up.value.report.policy.name} ${up.value.report.target.label}` : " with the upstream version";
+  const to = up.some ? ` with ${up.value.report.policy.name} ${up.value.skill.target.label}` : " with the upstream version";
   if (c.force) return some(`overwrite the edits in ${c.skills.join(", ")}${to}? ${backup}`);
-  if (one !== undefined && c.skills.length === 1) return some(`update ${one}${up.some ? ` to ${up.value.report.target.label} from ${up.value.report.policy.name}` : " from upstream"}? ${backup}`);
+  if (one !== undefined && c.skills.length === 1) return some(`update ${one}${up.some ? ` to ${up.value.skill.target.label} from ${up.value.report.policy.name}` : " from upstream"}? ${backup}`);
   return some(`update ${c.skills.length} skills from upstream (${c.skills.join(", ")})? ${backup}`);
 };
 
@@ -137,7 +137,7 @@ const UpstreamBlock = ({ up }: { up: UpstreamOf }): React.ReactElement => {
   const { report, skill } = up;
   const k = skill.state.kind;
   const from = skill.base.some ? skill.base.value.label : "unknown version";
-  const version = k === "current" || from === report.target.label ? report.target.label : `${from} → ${report.target.label}`;
+  const version = k === "current" || from === skill.target.label ? skill.target.label : `${from} → ${skill.target.label}`;
   // what the state means (when it needs saying), then what `u` does
   const notes = ((): readonly string[] => {
     switch (k) {
@@ -147,17 +147,20 @@ const UpstreamBlock = ({ up }: { up: UpstreamOf }): React.ReactElement => {
       case "modified":
         return ["edited since skm wrote it", "u  overwrite the edits with the upstream version (backup first)"];
       case "unbased":
-        return ["skm does not know which version this copy is; `skm upstream adopt` finds it", "u  overwrite it with the upstream version (backup first)"];
+        return [
+          report.policy.kind === "git" ? "skm does not know which version this copy is; `skm upstream adopt` finds it" : "skm does not know which version this copy is",
+          "u  overwrite it with the upstream version (backup first)",
+        ];
       case "current":
         return [];
       case "gone":
-        return ["the target ref has no such dir; the store copy stays as it is"];
+        return [stateHint.gone];
     }
   })();
   return (
     <Box flexDirection="column" flexShrink={0}>
       <Text> </Text>
-      <Text wrap="truncate"><Text bold>upstream </Text>{report.policy.name} <Text color="gray">{report.policy.repo}</Text></Text>
+      <Text wrap="truncate"><Text bold>upstream </Text>{report.policy.name} <Text color="gray">{originText(report.policy)}</Text></Text>
       <Text wrap="truncate">
         {`  ${version}  `}<Text color={stateTone(k)}>{stateLabel[k]}</Text>
         {skill.changes.length > 0 ? <Text color="gray">{` · ${skill.changes.length} commit${skill.changes.length === 1 ? "" : "s"}`}</Text> : null}

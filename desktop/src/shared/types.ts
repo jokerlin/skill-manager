@@ -156,7 +156,8 @@ export type ExtensionInfo = {
   readonly source: string;
   readonly enabled: boolean;
   readonly agents: readonly string[];
-  readonly apps: readonly string[];
+  /** skill sources it defines, for upstreams.<name>.source (absent from skm older than 0.6) */
+  readonly sources?: readonly string[];
   /** problems that did not stop the file from loading (e.g. a key skm no longer reads) */
   readonly warnings: readonly string[];
   readonly error: string | null;
@@ -225,16 +226,23 @@ export type UpstreamChange = { readonly commit: string; readonly date: string; r
 export type UpstreamSkill = {
   readonly skill: string;
   readonly state: UpstreamState;
-  /** the upstream version skm last wrote (from the lock); null = no record */
-  readonly base: { readonly commit: string; readonly label: string } | null;
+  /** the upstream version skm last wrote (from the lock); null = no record. `rev` is a commit, or a source's version */
+  readonly base: { readonly rev: string; readonly label: string } | null;
+  /** the version an update writes (a source gives each skill its own; absent from skm older than 0.6) */
+  readonly target?: { readonly rev: string; readonly label: string };
   /** upstream commits between base and target that touch this skill, newest first */
   readonly changes: readonly UpstreamChange[];
 };
 export type Upstream = {
   readonly name: string;
+  /** git repo, or a source an extension defines (absent from skm older than 0.6: git) */
+  readonly kind?: "git" | "source";
+  /** the repo URL, or the source id and its params */
   readonly repo: string;
+  readonly source?: string | null;
   readonly ref: string | null;
-  readonly target: { readonly commit: string; readonly label: string } | null;
+  /** the one version every skill targets (git); null for a source, where each skill has its own */
+  readonly target: { readonly rev: string; readonly label: string } | null;
   readonly warning: string | null;
   readonly error: string | null;
   readonly skills: readonly UpstreamSkill[];

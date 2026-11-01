@@ -314,6 +314,7 @@ const Extensions = () => {
           <div className="text-[13px] font-semibold">{e.name}</div>
           <div className="mt-1 truncate font-mono text-[11px] text-muted-foreground selectable">{e.source}</div>
           {e.agents.length > 0 ? <div className="mt-1.5 text-[12px]">{t("settings.extAgents", { list: e.agents.join(", ") })}</div> : null}
+          {(e.sources ?? []).length > 0 ? <div className="mt-1.5 text-[12px]">{t("settings.extSources", { list: (e.sources ?? []).join(", ") })}</div> : null}
           {(e.warnings ?? []).map((w) => <div key={w} className="mt-1.5 rounded-md bg-pending-soft px-2.5 py-1.5 font-mono text-[11px] text-pending selectable">{w}</div>)}
           {e.error !== null ? <div className="mt-1.5 rounded-md bg-danger-soft px-2.5 py-1.5 font-mono text-[11px] text-danger selectable">{e.error}</div> : null}
         </section>

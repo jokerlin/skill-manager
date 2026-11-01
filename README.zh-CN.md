@@ -40,7 +40,7 @@ mini:~/.skm/skills  devbox:~/.skm/skills   ← rsync 镜像，在各主机本地
 - 跨主机更新 plugin（`skm plugin update`），包括随桌面应用分发的 plugin。
 - Harness 更新：在每台主机上并行执行各 agent CLI 自带的更新命令。
 - 用 `claude -p` 或 `codex exec` 让 LLM 评估你的 skill（`skm eval`）。
-- 扩展：写一个 YAML 文件就能加入 agent，不用写代码。
+- 扩展：写一个 YAML 文件就能加入 agent 和技能来源（比如某个 registry），不用写代码。
 - 界面支持英文和简体中文，支持浅色和深色主题。
 
 ## 安装
@@ -183,7 +183,7 @@ App 是 CLI 外面的一层 Electron 外壳，所有逻辑都在 `skm` 里：App
 
 ## 扩展
 
-扩展是 `~/.skm/extensions/` 里的一个 YAML 文件，用来加入 skm 没有内置的 agent：
+扩展是 `~/.skm/extensions/` 里的一个 YAML 文件。它可以加入 skm 没有内置的 agent，或给 [upstream](#来自-registry-的-skill) 用的技能来源：
 
 ```yaml
 # ~/.skm/extensions/opencode.yaml
@@ -194,7 +194,7 @@ agents:
     cli: { bin: opencode, update: opencode upgrade }
 ```
 
-扩展只包含数据。只有你运行 `skm harness update` 或在 App 里点更新时，skm 才执行 agent 的更新命令。完整格式见 [docs/zh-CN/extensions.md](docs/zh-CN/extensions.md)。
+扩展只包含数据。只有你运行 `skm harness update` 或在 App 里点更新时，skm 才执行 agent 的更新命令；只有检查或更新使用某个来源的 upstream 时，skm 才执行该来源的命令。完整格式见 [docs/zh-CN/extensions.md](docs/zh-CN/extensions.md)。
 
 ### Codex 桌面 App（ChatGPT.app）
 
@@ -227,6 +227,22 @@ skm sync                         # 和其他 store 改动一样，同步到每�
 | gone upstream | 目标 ref 里没有这个目录 | 不动 store 副本 |
 
 `adopt` 能找出手动安装的副本是哪个版本：它找文件和 store 副本完全相同的最新上游 commit。skm 默认跟最新的 release tag（`vX.Y.Z`）。要跟某个分支，设置 `ref:`；只想这一次换 ref，用 `--to <ref>`。只有 hub 需要 `git`。skm 直接从 git 对象写文件，所以 `.gitattributes` 的 export 规则不影响写进 store 的内容。
+
+### 来自 registry 的 skill
+
+不在 git 仓库、而在某个 registry 里的 skill，用[扩展](docs/zh-CN/extensions.md#技能来源)定义的技能来源。扩展写明两条 shell 命令：一条打印某个 skill 的最新版本，一条下载某个版本。upstream 写明用哪个来源，以及这个来源需要的参数：
+
+```yaml
+# ~/.skm/config.yaml
+upstreams:
+  team-kit:
+    source: my-registry     # ~/.skm/extensions 里定义的来源
+    namespace: team/kit     # 这个来源的参数，命令里用 $NAMESPACE 读取
+    skills: [doc-writer]
+    # ref: 1.4.0            # 可选：固定一个版本，不跟最新版
+```
+
+`skm upstream`、`skm upstream update`、TUI 和 App 对它的处理和 git upstream 相同：状态、备份和 lock 都一样。每个 skill 有自己的版本。registry 没有提交历史，所以这类 skill 不列上游提交，`adopt` 也不适用：已经等于最新版本的副本显示为「current」，`skm upstream update` 会把它记进 lock。skm 把下载过的每个版本保存在 `~/.skm/cache/sources/`，所以 `--cached` 检查不运行任何命令。
 
 TUI 在 skills 列表里给每个上游 skill 加标记（`↑` 有更新，`✎` 本地改过，`≠` 版本未知，`✗` 上游已删除），详情面板列出上游 commit。`u` 更新选中的 skill，`U` 更新所有有新版本的 skill，两者都先确认。本地改过的副本要单独确认一次才会被覆盖。
 

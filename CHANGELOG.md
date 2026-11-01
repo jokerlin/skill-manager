@@ -4,8 +4,13 @@ All notable changes to Skill Manager. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+### Added
+
+- Upstreams can come from a skill registry, not only from a git repo. An extension defines a source under `sources:` with two shell commands: `latest` prints the newest version of a skill, and `fetch` downloads a version into `$OUT`. An upstream names it with `source: <id>` plus the params the source needs (for example `namespace:`), and may pin a version with `ref:`. `skm upstream`, `skm upstream update`, the TUI and the app show these skills with the same states, backups and lock as git upstreams, each skill at its own version. skm keeps downloaded versions in `~/.skm/cache/sources/`, so `--cached` runs no command. `skm extensions` and **Settings → Extensions** list each extension's sources.
+
 ### Changed
 
+- `~/.skm/upstreams.lock.json` is now version 2: an entry's `commit` is named `rev`, because a source's version is not a commit. skm reads version 1 files and writes version 2 on the next update. Warning: skm 0.5 cannot read a version 2 lock, so after an update with 0.6, going back to 0.5 needs `skm upstream adopt` again. `skm upstream --json` names `base.rev` and `target.rev` the same way, and adds `kind`, `source` and a per-skill `target`.
 - The Codex desktop app (ChatGPT.app) is part of the built-in codex agent, not the built-in extension `chatgpt-desktop`. The app labels it "Codex desktop app (ChatGPT.app)". Version checks, app updates and its bundled plugins work as before.
 
 ### Removed

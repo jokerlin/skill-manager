@@ -470,7 +470,8 @@ const UpstreamSection = ({ up }: { up: UpstreamOf }) => {
   const [armed, setArmed] = useState(false);
   useEffect(() => setArmed(false), [up.skill.skill, up.skill.state]);
   const { upstream: u, skill: k } = up;
-  const target = u.target?.label ?? "–";
+  const target = k.target?.label ?? u.target?.label ?? "–";
+  const git = (u.kind ?? "git") === "git";
   const base = k.base?.label ?? t("upstream.noRecord");
   const forced = k.state === "modified" || k.state === "unbased";
   const action = updatable(k) || forced ? (
@@ -494,16 +495,16 @@ const UpstreamSection = ({ up }: { up: UpstreamOf }) => {
   );
   return (
     <section>
-      <SectionTitle trailing={action} hint={u.error ?? u.warning ?? t(`upstream.state.${k.state}` as Key, { target, base })}>
+      <SectionTitle trailing={action} hint={u.error ?? u.warning ?? t((k.state === "unbased" && !git ? "upstream.state.unbasedSource" : `upstream.state.${k.state}`) as Key, { target, base })}>
         <span className="inline-flex items-center gap-1"><GitBranch className="size-3" />{t("upstream.title")} · {u.name}</span>
       </SectionTitle>
       <dl className="grid grid-cols-[96px_minmax(0,1fr)] gap-x-3 gap-y-1 text-[12px]">
-        <dt className="text-muted-foreground">{t("upstream.repo")}</dt>
+        <dt className="text-muted-foreground">{t(git ? "upstream.repo" : "upstream.source")}</dt>
         <dd className="truncate font-mono text-[11px] selectable" title={u.repo}>{u.repo}</dd>
         <dt className="text-muted-foreground">{t("upstream.version")}</dt>
         <dd className="font-mono text-[11px] selectable">{base}</dd>
         <dt className="text-muted-foreground">{t("upstream.target")}</dt>
-        <dd className="font-mono text-[11px] selectable">{target}{u.target ? <span className="text-muted-foreground"> · {u.target.commit.slice(0, 7)}</span> : null}</dd>
+        <dd className="font-mono text-[11px] selectable">{target}{git && u.target ? <span className="text-muted-foreground"> · {u.target.rev.slice(0, 7)}</span> : null}</dd>
       </dl>
       {k.changes.length > 0 ? (
         <div className="mt-3">

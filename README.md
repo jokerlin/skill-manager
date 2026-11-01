@@ -40,7 +40,7 @@ Most skill managers handle one agent on one machine. skm treats your setup as a 
 - Plugin updates across hosts (`skm plugin update`), including plugins that ship inside a desktop app.
 - Harness updates: run each agent CLI's own update command on every host in parallel.
 - LLM evaluation of your skills (`skm eval`) with `claude -p` or `codex exec`.
-- Extensions: add agents with a YAML file, no code.
+- Extensions: add agents and skill sources (a registry, say) with a YAML file, no code.
 - English and Simplified Chinese UI. Light and dark themes.
 
 ## Install
@@ -183,7 +183,7 @@ The app is an Electron shell over the CLI. All logic stays in `skm`: the app rea
 
 ## Extensions
 
-An extension is a YAML file in `~/.skm/extensions/` that adds an agent skm does not ship with:
+An extension is a YAML file in `~/.skm/extensions/`. It adds an agent skm does not ship with, or a skill source for [upstreams](#skills-from-a-registry):
 
 ```yaml
 # ~/.skm/extensions/opencode.yaml
@@ -194,7 +194,7 @@ agents:
     cli: { bin: opencode, update: opencode upgrade }
 ```
 
-Extensions are data. skm runs an agent's update command only when you run `skm harness update` or press update in the app. See [docs/extensions.md](docs/extensions.md) for the full format.
+Extensions are data. skm runs an agent's update command only when you run `skm harness update` or press update in the app, and a source's commands only when it checks or updates an upstream that uses it. See [docs/extensions.md](docs/extensions.md) for the full format.
 
 ### Codex desktop app (ChatGPT.app)
 
@@ -227,6 +227,22 @@ skm sync                         # copy them to every host, as for any store cha
 | gone upstream | The target ref has no such dir | Leaves the store copy alone |
 
 `adopt` finds the version of a copy you installed by hand: it looks for the newest upstream commit whose files equal the store copy. By default skm follows the newest release tag (`vX.Y.Z`); set `ref:` to follow a branch, or pass `--to <ref>` for one update. Only the hub needs `git`. skm writes files from the git objects, so `.gitattributes` export rules do not change what lands in the store.
+
+### Skills from a registry
+
+A skill that comes from a registry rather than a git repo uses a source that an [extension](docs/extensions.md#sources) defines. The extension names two shell commands: one prints the newest version of a skill, and one downloads a version. The upstream names the source and the params that source needs:
+
+```yaml
+# ~/.skm/config.yaml
+upstreams:
+  team-kit:
+    source: my-registry     # a source from ~/.skm/extensions
+    namespace: team/kit     # a param of that source; its commands read $NAMESPACE
+    skills: [doc-writer]
+    # ref: 1.4.0            # optional: pin a version instead of following the newest
+```
+
+`skm upstream`, `skm upstream update`, the TUI and the app treat it like a git upstream, with the same states, backups and lock. Each skill has its own version. A registry has no commit history, so skm lists no upstream commits for these skills, and `adopt` does not apply: a copy that already equals the newest version shows as current, and `skm upstream update` records it. skm keeps each downloaded version in `~/.skm/cache/sources/`, so `--cached` checks run no command.
 
 The TUI marks each upstream skill in the skills list (`↑` update available, `✎` edited locally, `≠` unknown base, `✗` gone upstream) and shows the upstream commits in the detail panel. `u` updates the selected skill and `U` updates every skill with a new version; both ask first. A copy you edited is overwritten only after its own prompt.
 
