@@ -11,7 +11,7 @@ import type { TuiIo } from "./io";
 import { pluginUpdateOps } from "../core/pluginUpdate";
 import { stateHint } from "../core/upstream";
 import { shortVersion } from "../core/harness";
-import { type State, VIEWS, fitCount, initialState, pendingTotal, pluginRowsOf, pluginUpdatable, reduce, selectedSkill, upstreamOf, upstreamUpdatable, visibleSkills } from "./state";
+import { type State, VIEWS, cellWanted, fitCount, initialState, pendingTotal, pluginGrid, pluginRowsOf, pluginUpdatable, reduce, togglePluginCell, selectedSkill, upstreamOf, upstreamUpdatable, visibleSkills } from "./state";
 import { SkillsView } from "./views/Skills";
 import { PluginsView } from "./views/Plugins";
 import { HostsView, clampOffset, hostLines } from "./views/Hosts";
@@ -153,6 +153,22 @@ export const App = ({ app, io, autoProbe = true }: AppProps): React.ReactElement
     void io.saveConfig(next).then(() => dispatch({ type: "message", text: `saved ${skill.name} ${host.id}/${agent}` }));
   }, [io, replan]);
 
+  /** The desktop app's plugin switch: flip the highlighted cell in config.yaml; the next apply enables or disables the plugin there. */
+  const togglePlugin = useCallback(() => {
+    const st = stateRef.current;
+    const row = pluginRowsOf(st)[st.pluginSel];
+    const cell = row ? pluginGrid(st, row)[st.pluginCell] : undefined;
+    if (!row || !cell) return;
+    const toggled = togglePluginCell(st, row, cell);
+    if (!toggled.ok) return dispatch({ type: "message", text: toggled.error });
+    const next = toggled.value;
+    if (next === st.config) return dispatch({ type: "message", text: `${row.name} ${cell.host}/${cell.agent} unchanged` });
+    const on = !cellWanted(cell);
+    dispatch({ type: "config", config: next });
+    replan(next);
+    void io.saveConfig(next).then(() => dispatch({ type: "message", text: `saved plugin ${row.name} ${cell.host}/${cell.agent} → ${on ? "on" : "off"}` }));
+  }, [io, replan]);
+
   const runSync = useCallback(async () => {
     const st = stateRef.current;
     if (st.busy) return;
@@ -254,7 +270,14 @@ export const App = ({ app, io, autoProbe = true }: AppProps): React.ReactElement
     const askApply = () => { dispatch({ type: "view", view: "changes" }); dispatch({ type: "confirm", confirm: { kind: "apply" } }); };
     if (input === "s") return askApply();
     if (st.view === "changes" && key.return) return askApply();
-    if (st.view === "plugins") {
+    if (st.view === "plugins" && st.pluginFocus === "grid") {
+      if (input === "m" || key.escape) return dispatch({ type: "pluginFocus", focus: "list" });
+      if (input === "j" || key.downArrow) return dispatch({ type: "movePluginCell", delta: 1 });
+      if (input === "k" || key.upArrow) return dispatch({ type: "movePluginCell", delta: -1 });
+      if (input === " " || key.return) return togglePlugin();
+    }
+    if (st.view === "plugins" && st.pluginFocus === "list") {
+      if (input === "m") return dispatch({ type: "pluginFocus", focus: "grid" });
       if (input === "j" || key.downArrow) return dispatch({ type: "movePlugin", delta: 1 });
       if (input === "k" || key.upArrow) return dispatch({ type: "movePlugin", delta: -1 });
       if (input === "g") return dispatch({ type: "movePlugin", delta: -1_000_000 });
@@ -262,6 +285,7 @@ export const App = ({ app, io, autoProbe = true }: AppProps): React.ReactElement
       if (input === "u") {
         const row = pluginRowsOf(st)[st.pluginSel];
         if (!row) return;
+        if (row.cells.length === 0) return dispatch({ type: "message", text: `${row.name} is not installed on any host` });
         if (!pluginUpdatable(row)) return dispatch({ type: "message", text: `${row.name} ships with an app: update the app with skm harness update` });
         return dispatch({ type: "confirm", confirm: { kind: "plugin-update", plugin: row.name } });
       }
@@ -372,7 +396,8 @@ export const App = ({ app, io, autoProbe = true }: AppProps): React.ReactElement
 
   const hints = s.editingFilter ? [`filter: ${s.filter}▏`]
     : s.view === "skills" && s.focus === "grid" ? ["grid: hjkl move", "space toggle", "m back"]
-    : s.view === "plugins" ? ["j/k move", "u update everywhere", "s apply changes", "r reprobe", "Tab view", "q quit"]
+    : s.view === "plugins" && s.pluginFocus === "grid" ? ["cells: j/k move", "space toggle", "m back"]
+    : s.view === "plugins" ? ["j/k move", "m cells", "u update everywhere", "s apply changes", "r reprobe", "Tab view", "q quit"]
     : s.view === "hosts" ? ["j/k scroll", "H update agent CLIs", "f findings", "s apply changes", "b backup", "r reprobe", "Tab view", "q quit"]
     : s.view === "changes" ? ["Enter apply", "c replace-conflicts (when asked)", "b backup", "r reprobe", "Tab view", "q quit"]
     : ["j/k move", "/ filter", "o sort", "O flip", "m targets", ...(s.config.upstreams.length > 0 ? ["u/U upstream"] : []), "s apply changes", "b backup", "r reprobe", "Tab view", "q quit"];

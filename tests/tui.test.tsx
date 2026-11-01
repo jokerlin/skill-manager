@@ -5,7 +5,8 @@ import { render } from "ink-testing-library";
 import { Box } from "ink";
 import { App } from "../src/tui/App";
 import type { TuiIo } from "../src/tui/io";
-import { defaultConfig } from "../src/core/config";
+import { ALL, type Config, defaultConfig } from "../src/core/config";
+import { pluginWanted } from "../src/core/scope";
 import { buildSkill } from "../src/core/skill";
 import { agentById } from "../src/core/agents";
 import { none, some } from "../src/lib/result";
@@ -311,7 +312,7 @@ describe("aligned with the desktop app", () => {
     expect(frame).toContain("1 plugins · 1 drifting");
     expect(frame).toMatch(/superpowers\s+2 versions/);
     expect(frame).toContain("6.3.0 (newest)");
-    expect(frame).toMatch(/dev\/claude\s+6\.1\.1/);
+    expect(frame).toMatch(/dev\/claude\s+✓ on\s+6\.1\.1/);
     stdin.write("u"); await tick();
     expect(lastFrame()).toContain("update superpowers on local, dev? y = yes");
     stdin.write("y"); await tick(); await tick();
@@ -319,6 +320,58 @@ describe("aligned with the desktop app", () => {
     expect(applied.map((a) => a.host).sort()).toEqual(["dev", "local"]);
     expect(applied.flatMap((a) => a.ops).some((o) => o.op === "plugin-update" && o.plugin === "superpowers@official")).toBe(true);
     expect(lastFrame()).toContain("pending changes"); // the log of what ran is in the changes view
+    unmount();
+  });
+
+  test("m opens the plugin's cells; space flips one in config.yaml and keeps every other cell as it is", async () => {
+    const saved: Config[] = [];
+    const { lastFrame, stdin, unmount } = render(<App app={app()} io={{ ...pluginIo([], []), saveConfig: async (c) => { saved.push(c); } }} />); await tick();
+    stdin.write("2"); await tick();
+    stdin.write("m"); await tick();
+    expect(lastFrame()).toContain("space toggles the highlighted cell");
+    expect(lastFrame()).toMatch(/local\/claude\s+✓ on\s+6\.3\.0/);
+    expect(lastFrame()).toMatch(/dev\/claude\s+✓ on\s+6\.1\.1/);
+    stdin.write(" "); await tick(); await tick();
+    expect(lastFrame()).toContain("saved plugin superpowers local/claude → off");
+    expect(lastFrame()).toMatch(/local\/claude\s+◌ will disable\s+6\.3\.0/); // the version keeps its own column
+    const policy = saved.at(-1)?.plugins.find((p) => p.name === "superpowers");
+    expect(policy).toBeDefined();
+    // a new policy lists today's enabled cells and leaves out the one switched off
+    const wanted = (h: string, a: string) => (policy ? pluginWanted(policy, h, a) : undefined);
+    expect([wanted("local", "claude"), wanted("local", "codex"), wanted("dev", "claude"), wanted("dev", "codex")]).toEqual([false, true, true, true]);
+    stdin.write(" "); await tick(); await tick(); // flip back
+    expect(lastFrame()).toMatch(/local\/claude\s+✓ on/);
+    stdin.write("m"); await tick(); // back to the list: j moves plugins again
+    expect(lastFrame()).toContain("(m to switch cells)");
+    unmount();
+  });
+
+  test("a plugin with no policy cannot be flipped while a host is unreachable: its enabled cells there would be lost", async () => {
+    const saved: Config[] = [];
+    const halfIo: TuiIo = {
+      ...pluginIo([], []),
+      probe: async (h) => (h.id === "local" ? { ok: true, value: pluginInv("6.3.0") } : { ok: false, error: { kind: "ssh", host: "dev", message: "timeout" } as never }),
+      saveConfig: async (c) => { saved.push(c); },
+    };
+    const { lastFrame, stdin, unmount } = render(<App app={app()} io={halfIo} />); await tick();
+    stdin.write("2"); await tick();
+    stdin.write("m"); await tick();
+    stdin.write(" "); await tick();
+    expect(lastFrame()).toContain("superpowers is not under plugins: yet, and dev is not probed");
+    expect(saved).toEqual([]);
+    unmount();
+  });
+
+  test("a plugin under plugins: that no host has yet is listed, with the cells the next apply enables", async () => {
+    const base = app();
+    const ghost = { name: "ghost", marketplace: { claude: "official" }, hosts: ALL, agents: ALL, enabled: true, on: [], off: [] };
+    const { lastFrame, stdin, unmount } = render(<App app={{ ...base, config: { ...base.config, plugins: [ghost] } }} io={io} />); await tick();
+    stdin.write("2"); await tick();
+    expect(lastFrame()).toContain("ghost");
+    expect(lastFrame()).toContain("not installed on any host yet");
+    expect(lastFrame()).toMatch(/local\/claude\s+◌ will enable/);
+    stdin.write("u"); await tick();
+    expect(lastFrame()).toContain("ghost is not installed on any host");
     unmount();
   });
 

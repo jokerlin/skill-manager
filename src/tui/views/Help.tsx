@@ -10,6 +10,7 @@ const rows: readonly (readonly [string, string])[] = [
   ["m", "edit targets grid: h j k l move, space toggles host×agent for the skill (saved to config.yaml)"],
   ["u (skills)", "update the selected skill from its upstream repo; an edited copy is overwritten only after its own confirm (backup first)"],
   ["U (skills)", "update every skill whose upstream has a newer version (asks first)"],
+  ["m (plugins)", "edit the plugin's hosts × agents: j k move, space switches the cell on or off (saved to config.yaml; apply enables or disables it there)"],
   ["u (plugins)", "update the selected plugin on every host: refresh marketplaces, backup, update (asks first)"],
   ["H (hosts)", "update every agent CLI (claude update, codex update, …) on every reachable host (asks first); desktop apps: skm harness update --agent <app>"],
   ["f (hosts)", "list every finding (same skill twice, shadowed copies, stale plugin caches, …) or one summary line per host"],

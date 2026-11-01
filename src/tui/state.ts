@@ -5,14 +5,15 @@ import { type Op, isMutation } from "../core/plan";
 import type { Skill } from "../core/skill";
 import type { HostView } from "../core/view";
 import { type CoverageSummary, summarize } from "../core/coverage";
-import { type PluginRow, pluginRows } from "../core/pluginUpdate";
-import { isDesired } from "../core/scope";
+import { type PluginCellState, type PluginRow, pluginRows } from "../core/pluginUpdate";
+import { isDesired, pluginWanted, setPluginScope } from "../core/scope";
+import { type Cell, PLUGIN_AGENTS } from "../core/config";
 import { agentsOn } from "../shell/hosts";
 import type { HostError } from "../shell/probe";
 import type { SkillReport, UpstreamReport, UpstreamResult } from "../shell/upstreamOps";
 import { type HarnessHost, mergeHarness } from "../core/harness";
 import { resolveAgent } from "../core/agents";
-import { type Option, none, some } from "../lib/result";
+import { type Option, type Result, err, none, ok, some } from "../lib/result";
 
 /** Same order and names as the desktop app: Skills, Plugins, Hosts, then the pending changes. */
 export type View = "skills" | "plugins" | "hosts" | "changes" | "help";
@@ -67,6 +68,8 @@ export type State = {
   readonly hostsOffset: number;          // first visible row of the hosts view
   readonly allFindings: boolean;         // hosts view: every finding, or one summary line per host
   readonly pluginSel: number;            // index into pluginRowsOf(state)
+  readonly pluginFocus: Focus;           // plugins view: the list, or the selected plugin's hosts × agents cells
+  readonly pluginCell: number;           // index into pluginGrid(state, selected row)
   readonly hosts: Readonly<Record<string, HostStatus>>;
   readonly log: readonly string[];
   readonly busy: string | undefined;     // what a long-running IO is doing
@@ -85,6 +88,8 @@ export type Action =
   | { readonly type: "scrollHosts"; readonly offset: number }
   | { readonly type: "toggleFindings" }
   | { readonly type: "movePlugin"; readonly delta: number }
+  | { readonly type: "pluginFocus"; readonly focus: Focus }
+  | { readonly type: "movePluginCell"; readonly delta: number }
   | { readonly type: "focus"; readonly focus: Focus }
   | { readonly type: "filter"; readonly text: string }
   | { readonly type: "editFilter"; readonly on: boolean }
@@ -120,12 +125,56 @@ const clamp = (n: number, lo: number, hi: number): number => Math.max(lo, Math.m
 
 const NO_CONFIRM: Confirm = { kind: "none" };
 
-/** Every plugin across the hosts probed so far, one row per name (the desktop app's Plugins view). Pure. */
-export const pluginRowsOf = (s: State): PluginRow[] =>
-  pluginRows(s.config.hosts.flatMap((h) => {
+/** Every plugin across the hosts probed so far, one row per name, plus plugins under plugins: in config.yaml that no host has yet (the desktop app's Plugins view). Pure. */
+export const pluginRowsOf = (s: State): PluginRow[] => {
+  const seen = pluginRows(s.config.hosts.flatMap((h) => {
     const st = s.hosts[h.id];
     return st?.kind === "ready" && st.view ? [{ host: h.id, states: st.view.states, facts: st.view.facts }] : [];
   }));
+  const declared = s.config.plugins.filter((p) => !seen.some((r) => r.name === p.name)).map((p): PluginRow => ({ name: p.name, ids: [], cells: [], versions: [], drift: false }));
+  return [...seen, ...declared].sort((a, b) => a.name.localeCompare(b.name));
+};
+
+/** One host × plugin-capable agent cell of a plugin: what the host has now, and what config.yaml wants (none = no policy, so today's state stays). */
+export type PluginGridCell = { readonly host: string; readonly agent: string; readonly live: Option<PluginCellState>; readonly wanted: Option<boolean> };
+
+/** Every enabled host × agent that can load plugins (Claude, Codex), as the desktop app lists them. Pure. */
+export const pluginGrid = (s: State, row: PluginRow): readonly PluginGridCell[] => {
+  const policy = s.config.plugins.find((p) => p.name === row.name);
+  return s.config.hosts.flatMap((h) => agentsOn(s.config, h).filter((a) => PLUGIN_AGENTS.includes(a.id)).map((a): PluginGridCell => {
+    const live = row.cells.find((c) => c.host === h.id && c.agent === a.id);
+    return { host: h.id, agent: a.id, live: live ? some(live) : none, wanted: policy ? some(pluginWanted(policy, h.id, a.id)) : none };
+  }));
+};
+
+/** What a cell shows: on or off as it stands, or the change the next apply makes. */
+export type CellPlan = "on" | "off" | "absent" | "will-enable" | "will-disable";
+
+export const cellPlan = (c: PluginGridCell): CellPlan => {
+  const on = c.live.some && c.live.value.enabled === "on";
+  const wanted = c.wanted.some ? c.wanted.value : on;
+  if (on) return wanted ? "on" : "will-disable";
+  if (wanted) return "will-enable";
+  return c.live.some ? "off" : "absent";
+};
+
+/** Whether a cell is on after the next apply: config.yaml's word, else today's state. */
+export const cellWanted = (c: PluginGridCell): boolean => cellPlan(c) === "on" || cellPlan(c) === "will-enable";
+
+/**
+ * The config after flipping one cell, as `skm scope --plugin` does. A plugin with no policy yet is named
+ * `name@marketplace` and keeps today's enabled cells, so the flip changes only that cell; that needs every host's
+ * state, so it is refused while a host is still probing or unreachable (its enabled cells would be switched off). Pure.
+ */
+export const togglePluginCell = (s: State, row: PluginRow, c: PluginGridCell): Result<State["config"], string> => {
+  const policy = s.config.plugins.some((p) => p.name === row.name);
+  const unknown = [...new Set(pluginGrid(s, row).map((x) => x.host))].filter((h) => s.hosts[h]?.kind !== "ready");
+  if (!policy && unknown.length > 0) return err(`${row.name} is not under plugins: yet, and ${unknown.join(", ")} ${unknown.length === 1 ? "is" : "are"} not probed: wait, or r to re-probe`);
+  const marketplace = c.live.some ? c.live.value.marketplace : "";
+  const id = policy ? row.name : row.ids.find((x) => marketplace !== "" && x.endsWith(`@${marketplace}`)) ?? row.ids[0] ?? row.name;
+  const active: Cell[] = row.cells.filter((x) => x.enabled === "on").map((x) => ({ host: x.host, agent: x.agent }));
+  return ok(setPluginScope(s.config, id, c.host, c.agent, !cellWanted(c), active));
+};
 
 /** Pending changes across every reachable host: what the desktop app's bottom bar counts. */
 export const pendingTotal = (s: State): number =>
@@ -152,7 +201,12 @@ export const reduce = (s: State, a: Action): State =>
     }))
     .with({ type: "scrollHosts" }, ({ offset }) => ({ ...s, hostsOffset: Math.max(0, offset) }))
     .with({ type: "toggleFindings" }, () => ({ ...s, allFindings: !s.allFindings }))
-    .with({ type: "movePlugin" }, ({ delta }) => ({ ...s, pluginSel: clamp(s.pluginSel + delta, 0, Math.max(0, pluginRowsOf(s).length - 1)) }))
+    .with({ type: "movePlugin" }, ({ delta }) => ({ ...s, pluginSel: clamp(s.pluginSel + delta, 0, Math.max(0, pluginRowsOf(s).length - 1)), pluginCell: 0 }))
+    .with({ type: "pluginFocus" }, ({ focus }) => ({ ...s, pluginFocus: focus }))
+    .with({ type: "movePluginCell" }, ({ delta }): State => {
+      const row = pluginRowsOf(s)[s.pluginSel];
+      return { ...s, pluginCell: clamp(s.pluginCell + delta, 0, Math.max(0, (row ? pluginGrid(s, row).length : 0) - 1)) };
+    })
     .with({ type: "focus" }, ({ focus }) => ({ ...s, focus }))
     .with({ type: "filter" }, ({ text }) => ({ ...s, filter: text, selected: 0 }))
     .with({ type: "editFilter" }, ({ on }) => ({ ...s, editingFilter: on }))
@@ -193,6 +247,8 @@ export const initialState = (config: Config, skills: readonly Skill[]): State =>
   hostsOffset: 0,
   allFindings: false,
   pluginSel: 0,
+  pluginFocus: "list",
+  pluginCell: 0,
   hosts: Object.fromEntries(config.hosts.map((h) => [h.id, { kind: "probing" as const }])),
   log: [],
   busy: undefined,
