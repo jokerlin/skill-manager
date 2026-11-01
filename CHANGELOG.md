@@ -4,6 +4,10 @@ All notable changes to Skill Manager. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+### Fixed
+
+- The TUI lays itself out again when the terminal is resized.
+
 ## [0.4.3] - 2026-11-01
 
 ### Added
