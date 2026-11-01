@@ -45,6 +45,17 @@ Most skill managers handle one agent on one machine. skm treats your setup as a 
 
 ## Install
 
+### Homebrew
+
+```sh
+brew tap jokerlin/tap
+brew trust jokerlin/tap                 # Homebrew 7 and later load third-party taps only after you trust them
+brew install --cask skill-manager       # the macOS app (it contains the skm CLI)
+brew install skill-manager-cli          # or only the skm CLI and TUI (macOS and Linux)
+```
+
+The app updates itself (see [Updates](#updates)), so `brew upgrade` skips it. `brew upgrade skill-manager-cli` updates the CLI. The formula is not named `skm` because homebrew-core already has an `skm` (an SSH key manager); the two conflict, because both install a `skm` binary.
+
 ### Desktop app (macOS)
 
 1. Download `skill-manager-<version>-arm64-mac.zip` (Apple silicon) or `-x64-mac.zip` (Intel) from [Releases](https://github.com/jokerlin/skill-manager/releases).

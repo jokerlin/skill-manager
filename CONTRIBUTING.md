@@ -99,6 +99,7 @@ Maintainers release from `main`:
 2. Set the same version in `package.json` and `desktop/package.json`, and commit.
 3. Run `sh desktop/scripts/release.sh`. It checks the versions and a clean tree, then creates and pushes the tag `v<version>`.
 4. The Release workflow tests, builds the CLI for macOS and Linux and the app for arm64 and x64, signs and notarizes the app and the macOS CLI, signs `latest-mac.json`, writes `SHA256SUMS`, adds build provenance, and publishes the GitHub release.
+5. The same workflow writes the formula and cask for the new version with `scripts/homebrew.sh` and pushes them to [jokerlin/homebrew-tap](https://github.com/jokerlin/homebrew-tap). It pushes with the deploy key in the repository secret `HOMEBREW_TAP_DEPLOY_KEY`, which can write to the tap only. A dry run prints the two files instead.
 
 Warning: pushing the tag publishes a public release. Installed apps offer it as an update.
 

@@ -99,6 +99,7 @@ App 的文案在 `desktop/src/renderer/src/i18n/en.ts` 和 `zh.ts`。新增语�
 2. 在 `package.json` 和 `desktop/package.json` 里写同一个版本号，然后提交。
 3. 运行 `sh desktop/scripts/release.sh`。脚本检查两个版本号一致、工作区干净，然后创建并推送 tag `v<版本>`。
 4. Release 工作流跑测试，构建 macOS 和 Linux 的 CLI、arm64 和 x64 的 App，给 App 和 macOS CLI 签名并公证，给 `latest-mac.json` 签名，生成 `SHA256SUMS`，加上构建来源证明，再发布 GitHub release。
+5. 同一个工作流用 `scripts/homebrew.sh` 生成新版本的 formula 和 cask，推送到 [jokerlin/homebrew-tap](https://github.com/jokerlin/homebrew-tap)。推送用的是仓库 secret `HOMEBREW_TAP_DEPLOY_KEY` 里的 deploy key，它只能写这个 tap。dry run 只打印这两个文件，不推送。
 
 警告：推送 tag 会发布一个公开 release，已安装的 App 会把它当作更新提示给用户。
 

@@ -159,3 +159,25 @@ jobs:
           else
             gh release create "$GITHUB_REF_NAME" release/* --title "Skill Manager $VERSION" --generate-notes
           fi
+      - name: Render the Homebrew formula and cask (dry run)
+        if: github.event_name != 'push'
+        run: |
+          sh scripts/homebrew.sh "$VERSION" release/SHA256SUMS homebrew-preview
+          cat homebrew-preview/Formula/*.rb homebrew-preview/Casks/*.rb
+      - uses: actions/checkout@v7
+        if: github.event_name == 'push'
+        with:
+          repository: jokerlin/homebrew-tap
+          path: homebrew-tap
+          ssh-key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}   # a deploy key with write access to the tap only
+      - name: Update the Homebrew tap
+        if: github.event_name == 'push'
+        run: |
+          sh scripts/homebrew.sh "$VERSION" release/SHA256SUMS homebrew-tap
+          cd homebrew-tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula Casks
+          if git diff --cached --quiet; then echo "the tap is already at $VERSION"; exit 0; fi
+          git commit -m "skill-manager $VERSION"
+          git push origin HEAD:main

@@ -8,15 +8,16 @@ import { type State, pluginRowsOf, pluginUpdatable } from "../state";
 const versionText = (row: PluginRow): string =>
   row.drift ? `${row.versions.length} versions` : (newestVersion(row.versions) ?? row.versions[0] ?? "off");
 
-const VERSION_W = 12;
-
 /** The desktop app's Plugins view: every plugin with its version on each host × agent; drift in red; `u` updates everywhere. */
 export const PluginsView = ({ s, width, height }: { s: State; width: number; height: number }): React.ReactElement => {
   const rows = pluginRowsOf(s);
   const probing = s.config.hosts.some((h) => s.hosts[h.id]?.kind === "probing");
   const listWidth = Math.max(34, Math.floor(width * 0.42));
-  // a row is "▸ " + name + " " + version (12); the border and paddingX take 4 more columns
-  const nameWidth = Math.min(28, listWidth - (4 + 2 + 1 + VERSION_W), Math.max(10, ...rows.map((r) => r.name.length)));
+  // a row is "▸ " + name + " " + version; the border and paddingX take 4 more columns. The version column is as wide as
+  // the longest version (Codex app plugins are 26.1027.51404) so none loses digits; the name keeps at least 10 columns.
+  const ROW_CHROME = 4 + 2 + 1;
+  const versionWidth = Math.min(listWidth - ROW_CHROME - 10, Math.max(8, ...rows.map((r) => versionText(r).length)));
+  const nameWidth = Math.min(28, listWidth - ROW_CHROME - versionWidth, Math.max(10, ...rows.map((r) => r.name.length)));
   const visibleRows = Math.max(3, height - 3);
   const start = Math.max(0, Math.min(s.pluginSel - Math.floor(visibleRows / 2), rows.length - visibleRows));
   const sel = rows[s.pluginSel];
@@ -31,7 +32,7 @@ export const PluginsView = ({ s, width, height }: { s: State; width: number; hei
             <Text key={r.name} inverse={active}>
               {`${active ? "▸" : " "} `}
               <Text {...(r.drift ? { color: "red" } : {})}>{r.name.padEnd(nameWidth).slice(0, nameWidth)}</Text>
-              <Text color={r.drift ? "red" : "gray"}>{` ${versionText(r).padStart(VERSION_W).slice(-VERSION_W)}`}</Text>
+              <Text color={r.drift ? "red" : "gray"}>{` ${versionText(r).slice(0, versionWidth).padStart(versionWidth)}`}</Text>
             </Text>
           );
         })}
