@@ -4,6 +4,8 @@ All notable changes to Skill Manager. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-11-01
+
 ### Changed
 
 - The desktop app downloads an update over 4 connections at once. Through a proxy, one connection ran anywhere from 3 KB/s to 3 MB/s, and the 142 MB update took 9 min 38 s; now it takes 35 to 60 s. A connection under a quarter of the speed of the others is reopened, and at the end the idle connections take over the bytes a slow one has left. A server that ignores range requests gets one plain request.
@@ -79,7 +81,8 @@ First public release.
 - Self-update from GitHub Releases with an Ed25519-signed manifest and SHA-512 checks.
 - Release workflow with build provenance attestations and `SHA256SUMS`.
 
-[Unreleased]: https://github.com/jokerlin/skill-manager/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/jokerlin/skill-manager/compare/v0.5.2...HEAD
+[0.5.2]: https://github.com/jokerlin/skill-manager/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/jokerlin/skill-manager/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/jokerlin/skill-manager/compare/v0.4.3...v0.5.0
 [0.4.3]: https://github.com/jokerlin/skill-manager/compare/v0.4.2...v0.4.3
