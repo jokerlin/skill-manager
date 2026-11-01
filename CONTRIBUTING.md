@@ -73,12 +73,32 @@ The app's strings are in `desktop/src/renderer/src/i18n/en.ts` and `zh.ts`. To a
 
 ## Releases
 
+### When to release
+
+Release only when people who upgrade will notice the change, or are protected by it. Every release asks every app user to download about 140 MB.
+
+| Change | Release? |
+|---|---|
+| Security fix, data loss, crash at launch, a bug in the updater | Now. A broken updater cannot deliver any later release. |
+| User-visible bug fix or feature | Collect a few, then release. |
+| Runtime dependency update | Now if it fixes a known vulnerability. Otherwise with the next release. |
+| Docs, README, screenshots | No. |
+| CI, the release workflow, Dependabot, repository settings | No. Check a release workflow change with a dry run (below). |
+| Tests, refactors with no change in behavior, dev dependencies | No. |
+| Build changes users do not notice | Not alone. They go out with the next release. |
+
+Changes that do not get a release still go to `main`. Add an entry under `[Unreleased]` in `CHANGELOG.md` when users will care.
+
+To check a change to the release workflow without publishing, run it by hand: Actions → Release → Run workflow. It builds, signs and notarizes everything, and keeps the assets as a workflow artifact.
+
+### How to release
+
 Maintainers release from `main`:
 
 1. Move the `[Unreleased]` entries in `CHANGELOG.md` under a new `## [<version>] - <date>` heading. The release notes come from that section.
 2. Set the same version in `package.json` and `desktop/package.json`, and commit.
 3. Run `sh desktop/scripts/release.sh`. It checks the versions and a clean tree, then creates and pushes the tag `v<version>`.
-4. The Release workflow tests, builds the CLI for macOS and Linux and the app for arm64 and x64, signs and notarizes the app, signs `latest-mac.json`, writes `SHA256SUMS`, adds build provenance, and publishes the GitHub release.
+4. The Release workflow tests, builds the CLI for macOS and Linux and the app for arm64 and x64, signs and notarizes the app and the macOS CLI, signs `latest-mac.json`, writes `SHA256SUMS`, adds build provenance, and publishes the GitHub release.
 
 Warning: pushing the tag publishes a public release. Installed apps offer it as an update.
 
