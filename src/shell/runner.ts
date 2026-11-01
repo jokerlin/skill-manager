@@ -55,8 +55,8 @@ export const exec = async (
 };
 
 /** The hub machine itself. `home` override exists for tests. */
-export const localRunner = (home: string = process.env["HOME"] ?? ""): Runner => ({
-  id: "local",
+export const localRunner = (home: string = process.env["HOME"] ?? "", id = "local"): Runner => ({
+  id,
   kind: "local",
   sh: (script, opts) => exec(["sh", "-s"], { stdin: script, env: { HOME: home }, ...(opts?.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}) }),
   rsyncPath: (rel) => `${home}/${rel}`,

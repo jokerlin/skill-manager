@@ -1,7 +1,8 @@
 {
   "name": "skm",
-  "version": "0.1.0",
-  "description": "Multi-host skill manager for Claude Code, Codex, and Pi: one store, symlinks, rsync across machines.",
+  "version": "0.4.0",
+  "private": true,
+  "description": "Keep agent skills and plugins in sync across machines and coding agents (Claude Code, Codex, Pi): one store, symlinks, rsync over ssh.",
   "type": "module",
   "bin": {
     "skm": "bin/skm.ts"
@@ -10,7 +11,9 @@
     "test": "bun test",
     "dev": "bun run bin/skm.ts",
     "typecheck": "tsc --noEmit",
-    "build": "bun build --compile bin/skm.ts --outfile dist/skm"
+    "build": "bun build --compile bin/skm.ts --outfile dist/skm",
+    "build:mac": "bun build --compile --target=bun-darwin-arm64 bin/skm.ts --outfile dist/skm-darwin-arm64 && bun build --compile --target=bun-darwin-x64 bin/skm.ts --outfile dist/skm-darwin-x64",
+    "build:linux": "bun build --compile --target=bun-linux-x64 bin/skm.ts --outfile dist/skm-linux-x64 && bun build --compile --target=bun-linux-arm64 bin/skm.ts --outfile dist/skm-linux-arm64"
   },
   "dependencies": {
     "commander": "^15.0.0",
@@ -27,5 +30,10 @@
     "@types/react": "^19.2.18",
     "ink-testing-library": "^4.0.0",
     "typescript": "^7.0.2"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jokerlin/skill-manager.git"
   }
 }

@@ -1,5 +1,7 @@
 import { parse as parseYaml, stringify as toYaml } from "yaml";
 import { type Option, type Result, err, none, ok, some } from "../lib/result";
+import type { AgentOverride } from "./agents";
+import { type Registry, builtinRegistry } from "./extensions";
 
 /** Which hosts/agents a rule or default applies to. */
 export type Selector =
@@ -34,6 +36,8 @@ export type PluginPolicy = {
   readonly hosts: Selector;
   readonly agents: Selector;
   readonly enabled: boolean;                                // false ⇒ disable wherever it is present, whatever hosts/agents say
+  readonly on: readonly Cell[];                             // cell-level overrides, applied after the selectors (like rules)
+  readonly off: readonly Cell[];
 };
 
 /** Where the owning CLI records the version it wrote: a JSON file on each host and a dotted key path into it (`{skill}` = the skill name). */
@@ -63,12 +67,19 @@ export type Config = {
   readonly eval: { readonly agent: EvalAgent; readonly model: Option<string> };
   readonly contextTokens: number;
   readonly backupBeforeApply: boolean;
+  /** agent id → user settings that replace built-in agent values (skills dir, self-update command) */
+  readonly agentOverrides: Readonly<Record<string, AgentOverride>>;
+  /** extension names (built-in or from ~/.skm/extensions) that stay switched off */
+  readonly disabledExtensions: readonly string[];
+  /** built-in agents plus extensions, filled in when the config is loaded; never written back */
+  readonly registry: Registry;
 };
 
 export type ConfigError =
   | { readonly kind: "yaml"; readonly message: string }
   | { readonly kind: "shape"; readonly path: string; readonly message: string }
-  | { readonly kind: "missing-local" };
+  /** no host, or more than one host, without an ssh alias: skm needs exactly one hub (the machine it runs on) */
+  | { readonly kind: "hub"; readonly count: number };
 
 export const ALL: Selector = { kind: "all" };
 
@@ -81,8 +92,11 @@ export const defaultConfig = (): Config => ({
   plugins: [],
   owned: [],
   eval: { agent: "claude", model: none },
+  disabledExtensions: [],
+  registry: builtinRegistry(),
   contextTokens: 1_000_000, // fallback window when a host's model cannot be resolved; Claude Fable/Opus 5/Sonnet 5 and Codex's large models are all ≥ 1M-class
   backupBeforeApply: true,
+  agentOverrides: {},
 });
 
 // ---------- parsing (pure) ----------
@@ -161,7 +175,7 @@ const parseHost = (id: string, v: unknown): Result<HostConfig, ConfigError> => {
 
 const parsePlugin = (name: string, v: unknown): Result<PluginPolicy, ConfigError> => {
   const path = `plugins.${name}`;
-  if (v === null || v === undefined) return ok({ name, marketplace: {}, hosts: ALL, agents: ALL, enabled: true });
+  if (v === null || v === undefined) return ok({ name, marketplace: {}, hosts: ALL, agents: ALL, enabled: true, on: [], off: [] });
   if (!isRecord(v)) return err(shape(path, "plugin must be a map"));
   const mk = v["marketplace"];
   const marketplace: Result<Readonly<Record<string, string>>, ConfigError> =
@@ -176,7 +190,11 @@ const parsePlugin = (name: string, v: unknown): Result<PluginPolicy, ConfigError
   if (!agents.ok) return agents;
   const en = v["enabled"];
   if (en !== undefined && typeof en !== "boolean") return err(shape(`${path}.enabled`, "expected true or false"));
-  return ok({ name, marketplace: marketplace.value, hosts: hosts.value, agents: agents.value, enabled: en ?? true });
+  const on = parseCells(v["on"], `${path}.on`);
+  if (!on.ok) return on;
+  const off = parseCells(v["off"], `${path}.off`);
+  if (!off.ok) return off;
+  return ok({ name, marketplace: marketplace.value, hosts: hosts.value, agents: agents.value, enabled: en ?? true, on: on.value, off: off.value });
 };
 
 const parseOptionalSelectorList = (v: unknown, path: string): Result<Option<readonly string[]>, ConfigError> => {
@@ -233,7 +251,8 @@ export const parseConfig = (text: string): Result<Config, ConfigError> => {
   if (!isRecord(hostsRaw)) return err(shape("hosts", "expected a map of host id → settings"));
   const hosts = sequence(Object.entries(hostsRaw).map(([id, v]) => parseHost(id, v)));
   if (!hosts.ok) return hosts;
-  if (!hosts.value.some((h) => h.id === "local")) return err({ kind: "missing-local" });
+  const hubs = hosts.value.filter((h) => !h.ssh.some).length;
+  if (hubs !== 1) return err({ kind: "hub", count: hubs });
 
   const defaultsRaw = doc["defaults"] ?? {};
   if (!isRecord(defaultsRaw)) return err(shape("defaults", "expected a map"));
@@ -269,6 +288,14 @@ export const parseConfig = (text: string): Result<Config, ConfigError> => {
   const backupBeforeApply = doc["backupBeforeApply"] ?? d.backupBeforeApply;
   if (typeof backupBeforeApply !== "boolean") return err(shape("backupBeforeApply", "expected boolean"));
 
+  const disabledExtensions = doc["disabledExtensions"] === undefined ? ok([] as readonly string[]) : parseStringList(doc["disabledExtensions"], "disabledExtensions");
+  if (!disabledExtensions.ok) return disabledExtensions;
+
+  const overridesRaw = doc["agentOverrides"] ?? {};
+  if (!isRecord(overridesRaw)) return err(shape("agentOverrides", "expected a map of agent id → { dir, update }"));
+  const overrides = sequence(Object.entries(overridesRaw).map(([id, v]) => parseAgentOverride(id, v)));
+  if (!overrides.ok) return overrides;
+
   return ok({
     store,
     agents: agents.value,
@@ -280,7 +307,25 @@ export const parseConfig = (text: string): Result<Config, ConfigError> => {
     eval: { agent: evalAgent, model: model === undefined ? none : some(model) },
     contextTokens,
     backupBeforeApply,
+    agentOverrides: Object.fromEntries(overrides.value),
+    disabledExtensions: disabledExtensions.value,
+    registry: builtinRegistry(disabledExtensions.value),
   });
+};
+
+const parseAgentOverride = (id: string, v: unknown): Result<readonly [string, AgentOverride], ConfigError> => {
+  const path = `agentOverrides.${id}`;
+  if (v === null || v === undefined) return ok([id, { dir: none, update: none }]);
+  if (!isRecord(v)) return err(shape(path, "expected { dir, update }"));
+  const field = (k: "dir" | "update"): Result<Option<string>, ConfigError> => {
+    const x = v[k];
+    if (x === undefined || x === "") return ok(none);
+    return typeof x === "string" ? ok(some(x)) : err(shape(`${path}.${k}`, "expected string"));
+  };
+  const dir = field("dir");
+  if (!dir.ok) return dir;
+  const update = field("update");
+  return update.ok ? ok([id, { dir: dir.value, update: update.value }]) : update;
 };
 
 // ---------- serialization (pure) ----------
@@ -307,7 +352,7 @@ const ruleToRaw = (r: Rule): Raw => ({
 const pluginToRaw = (p: PluginPolicy): Raw => {
   const values = [...new Set(Object.values(p.marketplace))];
   const mk = Object.keys(p.marketplace).length === 0 ? {} : values.length === 1 && PLUGIN_AGENTS.every((a) => p.marketplace[a] === values[0]) ? { marketplace: values[0] } : { marketplace: { ...p.marketplace } };
-  return { ...mk, ...(p.hosts.kind === "all" ? {} : { hosts: selectorToRaw(p.hosts) }), ...(p.agents.kind === "all" ? {} : { agents: selectorToRaw(p.agents) }), ...(p.enabled ? {} : { enabled: false }) };
+  return { ...mk, ...(p.hosts.kind === "all" ? {} : { hosts: selectorToRaw(p.hosts) }), ...(p.agents.kind === "all" ? {} : { agents: selectorToRaw(p.agents) }), ...(p.enabled ? {} : { enabled: false }), ...(p.on.length > 0 ? { on: p.on.map(cellText) } : {}), ...(p.off.length > 0 ? { off: p.off.map(cellText) } : {}) };
 };
 
 const ownedToRaw = (o: OwnedPolicy): Raw => ({ tool: o.tool, ...(o.ensure.some ? { ensure: o.ensure.value } : {}), ...(o.fallback === "store" ? {} : { fallback: o.fallback }), ...(o.agents.some ? { agents: [...o.agents.value] } : {}), ...(o.lock.some ? { lock: { ...o.lock.value } } : {}) });
@@ -330,7 +375,20 @@ export const serializeConfig = (c: Config): string =>
     eval: { agent: c.eval.agent, ...(c.eval.model.some ? { model: c.eval.model.value } : {}) },
     contextTokens: c.contextTokens,
     backupBeforeApply: c.backupBeforeApply,
+    ...overridesToRaw(c.agentOverrides),
+    ...(c.disabledExtensions.length > 0 ? { disabledExtensions: [...c.disabledExtensions] } : {}),
   });
+
+const overridesToRaw = (o: Readonly<Record<string, AgentOverride>>): Raw => {
+  const entries = Object.entries(o).flatMap(([id, x]) => {
+    const raw = { ...(x.dir.some ? { dir: x.dir.value } : {}), ...(x.update.some ? { update: x.update.value } : {}) };
+    return Object.keys(raw).length > 0 ? [[id, raw] as const] : [];
+  });
+  return entries.length > 0 ? { agentOverrides: Object.fromEntries(entries) } : {};
+};
+
+/** The machine skm runs on: the one host without an ssh alias (parseConfig guarantees exactly one). */
+export const hubOf = (c: Config): HostConfig => c.hosts.find((h) => !h.ssh.some) ?? c.hosts[0] ?? { id: "local", ssh: none, agents: none, skm: "~/.skm" };
 
 export const hostById = (c: Config, id: string): Option<HostConfig> => {
   const h = c.hosts.find((x) => x.id === id);
@@ -362,7 +420,9 @@ export const configErrorText = (e: ConfigError): string => {
       return `config YAML error: ${e.message}`;
     case "shape":
       return `config error at ${e.path || "<root>"}: ${e.message}`;
-    case "missing-local":
-      return "config must declare a `local` host under hosts:";
+    case "hub":
+      return e.count === 0
+        ? "config needs one host without an ssh alias (the machine skm runs on) under hosts:"
+        : `config has ${e.count} hosts without an ssh alias; exactly one (the machine skm runs on) may omit ssh`;
   }
 };

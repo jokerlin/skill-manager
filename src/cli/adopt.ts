@@ -1,7 +1,7 @@
 import pc from "picocolors";
 import { lstat, readdir, readlink, realpath, rename, symlink, rm, cp, mkdir } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
-import { agentById } from "../core/agents";
+import { resolveAgent } from "../core/agents";
 import { buildSkill } from "../core/skill";
 import { readFile } from "node:fs/promises";
 import { homeDir } from "../shell/paths";
@@ -67,7 +67,7 @@ export const runAdopt = async (paths: string[], fromAgents: string[]): Promise<v
     const home = homeDir();
     const agentPaths = await Promise.all(
       fromAgents.map(async (id) => {
-        const a = agentById(id);
+        const a = resolveAgent(id, app.config.agentOverrides, app.config.registry.agents);
         if (!a.some) return die(`unknown agent ${id}`);
         const dir = a.value.userDir(home);
         const names = await readdir(dir).catch(() => [] as string[]);

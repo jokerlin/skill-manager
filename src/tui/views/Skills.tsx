@@ -43,9 +43,6 @@ export const SkillsView = ({ s, width, height }: { s: State; width: number; heig
 
 const Detail = ({ s, skill }: { s: State; skill: NonNullable<ReturnType<typeof selectedSkill>> }): React.ReactElement => {
   const agents = s.config.agents;
-  const insights = s.insights.filter((i) => i.skill === skill.name);
-  const ev = s.evals[skill.name];
-  const stale = ev !== undefined && ev.hash !== skill.contentHash;
   return (
     <Box flexDirection="column">
       <Text bold>{skill.name} <Text color="gray">{skill.dir}</Text></Text>
@@ -78,22 +75,6 @@ const Detail = ({ s, skill }: { s: State; skill: NonNullable<ReturnType<typeof s
         </Text>
       ))}
       <Text color="gray">✓ loaded  ◌ pending  ○ off  ✗ broken  ? unreachable · green on target · yellow pending/outside target</Text>
-      {insights.length > 0 ? (
-        <Box flexDirection="column" marginTop={1}>
-          <Text bold>insights</Text>
-          {insights.map((i, n) => (
-            <Text key={n} wrap="truncate-end"><Text color={i.kind === "spec-violation" ? "red" : i.kind === "duplicate" ? "magenta" : "yellow"}>{i.kind}</Text>{` ${i.detail}`}</Text>
-          ))}
-        </Box>
-      ) : null}
-      {ev ? (
-        <Box flexDirection="column" marginTop={1}>
-          <Text bold>eval <Text color="gray">{`${ev.evaluator} ${ev.at.slice(0, 10)}${stale ? " (stale — skill changed)" : ""}`}</Text></Text>
-          <Text>{`useful ${"★".repeat(ev.item.usefulness)}${"☆".repeat(5 - ev.item.usefulness)}  description ${ev.item.description_quality}/5  verdict `}<Text color={ev.item.verdict === "keep" ? "green" : ev.item.verdict === "drop" ? "red" : "yellow"}>{ev.item.verdict}</Text>{ev.item.overlaps.length > 0 ? `  overlaps ${ev.item.overlaps.join(", ")}` : ""}</Text>
-          <Text wrap="wrap" color="gray">{ev.item.reason}</Text>
-          {ev.item.trim_suggestion ? <Text wrap="wrap"><Text color="cyan">suggested: </Text>{ev.item.trim_suggestion}</Text> : null}
-        </Box>
-      ) : null}
     </Box>
   );
 };

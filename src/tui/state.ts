@@ -1,15 +1,13 @@
 import { match } from "ts-pattern";
 import type { Config } from "../core/config";
-import type { EvalCacheEntry } from "../shell/cache";
-import type { Insight } from "../core/heuristics";
 import type { Inventory } from "../core/inventory";
 import type { Op } from "../core/plan";
 import type { Skill } from "../core/skill";
 import type { HostView } from "../core/view";
 import type { HostError } from "../shell/probe";
 
-export type View = "skills" | "hosts" | "sync" | "insights" | "help";
-export const VIEWS: readonly View[] = ["skills", "hosts", "sync", "insights", "help"];
+export type View = "skills" | "hosts" | "sync" | "help";
+export const VIEWS: readonly View[] = ["skills", "hosts", "sync", "help"];
 
 export type HostStatus =
   | { readonly kind: "probing" }
@@ -41,8 +39,6 @@ export type State = {
   readonly grid: { readonly host: number; readonly agent: number };
   readonly hostsOffset: number;          // first visible row of the hosts view
   readonly hosts: Readonly<Record<string, HostStatus>>;
-  readonly insights: readonly Insight[];
-  readonly evals: Readonly<Record<string, EvalCacheEntry>>;
   readonly log: readonly string[];
   readonly busy: string | undefined;     // what a long-running IO is doing
   readonly confirmSync: boolean;
@@ -63,7 +59,6 @@ export type Action =
   | { readonly type: "flipSort" }
   | { readonly type: "config"; readonly config: Config }
   | { readonly type: "host"; readonly id: string; readonly status: HostStatus }
-  | { readonly type: "evals"; readonly evals: Readonly<Record<string, EvalCacheEntry>> }
   | { readonly type: "log"; readonly line: string }
   | { readonly type: "busy"; readonly what: string | undefined }
   | { readonly type: "confirmSync"; readonly on: boolean }
@@ -105,7 +100,6 @@ export const reduce = (s: State, a: Action): State =>
     .with({ type: "flipSort" }, (): State => ({ ...s, sort: { ...s.sort, dir: s.sort.dir === "asc" ? "desc" : "asc" }, selected: 0 }))
     .with({ type: "config" }, ({ config }) => ({ ...s, config }))
     .with({ type: "host" }, ({ id, status }) => ({ ...s, hosts: { ...s.hosts, [id]: status } }))
-    .with({ type: "evals" }, ({ evals }) => ({ ...s, evals }))
     .with({ type: "log" }, ({ line }) => ({ ...s, log: [...s.log.slice(-199), line] }))
     .with({ type: "busy" }, ({ what }) => ({ ...s, busy: what }))
     .with({ type: "confirmSync" }, ({ on }) => ({ ...s, confirmSync: on }))
@@ -113,7 +107,7 @@ export const reduce = (s: State, a: Action): State =>
     .with({ type: "message" }, ({ text }) => ({ ...s, message: text }))
     .exhaustive();
 
-export const initialState = (config: Config, skills: readonly Skill[], insights: readonly Insight[], evals: Readonly<Record<string, EvalCacheEntry>>): State => ({
+export const initialState = (config: Config, skills: readonly Skill[]): State => ({
   view: "skills",
   config,
   skills,
@@ -125,8 +119,6 @@ export const initialState = (config: Config, skills: readonly Skill[], insights:
   grid: { host: 0, agent: 0 },
   hostsOffset: 0,
   hosts: Object.fromEntries(config.hosts.map((h) => [h.id, { kind: "probing" as const }])),
-  insights,
-  evals,
   log: [],
   busy: undefined,
   confirmSync: false,

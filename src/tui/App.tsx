@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useReducer, useRef } from "react";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
 import { match } from "ts-pattern";
-import { allInsights } from "../core/heuristics";
 import { isMutation } from "../core/plan";
 import { isDesired, setScope } from "../core/scope";
 import { buildHostView } from "../core/view";
@@ -10,19 +9,15 @@ import type { AppState } from "../shell/app";
 import { hostErrorText } from "../shell/probe";
 import type { TuiIo } from "./io";
 import { type State, initialState, reduce, selectedSkill, visibleSkills } from "./state";
-import type { EvalCacheEntry } from "../shell/cache";
 import { SkillsView } from "./views/Skills";
 import { HostsView, clampOffset, hostLines } from "./views/Hosts";
 import { SyncView } from "./views/Sync";
-import { InsightsView } from "./views/Insights";
 import { HelpView } from "./views/Help";
 
-export type AppProps = { readonly app: AppState; readonly io: TuiIo; readonly evals: Readonly<Record<string, EvalCacheEntry>>; readonly autoProbe?: boolean };
+export type AppProps = { readonly app: AppState; readonly io: TuiIo; readonly autoProbe?: boolean };
 
-const EVAL_BATCH = 12;
-
-export const App = ({ app, io, evals, autoProbe = true }: AppProps): React.ReactElement => {
-  const [s, dispatch] = useReducer(reduce, undefined, () => initialState(app.config, app.skills, allInsights(app.skills), evals));
+export const App = ({ app, io, autoProbe = true }: AppProps): React.ReactElement => {
+  const [s, dispatch] = useReducer(reduce, undefined, () => initialState(app.config, app.skills));
   const { exit } = useApp();
   const { stdout } = useStdout();
   const cols = stdout?.columns ?? 120;
@@ -111,23 +106,6 @@ export const App = ({ app, io, evals, autoProbe = true }: AppProps): React.React
     dispatch({ type: "view", view: "sync" });
   }, [io]);
 
-  const runEval = useCallback(async () => {
-    const st = stateRef.current;
-    if (st.busy) return;
-    const pending = visibleSkills(st).filter((k) => st.evals[k.name]?.hash !== k.contentHash);
-    if (pending.length === 0) { dispatch({ type: "message", text: "all visible skills already evaluated (cache)" }); dispatch({ type: "view", view: "insights" }); return; }
-    dispatch({ type: "view", view: "insights" });
-    const batches = Array.from({ length: Math.ceil(pending.length / EVAL_BATCH) }, (_, i) => pending.slice(i * EVAL_BATCH, (i + 1) * EVAL_BATCH));
-    await batches.reduce(async (p, batch, i) => {
-      await p;
-      dispatch({ type: "busy", what: `evaluating batch ${i + 1}/${batches.length} with ${st.config.eval.agent}` });
-      const r = await io.evaluate(batch, app.skills);
-      if (r.ok) dispatch({ type: "evals", evals: r.value });
-      else dispatch({ type: "log", line: `eval: ${r.error}` });
-    }, Promise.resolve());
-    dispatch({ type: "busy", what: undefined });
-  }, [io, app.skills]);
-
   useInput((input, key) => {
     const st = stateRef.current;
     if (st.editingFilter) {
@@ -144,12 +122,11 @@ export const App = ({ app, io, evals, autoProbe = true }: AppProps): React.React
     if (input === "q") return exit();
     if (key.tab) return dispatch({ type: "nextView" });
     if (input === "?") return dispatch({ type: "view", view: "help" });
-    const viewKey = { "1": "skills", "2": "hosts", "3": "sync", "4": "insights", "5": "help" } as const;
+    const viewKey = { "1": "skills", "2": "hosts", "3": "sync", "4": "help" } as const;
     if (input in viewKey) return dispatch({ type: "view", view: viewKey[input as keyof typeof viewKey] });
     if (input === "r") return probeAll();
     if (input === "s") { dispatch({ type: "view", view: "sync" }); return dispatch({ type: "confirmSync", on: true }); }
     if (input === "b") return void runBackup();
-    if (input === "e") return void runEval();
     if (st.view === "skills") {
       if (input === "/") return dispatch({ type: "editFilter", on: true });
       if (input === "o") return dispatch({ type: "cycleSort" });
@@ -186,7 +163,7 @@ export const App = ({ app, io, evals, autoProbe = true }: AppProps): React.React
     <Box justifyContent="space-between">
       <Text>
         <Text bold color="cyan"> skm </Text>
-        {(["skills", "hosts", "sync", "insights", "help"] as const).map((v, i) => (
+        {(["skills", "hosts", "sync", "help"] as const).map((v, i) => (
           <Text key={v}>
             {" "}
             <Text inverse={s.view === v} bold={s.view === v}>{` ${i + 1}:${v} `}</Text>
@@ -217,7 +194,7 @@ export const App = ({ app, io, evals, autoProbe = true }: AppProps): React.React
     <Box justifyContent="space-between">
       <Text color="gray">
         {s.busy ? <Text color="yellow">{`⏳ ${s.busy}  `}</Text> : null}
-        {s.editingFilter ? `filter: ${s.filter}▏` : s.view === "skills" && s.focus === "grid" ? "grid: hjkl move  space toggle  m back" : "j/k move  / filter  o sort  O flip  m targets  s sync  b backup  e eval  r reprobe  Tab view  q quit"}
+        {s.editingFilter ? `filter: ${s.filter}▏` : s.view === "skills" && s.focus === "grid" ? "grid: hjkl move  space toggle  m back" : "j/k move  / filter  o sort  O flip  m targets  s sync  b backup  r reprobe  Tab view  q quit"}
       </Text>
       <Text color="gray">{s.message} </Text>
     </Box>
@@ -227,7 +204,6 @@ export const App = ({ app, io, evals, autoProbe = true }: AppProps): React.React
     .with("skills", () => <SkillsView s={s} width={cols} height={rows - 3} />)
     .with("hosts", () => <HostsView s={s} height={rows - 3} offset={s.hostsOffset} />)
     .with("sync", () => <SyncView s={s} height={rows - 3} />)
-    .with("insights", () => <InsightsView s={s} height={rows - 3} />)
     .with("help", () => <HelpView />)
     .exhaustive();
 

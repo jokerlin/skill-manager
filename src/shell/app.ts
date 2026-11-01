@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
-import { type Agent, agentById } from "../core/agents";
+import { withExtensions } from "./extensions";
+import { type Agent, resolveAgent } from "../core/agents";
 import { type Config, type ConfigError, configErrorText, parseConfig } from "../core/config";
 import type { Skill } from "../core/skill";
 import type { BudgetOverrides } from "../core/budget";
@@ -68,7 +69,7 @@ export const loadApp = async (skm: string = skmHome()): Promise<Result<AppState,
   if (text === undefined) return err({ kind: "no-config", path: configPath });
   const cfg = parseConfig(text);
   if (!cfg.ok) return err({ kind: "config", path: configPath, error: cfg.error });
-  return loadWith(skm, configPath, cfg.value);
+  return loadWith(skm, configPath, await withExtensions(skm, cfg.value));
 };
 
 /** Build AppState from an already-parsed config (used after in-memory edits). */
@@ -76,7 +77,7 @@ export const loadWith = async (skm: string, configPath: string, config: Config):
   const storeDir = expandHome(config.store);
   const scan = await loadStore(storeDir);
   if (!scan.ok) return err({ kind: "store", error: scan.error });
-  const resolved = config.agents.map((id) => ({ id, agent: agentById(id) }));
+  const resolved = config.agents.map((id) => ({ id, agent: resolveAgent(id, config.agentOverrides, config.registry.agents) }));
   const agents = resolved.flatMap((r) => (r.agent.some ? [r.agent.value] : []));
   return ok({
     skmHome: skm,

@@ -1,4 +1,5 @@
 import pc from "picocolors";
+import { hubOf } from "../core/config";
 import { buildEvalPrompt, evalErrorText, parseEvalResponse, type EvalItem } from "../core/evalPrompt";
 import { readEvalCache, writeEvalCache } from "../shell/cache";
 import { evaluators, type EvaluatorId } from "../shell/evaluators";
@@ -12,7 +13,7 @@ export type EvalOpts = { agent?: EvaluatorId; model?: string; fresh: boolean; js
 
 /** Skills the local machine's agents load from outside the store (plugin caches, real dirs), readable on the hub. Names are `plugin:skill` for plugin skills. */
 const localExtraSkills = async (app: AppState): Promise<Skill[]> => {
-  const snaps = await snapshotHosts(app, "local");
+  const snaps = await snapshotHosts(app, hubOf(app.config).id);
   const snap = snaps[0];
   if (!snap || !snap.result.ok) return [];
   const es = Object.values(snap.result.view.effective).flat().filter((e) => e.owner !== "skm");

@@ -2,7 +2,7 @@ import React from "react";
 import { Box, Text } from "ink";
 
 const rows: readonly (readonly [string, string])[] = [
-  ["1-5 / Tab", "switch view (skills · hosts · sync · insights · help)"],
+  ["1-4 / Tab", "switch view (skills · hosts · sync · help)"],
   ["j k ↑ ↓ g G", "move in the skill list (PgUp/PgDn ±10)"],
   ["/", "filter by name or description (Enter/Esc to finish, Esc again clears)"],
   ["o", "sort key: name → listing tokens → body tokens (costs start descending)"],
@@ -11,7 +11,6 @@ const rows: readonly (readonly [string, string])[] = [
   ["s", "plan → confirm → backup → rsync → link on every reachable host"],
   ["c (in confirm)", "toggle replace-conflicts: move real dirs / foreign links into the backup and link the store"],
   ["b", "backup only (store + agent dirs on every reachable host; prints the restore command)"],
-  ["e", "LLM evaluation of the visible skills via claude -p / codex exec (config: eval.agent)"],
   ["r", "re-probe all hosts"],
   ["q", "quit"],
 ];

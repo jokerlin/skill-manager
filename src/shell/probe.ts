@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import type { Agent } from "../core/agents";
 import { type HostConfig, type OwnedPolicy, ownedProbe } from "../core/config";
 import { emptyInventory, type Inventory, parseProbeOutput } from "../core/inventory";
@@ -44,13 +44,38 @@ export const writeInventoryCache = async (skm: string, host: string, inv: Invent
   await writeFile(cachePath(skm, host), JSON.stringify({ at: new Date().toISOString(), inventory: inv })).catch(() => undefined);
 };
 
-export const readInventoryCache = async (skm: string, host: string): Promise<Inventory | undefined> => {
+export const readInventoryCache = async (skm: string, host: string): Promise<Inventory | undefined> =>
+  (await readInventoryCacheEntry(skm, host))?.inventory;
+
+/** The cached probe with the time it was taken (ISO 8601). */
+export const readInventoryCacheEntry = async (skm: string, host: string): Promise<{ readonly inventory: Inventory; readonly at: string } | undefined> => {
   const text = await readFile(cachePath(skm, host), "utf8").catch(() => undefined);
   if (text === undefined) return undefined;
   try {
-    const j = JSON.parse(text) as { inventory?: Inventory };
+    const j = JSON.parse(text) as { at?: string; inventory?: Inventory };
     // caches written by older probes lack newer fields (e.g. `hidden`): fill them with empties
-    return j.inventory && typeof j.inventory.home === "string" ? { ...emptyInventory(j.inventory.home), ...j.inventory } : undefined;
+    return j.inventory && typeof j.inventory.home === "string" ? { inventory: { ...emptyInventory(j.inventory.home), ...j.inventory }, at: typeof j.at === "string" ? j.at : "" } : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const errorPath = (skm: string, host: string): string => `${skm}/cache/inventory/${host}.error.json`;
+
+/** Remember that the last live probe of a host failed, so cached reads can say the cache is from before an outage. */
+export const writeProbeError = async (skm: string, host: string, e: HostError): Promise<void> => {
+  await mkdir(`${skm}/cache/inventory`, { recursive: true }).catch(() => undefined);
+  await writeFile(errorPath(skm, host), JSON.stringify({ at: new Date().toISOString(), error: hostErrorText(e) })).catch(() => undefined);
+};
+
+export const clearProbeError = async (skm: string, host: string): Promise<void> => { await rm(errorPath(skm, host), { force: true }).catch(() => undefined); };
+
+export const readProbeError = async (skm: string, host: string): Promise<{ readonly at: string; readonly error: string } | undefined> => {
+  const text = await readFile(errorPath(skm, host), "utf8").catch(() => undefined);
+  if (text === undefined) return undefined;
+  try {
+    const j = JSON.parse(text) as { at?: unknown; error?: unknown };
+    return typeof j.at === "string" && typeof j.error === "string" ? { at: j.at, error: j.error } : undefined;
   } catch {
     return undefined;
   }
