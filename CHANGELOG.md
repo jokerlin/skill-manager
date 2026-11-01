@@ -7,6 +7,7 @@ All notable changes to Skill Manager. The format follows [Keep a Changelog](http
 ### Fixed
 
 - The TUI lays itself out again when the terminal is resized.
+- TUI lines no longer wrap or draw over each other: the skills list keeps its width, the header and footer stay one line each (hosts that do not fit show as `+N`), and a skill detail taller than its panel is cut at the border.
 
 ## [0.4.3] - 2026-11-01
 

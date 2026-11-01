@@ -8,7 +8,7 @@ import { agentsOn } from "../shell/hosts";
 import type { AppState } from "../shell/app";
 import { hostErrorText } from "../shell/probe";
 import type { TuiIo } from "./io";
-import { type State, initialState, reduce, selectedSkill, visibleSkills } from "./state";
+import { type State, fitCount, initialState, reduce, selectedSkill, visibleSkills } from "./state";
 import { SkillsView } from "./views/Skills";
 import { HostsView, clampOffset, hostLines } from "./views/Hosts";
 import { SyncView } from "./views/Sync";
@@ -158,44 +158,64 @@ export const App = ({ app, io, autoProbe = true }: AppProps): React.ReactElement
     }
   });
 
+  // Header and footer must stay one line each: a wrapped line pushes the body down by a row. Content is fitted by whole
+  // segments (a host, a key hint) instead of letting Yoga shrink the Text, which wraps it.
+  const tabs = (["skills", "hosts", "sync", "help"] as const).map((v, i) => ({ v, label: ` ${i + 1}:${v} ` }));
+  const tabsWidth = " skm ".length + tabs.reduce((n, t) => n + 1 + t.label.length, 0);
+  const hostSegs = s.config.hosts.map((h) => {
+    const st = s.hosts[h.id];
+    const pending = st?.kind === "ready" ? st.ops.filter(isMutation).length : 0;
+    const conflicts = st?.kind === "ready" ? st.ops.filter((o) => o.op === "conflict").length : 0;
+    const width = 2 + h.id.length + (pending > 0 ? `+${pending}`.length : 0) + (conflicts > 0 ? `!${conflicts}`.length : 0);
+    return { h, st, pending, conflicts, width };
+  });
+  const hostRoom = cols - tabsWidth - 1;
+  const allHostsFit = fitCount(hostSegs.map((x) => x.width), hostRoom) === hostSegs.length;
+  const shownHosts = allHostsFit ? hostSegs.length : fitCount(hostSegs.map((x) => x.width), hostRoom - ` +${hostSegs.length}`.length);
+  // flexShrink 0 on header and footer: a tall body would otherwise squeeze them to zero rows
   const header = (
-    <Box justifyContent="space-between">
+    <Box justifyContent="space-between" flexShrink={0}>
+      <Box flexShrink={0}>
+        <Text>
+          <Text bold color="cyan"> skm </Text>
+          {tabs.map(({ v, label }) => (
+            <Text key={v}>
+              {" "}
+              <Text inverse={s.view === v} bold={s.view === v}>{label}</Text>
+            </Text>
+          ))}
+        </Text>
+      </Box>
       <Text>
-        <Text bold color="cyan"> skm </Text>
-        {(["skills", "hosts", "sync", "help"] as const).map((v, i) => (
-          <Text key={v}>
+        {hostSegs.slice(0, shownHosts).map(({ h, st, pending, conflicts }) => (
+          <Text key={h.id}>
             {" "}
-            <Text inverse={s.view === v} bold={s.view === v}>{` ${i + 1}:${v} `}</Text>
+            <Text color={!st || st.kind === "probing" ? "gray" : st.kind === "error" ? "red" : pending > 0 ? "yellow" : "green"}>{!st || st.kind === "probing" ? "◌" : st.kind === "error" ? "✗" : "●"}</Text>
+            <Text>{h.id}</Text>
+            {pending > 0 ? <Text color="yellow">{`+${pending}`}</Text> : null}
+            {conflicts > 0 ? <Text color="red">{`!${conflicts}`}</Text> : null}
           </Text>
         ))}
-      </Text>
-      <Text>
-        {s.config.hosts.map((h) => {
-          const st = s.hosts[h.id];
-          const pending = st?.kind === "ready" ? st.ops.filter(isMutation).length : 0;
-          const conflicts = st?.kind === "ready" ? st.ops.filter((o) => o.op === "conflict").length : 0;
-          return (
-            <Text key={h.id}>
-              {" "}
-              <Text color={!st || st.kind === "probing" ? "gray" : st.kind === "error" ? "red" : pending > 0 ? "yellow" : "green"}>{!st || st.kind === "probing" ? "◌" : st.kind === "error" ? "✗" : pending > 0 ? "●" : "●"}</Text>
-              <Text>{h.id}</Text>
-              {pending > 0 ? <Text color="yellow">{`+${pending}`}</Text> : null}
-              {conflicts > 0 ? <Text color="red">{`!${conflicts}`}</Text> : null}
-            </Text>
-          );
-        })}
+        {shownHosts < hostSegs.length ? <Text color="gray">{` +${hostSegs.length - shownHosts}`}</Text> : null}
         <Text> </Text>
       </Text>
     </Box>
   );
 
+  const hints = s.editingFilter ? [`filter: ${s.filter}▏`]
+    : s.view === "skills" && s.focus === "grid" ? ["grid: hjkl move", "space toggle", "m back"]
+    : ["j/k move", "/ filter", "o sort", "O flip", "m targets", "s sync", "b backup", "r reprobe", "Tab view", "q quit"];
+  const busyText = s.busy ? `⏳ ${s.busy}  ` : "";
+  // ⏳ takes two columns; the message keeps one trailing space
+  const hintRoom = cols - (busyText ? busyText.length + 1 : 0) - (s.message.length + 1);
+  const shownHints = Math.max(1, fitCount(hints.map((x, i) => x.length + (i > 0 ? 2 : 0)), hintRoom));
   const footer = (
-    <Box justifyContent="space-between">
-      <Text color="gray">
-        {s.busy ? <Text color="yellow">{`⏳ ${s.busy}  `}</Text> : null}
-        {s.editingFilter ? `filter: ${s.filter}▏` : s.view === "skills" && s.focus === "grid" ? "grid: hjkl move  space toggle  m back" : "j/k move  / filter  o sort  O flip  m targets  s sync  b backup  r reprobe  Tab view  q quit"}
+    <Box justifyContent="space-between" flexShrink={0}>
+      <Text color="gray" wrap="truncate">
+        {busyText ? <Text color="yellow">{busyText}</Text> : null}
+        {hints.slice(0, shownHints).join("  ")}
       </Text>
-      <Text color="gray">{s.message} </Text>
+      <Box flexShrink={0}><Text color="gray">{s.message} </Text></Box>
     </Box>
   );
 
