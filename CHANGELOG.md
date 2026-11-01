@@ -4,6 +4,8 @@ All notable changes to Skill Manager. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-11-01
+
 ### Added
 
 - The standalone `skm-darwin-*` CLI binaries are signed with the Developer ID and notarized, so a copy downloaded with a browser runs without a Gatekeeper prompt.
@@ -42,7 +44,8 @@ First public release.
 - Self-update from GitHub Releases with an Ed25519-signed manifest and SHA-512 checks.
 - Release workflow with build provenance attestations and `SHA256SUMS`.
 
-[Unreleased]: https://github.com/jokerlin/skill-manager/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/jokerlin/skill-manager/compare/v0.4.3...HEAD
+[0.4.3]: https://github.com/jokerlin/skill-manager/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/jokerlin/skill-manager/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/jokerlin/skill-manager/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/jokerlin/skill-manager/releases/tag/v0.4.0
