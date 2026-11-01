@@ -1,0 +1,51 @@
+name: Bug report
+description: Something in skm or the desktop app does not work as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Remove host names, paths and skill names you do not want to make public.
+        For a security problem, use the Security tab instead (see SECURITY.md).
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `skm --version`, and the app version from About if you use the app
+      placeholder: "skm 0.4.0, app 0.4.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where
+      multiple: true
+      options: [CLI, TUI, Desktop app, Sync / plan, Plugins, Harness, Extensions, Updates, Docs]
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: OS of the hub and of the remote hosts involved; agents and their versions
+      placeholder: "macOS 26 hub, Ubuntu 24.04 remote; Claude Code 2.x, Codex 0.16x"
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The smallest config and commands that show the problem
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected and what happened
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output
+      description: Error text, `skm plan` output, or the run log from the app
+      render: text
