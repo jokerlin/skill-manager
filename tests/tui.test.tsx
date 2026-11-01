@@ -12,9 +12,11 @@ import { none, some } from "../src/lib/result";
 import type { AppState } from "../src/shell/app";
 import { inferRules, compressGlobs } from "../src/cli/rules";
 import { pullCandidates } from "../src/cli/pull";
-import { HostsView, clampOffset, hostLines } from "../src/tui/views/Hosts";
+import { HostsView, clampOffset, findingLine, findingSummary, hostLines, toolStatus } from "../src/tui/views/Hosts";
+import { toolVersions } from "../src/core/harness";
+import type { HarnessHost } from "../src/shell/harness";
 import { SkillsView } from "../src/tui/views/Skills";
-import { cellGlyph, fitCount, initialState, pendingTotal, reduce, skillCoverage, visibleSkills } from "../src/tui/state";
+import { cellGlyph, fitCount, harnessTools, initialState, pendingTotal, reduce, skillCoverage, visibleSkills } from "../src/tui/state";
 import { coverageText, listTitle, upstreamMark, upstreamPrompt } from "../src/tui/views/Skills";
 import type { StateKind, UpstreamPolicy } from "../src/core/upstream";
 import type { SkillReport, UpstreamResult } from "../src/shell/upstreamOps";
@@ -43,6 +45,8 @@ const io: TuiIo = {
   upstreams: async () => ({ ok: true, value: [] }),
   upstreamUpdate: async () => ({ ok: true, value: { backup: null, outcomes: [] } }),
   loadSkills: async () => ({ ok: true, value: skills }),
+  harness: async () => [],
+  harnessUpdate: async (h) => ({ host: h.id, at: "", error: null, results: [] }),
 };
 
 const tick = () => new Promise((r) => setTimeout(r, 30));
@@ -175,7 +179,8 @@ describe("hosts view", () => {
   test("renders one row per line and windows by height (no Yoga shrink overlap)", async () => {
     const s = hostsState();
     const lines = hostLines(s);
-    expect(lines.length).toBe(2 * (1 + 2 * 2 + 1)); // per host: header + 2 agents × (row + loads) + gap
+    // the agent CLIs section (title + one row per tool + gap), then per host: header + 2 agents × (row + loads) + gap
+    expect(lines.length).toBe(harnessTools(s.config).length + 2 + 2 * (1 + 2 * 2 + 1));
     const full = render(<HostsView s={s} height={lines.length + 1} offset={0} />); await tick();
     const rows = (full.lastFrame() ?? "").split("\n");
     expect(rows.length).toBe(lines.length + 1);
@@ -425,5 +430,90 @@ describe("upstream state in the TUI", () => {
     expect(listTitle({ ...s, upstream: { results: [], checking: true } }, 2)).toContain("checking upstream…");
     expect(upstreamPrompt(s)).toEqual(none);
     expect(upstreamPrompt({ ...s, confirm: { kind: "upstream-update", skills: ["a", "b"], force: false } })).toEqual(some("update 2 skills from upstream (a, b)? y = yes (backup first: on), any other key = cancel"));
+  });
+});
+
+describe("agent CLIs and findings in the hosts view", () => {
+  const runs: readonly HarnessHost[] = [
+    { host: "local", at: "t", error: null, results: [{ kind: "checked", agent: "claude", version: "2.1.3 (Claude Code)", latest: "" }, { kind: "checked", agent: "codex", version: "codex-cli 0.80.0", latest: "" }] },
+    { host: "dev", at: "t", error: null, results: [{ kind: "checked", agent: "claude", version: "2.1.3 (Claude Code)", latest: "" }, { kind: "checked", agent: "codex", version: "codex-cli 0.79.0", latest: "" }] },
+  ];
+  // the same skill twice in claude's dir on both hosts: one same-name finding per host
+  const dupInv = () => ({
+    ...emptyInventory("/h"),
+    agentDirs: { claude: { exists: true, entries: [{ kind: "managed" as const, name: "pdf-tools", direct: true }] }, codex: { exists: true, entries: [] } },
+  });
+
+  test("the section shows each tool's newest version and the hosts that are older; agent rows show each host's version", async () => {
+    const harnessIo: TuiIo = { ...io, probe: async () => ({ ok: true, value: dupInv() }), harness: async (cached) => (cached ? [] : runs) };
+    const { lastFrame, stdin, unmount } = render(<App app={app()} io={harnessIo} />); await tick(); await tick();
+    stdin.write("3"); await tick();
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("agent CLIs  H update every CLI on every reachable host");
+    expect(frame).toMatch(/claude\s+2\.1\.3\s+same version everywhere/);
+    expect(frame).toMatch(/codex\s+0\.80\.0\s+2 versions · older on dev 0\.79\.0/);
+    expect(frame).toMatch(/codex\s+0\.79\.0\s+●/); // dev's codex row
+    unmount();
+  });
+
+  test("H asks, y runs each reachable host's CLI updates and logs the versions", async () => {
+    const updated: string[] = [];
+    const harnessIo: TuiIo = {
+      ...io,
+      harness: async () => runs,
+      harnessUpdate: async (h, onLine) => {
+        updated.push(h.id);
+        onLine(">> codex update");
+        return { host: h.id, at: "t2", error: null, results: [{ kind: "updated", agent: "codex", before: "codex-cli 0.79.0", after: "codex-cli 0.80.0", ok: true }] };
+      },
+    };
+    const { lastFrame, stdin, unmount } = render(<App app={app()} io={harnessIo} />); await tick(); await tick();
+    stdin.write("3"); await tick();
+    stdin.write("H"); await tick();
+    expect(lastFrame()).toContain("update every agent CLI on local, dev? y = yes, any other key = cancel");
+    stdin.write("y"); await tick(); await tick();
+    expect(updated.sort()).toEqual(["dev", "local"]);
+    expect(lastFrame()).toContain("dev: >> codex update");
+    expect(lastFrame()).toContain("dev: codex ok 0.79.0 → 0.80.0");
+    stdin.write("3"); await tick();
+    expect(lastFrame()).toMatch(/codex\s+0\.80\.0\s+same version everywhere/); // both hosts now on 0.80.0
+    expect(lastFrame()).toMatch(/claude\s+2\.1\.3\s+same version everywhere/); // the update result only replaces codex
+    unmount();
+  });
+
+  test("tool status covers unchecked, missing, app feed and drift", () => {
+    const cli = { id: "codex", name: "codex", kind: "cli" as const };
+    const app_ = { id: "chatgpt", name: "ChatGPT app", kind: "app" as const };
+    expect(toolStatus(cli, toolVersions([], "codex"), true).text).toBe("checking…");
+    expect(toolStatus(cli, toolVersions([], "codex"), false).text).toBe("not checked");
+    expect(toolStatus(cli, toolVersions([{ host: "a", error: null, results: [{ kind: "missing", agent: "codex" }] }], "codex"), false).text).toBe("not installed");
+    expect(toolStatus(cli, toolVersions([{ host: "a", error: "ssh failed", results: [] }], "codex"), false).text).toBe("not checked");
+    const appRuns = [{ host: "a", error: null, results: [{ kind: "checked" as const, agent: "chatgpt", version: "1.2026.10", latest: "1.2026.20" }] }];
+    expect(toolStatus(app_, toolVersions(appRuns, "chatgpt"), false)).toEqual({ text: "can update to 1.2026.20 on a 1.2026.10 (skm harness update --agent chatgpt)", color: "yellow" });
+    expect(toolStatus(app_, toolVersions([{ host: "a", error: null, results: [{ kind: "checked", agent: "chatgpt", version: "1.2026.20", latest: "1.2026.20" }] }], "chatgpt"), false).text).toBe("up to date");
+  });
+
+  test("each host lists its findings under its agents", async () => {
+    const a = app();
+    const inv = dupInv();
+    const view = buildHostView("dev", a.agents, inv, 200000, {});
+    const withFindings = { ...view, findings: [{ kind: "disabled-cached" as const, host: "dev", agent: "claude", plugin: "x@m" }] };
+    const s = { ...initialState(a.config, skills), hosts: { local: { kind: "ready" as const, inventory: inv, ops: [], view }, dev: { kind: "ready" as const, inventory: inv, ops: [], view: withFindings } } };
+    const r = render(<HostsView s={s} height={hostLines(s).length + 1} offset={0} />); await tick();
+    const frame = r.lastFrame() ?? "";
+    expect(frame).toContain("findings 1: disabled-cached 1  (f to list)");
+    expect(frame).not.toContain("x@m is cached");
+    expect(frame.indexOf("findings 1")).toBeGreaterThan(frame.indexOf(" dev /h")); // under dev, not local
+    r.unmount();
+    const open = { ...s, allFindings: true };
+    const all = render(<HostsView s={open} height={hostLines(open).length + 1} offset={0} />); await tick();
+    expect(all.lastFrame()).toMatch(/disabled-cached\s+claude: x@m is cached but disabled/);
+    all.unmount();
+    expect(findingSummary([{ kind: "disabled-cached", host: "a", agent: "c", plugin: "p" }, { kind: "stale-cache", host: "a", agent: "c", plugin: "p", versions: [] }, { kind: "stale-cache", host: "a", agent: "c", plugin: "q", versions: [] }])).toBe("stale-cache 2 · disabled-cached 1");
+  });
+
+  test("findings drop the host prefix the view already shows", () => {
+    expect(findingLine("mini", { kind: "disabled-cached", host: "mini", agent: "claude", plugin: "x@m" })).toBe("claude: x@m is cached but disabled");
+    expect(findingLine("mini", { kind: "owned-drift", host: "mini", name: "s", owner: "skills", ownerPath: "/p", agents: ["pi"], storeHash: "a", ownerHash: "b" } as Parameters<typeof findingLine>[1])).toMatch(/^the store copy of s linked for pi differs/);
   });
 });

@@ -19,6 +19,21 @@ export type HarnessResult =
 
 export type HarnessMode = "check" | "update";
 
+/** One host's harness state: the CLI version per agent, or why the host could not be checked. */
+export type HarnessHost = {
+  readonly host: string;
+  readonly at: string;
+  readonly error: string | null;
+  readonly results: readonly HarnessResult[];
+};
+
+/** Results of a partial run (one tool, or a failed host) replace only their own entries of the previous run. Pure. */
+export const mergeHarness = (prev: HarnessHost | null, next: HarnessHost): HarnessHost => {
+  if (prev === null || next.error !== null) return next.error !== null && prev !== null ? { ...prev, error: next.error, at: next.at } : next;
+  const ids = new Set(next.results.map((r) => r.agent));
+  return { ...next, results: [...prev.results.filter((r) => !ids.has(r.agent)), ...next.results] };
+};
+
 const esc = (s: string): string => s.replace(/["\\$`]/g, "\\$&");
 
 /** Shell for one agent CLI, run inside the user's login shell. */
@@ -171,3 +186,56 @@ export const parseHarnessLine = (line: string): HarnessResult | null => {
 
 /** A short version from a `--version` line: the first dotted number, else the line itself. */
 export const shortVersion = (line: string): string => /\d+(?:\.\d+)+(?:[-+][\w.]+)?/.exec(line)?.[0] ?? line.trim();
+
+// ---------- versions across hosts ----------
+
+/** Compare the first three numeric parts, as the desktop app does (2.1.3 < 2.10.0; suffixes do not count). */
+export const cmpVersion = (a: string, b: string): number => {
+  const nums = (v: string): number[] => v.split(/[.+-]/).slice(0, 3).map((x) => Number.parseInt(x, 10) || 0);
+  const pa = nums(a);
+  const pb = nums(b);
+  return [0, 1, 2].map((i) => (pa[i] ?? 0) - (pb[i] ?? 0)).find((d) => d !== 0) ?? 0;
+};
+
+/** One tool on one host: not checked (or the host failed), not installed, or a version. */
+export type HostVersion = { readonly kind: "unknown" } | { readonly kind: "missing" } | { readonly kind: "version"; readonly version: string };
+
+/** What a harness run reports for one host; the shell's cached run has this shape. */
+export type HarnessRun = { readonly host: string; readonly error: string | null; readonly results: readonly HarnessResult[] };
+
+/** One tool across hosts: each host's version, every distinct version (oldest first), and the newest. */
+export type ToolVersions = {
+  readonly tool: string;
+  readonly byHost: readonly { readonly host: string; readonly v: HostVersion }[];
+  readonly versions: readonly string[];
+  /** the feed's newest version, for a desktop app; "" when unknown or for a CLI */
+  readonly latest: string;
+};
+
+const hostVersion = (run: HarnessRun, tool: string): HostVersion => {
+  if (run.error !== null) return { kind: "unknown" };
+  const r = run.results.find((x) => x.agent === tool);
+  if (r === undefined) return { kind: "unknown" };
+  switch (r.kind) {
+    case "missing": return { kind: "missing" };
+    case "checked": return { kind: "version", version: shortVersion(r.version) };
+    case "updated": return { kind: "version", version: shortVersion(r.after) };
+  }
+};
+
+/** Pure. */
+export const toolVersions = (runs: readonly HarnessRun[], tool: string): ToolVersions => {
+  const byHost = runs.map((run) => ({ host: run.host, v: hostVersion(run, tool) }));
+  const versions = [...new Set(byHost.flatMap((x) => (x.v.kind === "version" ? [x.v.version] : [])))].sort(cmpVersion);
+  const latest = runs.flatMap((run) => run.results.flatMap((r) => (r.agent === tool && r.kind === "checked" && r.latest !== "" ? [shortVersion(r.latest)] : []))).sort(cmpVersion).at(-1) ?? "";
+  return { tool, byHost, versions, latest };
+};
+
+/** The version to compare against: the feed's newest when known, else the newest any host has. */
+export const newestOf = (t: ToolVersions): string => t.latest !== "" ? t.latest : t.versions.at(-1) ?? "";
+
+/** Hosts whose version is older than `newestOf`. Pure. */
+export const behindHosts = (t: ToolVersions): readonly string[] => {
+  const newest = newestOf(t);
+  return newest === "" ? [] : t.byHost.flatMap((x) => (x.v.kind === "version" && cmpVersion(x.v.version, newest) < 0 ? [x.host] : []));
+};

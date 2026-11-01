@@ -11,10 +11,12 @@ const rows: readonly (readonly [string, string])[] = [
   ["u (skills)", "update the selected skill from its upstream repo; an edited copy is overwritten only after its own confirm (backup first)"],
   ["U (skills)", "update every skill whose upstream has a newer version (asks first)"],
   ["u (plugins)", "update the selected plugin on every host: refresh marketplaces, backup, update (asks first)"],
+  ["H (hosts)", "update every agent CLI (claude update, codex update, …) on every reachable host (asks first); desktop apps: skm harness update --agent <app>"],
+  ["f (hosts)", "list every finding (same skill twice, shadowed copies, stale plugin caches, …) or one summary line per host"],
   ["s / Enter (changes)", "apply the pending changes: confirm → backup → rsync → link on every reachable host"],
   ["c (in confirm)", "toggle replace-conflicts: move real dirs / foreign links into the backup and link the store"],
   ["b", "backup only (store + agent dirs on every reachable host; prints the restore command)"],
-  ["r", "re-probe all hosts"],
+  ["r", "re-probe all hosts, and check agent CLI versions and upstreams again"],
   ["q", "quit"],
 ];
 

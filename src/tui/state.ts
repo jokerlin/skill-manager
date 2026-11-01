@@ -10,6 +10,8 @@ import { isDesired } from "../core/scope";
 import { agentsOn } from "../shell/hosts";
 import type { HostError } from "../shell/probe";
 import type { SkillReport, UpstreamReport, UpstreamResult } from "../shell/upstreamOps";
+import { type HarnessHost, mergeHarness } from "../core/harness";
+import { resolveAgent } from "../core/agents";
 import { type Option, none, some } from "../lib/result";
 
 /** Same order and names as the desktop app: Skills, Plugins, Hosts, then the pending changes. */
@@ -21,10 +23,14 @@ export type Confirm =
   | { readonly kind: "none" }
   | { readonly kind: "apply" }
   | { readonly kind: "plugin-update"; readonly plugin: string }
-  | { readonly kind: "upstream-update"; readonly skills: readonly string[]; readonly force: boolean };
+  | { readonly kind: "upstream-update"; readonly skills: readonly string[]; readonly force: boolean }
+  | { readonly kind: "harness-update" };
 
 /** The last upstream check (empty until one finishes) and whether another is running. */
 export type UpstreamView = { readonly results: readonly UpstreamResult[]; readonly checking: boolean };
+
+/** Agent CLI and app versions per host (the cached run first, then a live check) and whether a check is running. */
+export type HarnessView = { readonly runs: readonly HarnessHost[]; readonly checking: boolean };
 
 export type HostStatus =
   | { readonly kind: "probing" }
@@ -59,6 +65,7 @@ export type State = {
   readonly focus: Focus;
   readonly grid: { readonly host: number; readonly agent: number };
   readonly hostsOffset: number;          // first visible row of the hosts view
+  readonly allFindings: boolean;         // hosts view: every finding, or one summary line per host
   readonly pluginSel: number;            // index into pluginRowsOf(state)
   readonly hosts: Readonly<Record<string, HostStatus>>;
   readonly log: readonly string[];
@@ -67,6 +74,7 @@ export type State = {
   readonly replaceConflicts: boolean;
   readonly message: string;
   readonly upstream: UpstreamView;
+  readonly harness: HarnessView;
 };
 
 export type Action =
@@ -75,6 +83,7 @@ export type Action =
   | { readonly type: "move"; readonly delta: number }
   | { readonly type: "moveGrid"; readonly dHost: number; readonly dAgent: number }
   | { readonly type: "scrollHosts"; readonly offset: number }
+  | { readonly type: "toggleFindings" }
   | { readonly type: "movePlugin"; readonly delta: number }
   | { readonly type: "focus"; readonly focus: Focus }
   | { readonly type: "filter"; readonly text: string }
@@ -90,7 +99,9 @@ export type Action =
   | { readonly type: "message"; readonly text: string }
   | { readonly type: "skills"; readonly skills: readonly Skill[] }
   | { readonly type: "upstreams"; readonly results: readonly UpstreamResult[] }
-  | { readonly type: "upstreamChecking"; readonly on: boolean };
+  | { readonly type: "upstreamChecking"; readonly on: boolean }
+  | { readonly type: "harness"; readonly runs: readonly HarnessHost[] }
+  | { readonly type: "harnessChecking"; readonly on: boolean };
 
 export const visibleSkills = (s: State): readonly Skill[] => {
   const q = s.filter.toLowerCase();
@@ -140,6 +151,7 @@ export const reduce = (s: State, a: Action): State =>
       },
     }))
     .with({ type: "scrollHosts" }, ({ offset }) => ({ ...s, hostsOffset: Math.max(0, offset) }))
+    .with({ type: "toggleFindings" }, () => ({ ...s, allFindings: !s.allFindings }))
     .with({ type: "movePlugin" }, ({ delta }) => ({ ...s, pluginSel: clamp(s.pluginSel + delta, 0, Math.max(0, pluginRowsOf(s).length - 1)) }))
     .with({ type: "focus" }, ({ focus }) => ({ ...s, focus }))
     .with({ type: "filter" }, ({ text }) => ({ ...s, filter: text, selected: 0 }))
@@ -159,6 +171,13 @@ export const reduce = (s: State, a: Action): State =>
     })
     .with({ type: "upstreams" }, ({ results }) => ({ ...s, upstream: { ...s.upstream, results } }))
     .with({ type: "upstreamChecking" }, ({ on }) => ({ ...s, upstream: { ...s.upstream, checking: on } }))
+    .with({ type: "harness" }, ({ runs }): State => {
+      // a run for some hosts (or some tools) replaces only its own entries
+      const ids = new Set(runs.map((r) => r.host));
+      const merged = runs.map((r) => mergeHarness(s.harness.runs.find((p) => p.host === r.host) ?? null, r));
+      return { ...s, harness: { ...s.harness, runs: [...s.harness.runs.filter((r) => !ids.has(r.host)), ...merged] } };
+    })
+    .with({ type: "harnessChecking" }, ({ on }) => ({ ...s, harness: { ...s.harness, checking: on } }))
     .exhaustive();
 
 export const initialState = (config: Config, skills: readonly Skill[]): State => ({
@@ -172,6 +191,7 @@ export const initialState = (config: Config, skills: readonly Skill[]): State =>
   focus: "list",
   grid: { host: 0, agent: 0 },
   hostsOffset: 0,
+  allFindings: false,
   pluginSel: 0,
   hosts: Object.fromEntries(config.hosts.map((h) => [h.id, { kind: "probing" as const }])),
   log: [],
@@ -180,7 +200,25 @@ export const initialState = (config: Config, skills: readonly Skill[]): State =>
   replaceConflicts: false,
   message: "",
   upstream: { results: [], checking: false },
+  harness: { runs: [], checking: false },
 });
+
+/** A row of the agent CLIs section: each agent's CLI, each app an agent ships, and each tool an extension declares. */
+export type HarnessToolRow = { readonly id: string; readonly name: string; readonly kind: "cli" | "app" };
+
+/** Pure. */
+export const harnessTools = (c: Config): readonly HarnessToolRow[] => {
+  const agents = c.agents.flatMap((id) => { const a = resolveAgent(id, c.agentOverrides, c.registry.agents); return a.some ? [a.value] : []; });
+  return [
+    ...agents.map((a): HarnessToolRow => ({ id: a.id, name: a.id, kind: "cli" })),
+    ...agents.flatMap((a): HarnessToolRow[] => (a.app !== undefined ? [{ id: a.app.id, name: `${a.app.name} app`, kind: "app" }] : [])),
+    ...c.registry.tools.map((t): HarnessToolRow => ({ id: t.id, name: t.name, kind: "cli" })),
+  ];
+};
+
+/** The harness runs in config host order, for hosts that have one. */
+export const harnessRuns = (s: State): readonly HarnessHost[] =>
+  s.config.hosts.flatMap((h) => s.harness.runs.filter((r) => r.host === h.id));
 
 const okReports = (s: State): readonly UpstreamReport[] => s.upstream.results.flatMap((r) => (r.result.ok ? [r.result.value] : []));
 

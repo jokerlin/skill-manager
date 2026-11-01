@@ -10,6 +10,7 @@ import { hostErrorText } from "../shell/probe";
 import type { TuiIo } from "./io";
 import { pluginUpdateOps } from "../core/pluginUpdate";
 import { stateHint } from "../core/upstream";
+import { shortVersion } from "../core/harness";
 import { type State, VIEWS, fitCount, initialState, pendingTotal, pluginRowsOf, pluginUpdatable, reduce, selectedSkill, upstreamOf, upstreamUpdatable, visibleSkills } from "./state";
 import { SkillsView } from "./views/Skills";
 import { PluginsView } from "./views/Plugins";
@@ -58,11 +59,20 @@ export const App = ({ app, io, autoProbe = true }: AppProps): React.ReactElement
     if (warned.length > 0) dispatch({ type: "message", text: `upstream: fetch failed for ${warned.join(", ")}, showing the cached mirror` });
   }, [io]);
 
+  /** Agent CLI versions per host: `cached` reads the last run's result (instant), otherwise check over ssh. */
+  const checkHarness = useCallback(async (cached: boolean) => {
+    dispatch({ type: "harnessChecking", on: true });
+    const runs = await io.harness(cached);
+    dispatch({ type: "harness", runs });
+    dispatch({ type: "harnessChecking", on: false });
+  }, [io]);
+
   useEffect(() => {
     if (!autoProbe) return;
     probeAll();
     void checkUpstream(true).then(() => checkUpstream(false));
-  }, [autoProbe, probeAll, checkUpstream]);
+    void checkHarness(true).then(() => checkHarness(false));
+  }, [autoProbe, probeAll, checkUpstream, checkHarness]);
 
   /** Re-plan every ready host against a new config or store using the cached inventories (pure). */
   const replan = useCallback(
@@ -74,6 +84,30 @@ export const App = ({ app, io, autoProbe = true }: AppProps): React.ReactElement
     },
     [io],
   );
+
+  /** The desktop app's "Update agent CLIs": each CLI's own self-update on every reachable host, in parallel. */
+  const runHarnessUpdate = useCallback(async () => {
+    const st = stateRef.current;
+    dispatch({ type: "confirm", confirm: { kind: "none" } });
+    if (st.busy) return;
+    const hosts = st.config.hosts.filter((h) => st.hosts[h.id]?.kind === "ready");
+    if (hosts.length === 0) return dispatch({ type: "message", text: "no reachable host" });
+    dispatch({ type: "busy", what: `updating agent CLIs on ${hosts.map((h) => h.id).join(", ")}` });
+    await Promise.all(hosts.map(async (h) => {
+      const r = await io.harnessUpdate(h, (line) => dispatch({ type: "log", line: `${h.id}: ${line}` }));
+      dispatch({ type: "harness", runs: [r] });
+      if (r.error !== null) return dispatch({ type: "log", line: `${h.id}: ${r.error}` });
+      r.results.forEach((x) => {
+        switch (x.kind) {
+          case "updated": return dispatch({ type: "log", line: `${h.id}: ${x.agent} ${x.ok ? "ok" : "failed"} ${shortVersion(x.before)} → ${shortVersion(x.after)}` });
+          case "missing": return dispatch({ type: "log", line: `${h.id}: ${x.agent} not installed` });
+          case "checked": return;
+        }
+      });
+    }));
+    dispatch({ type: "busy", what: undefined });
+    dispatch({ type: "view", view: "changes" });
+  }, [io]);
 
   /** The desktop app's upstream Update: write skills from the mirror the TUI showed, backup first, then re-read the store so the copies to other hosts show up as pending changes. */
   const runUpstreamUpdate = useCallback(async (skills: readonly string[], force: boolean) => {
@@ -205,6 +239,9 @@ export const App = ({ app, io, autoProbe = true }: AppProps): React.ReactElement
       case "upstream-update":
         if (input === "y") return void runUpstreamUpdate(c.skills, c.force);
         return dispatch({ type: "confirm", confirm: { kind: "none" } });
+      case "harness-update":
+        if (input === "y") return void runHarnessUpdate();
+        return dispatch({ type: "confirm", confirm: { kind: "none" } });
       case "none":
         break;
     }
@@ -213,7 +250,7 @@ export const App = ({ app, io, autoProbe = true }: AppProps): React.ReactElement
     if (input === "?") return dispatch({ type: "view", view: "help" });
     const n = Number(input);
     if (Number.isInteger(n) && n >= 1 && n <= VIEWS.length) return dispatch({ type: "view", view: VIEWS[n - 1] ?? "skills" });
-    if (input === "r") { probeAll(); return void checkUpstream(false); }
+    if (input === "r") { probeAll(); void checkHarness(false); return void checkUpstream(false); }
     const askApply = () => { dispatch({ type: "view", view: "changes" }); dispatch({ type: "confirm", confirm: { kind: "apply" } }); };
     if (input === "s") return askApply();
     if (st.view === "changes" && key.return) return askApply();
@@ -276,6 +313,8 @@ export const App = ({ app, io, autoProbe = true }: AppProps): React.ReactElement
       if (input === "G") return dispatch({ type: "move", delta: 1_000_000 });
     }
     if (st.view === "hosts") {
+      if (input === "H") { dispatch({ type: "scrollHosts", offset: 0 }); return dispatch({ type: "confirm", confirm: { kind: "harness-update" } }); }
+      if (input === "f") return dispatch({ type: "toggleFindings" });
       const scroll = (delta: number) => dispatch({ type: "scrollHosts", offset: clampOffset(st.hostsOffset + delta, hostLines(st).length, rows - 3) });
       if (input === "j" || key.downArrow) return scroll(1);
       if (input === "k" || key.upArrow) return scroll(-1);
@@ -334,6 +373,7 @@ export const App = ({ app, io, autoProbe = true }: AppProps): React.ReactElement
   const hints = s.editingFilter ? [`filter: ${s.filter}▏`]
     : s.view === "skills" && s.focus === "grid" ? ["grid: hjkl move", "space toggle", "m back"]
     : s.view === "plugins" ? ["j/k move", "u update everywhere", "s apply changes", "r reprobe", "Tab view", "q quit"]
+    : s.view === "hosts" ? ["j/k scroll", "H update agent CLIs", "f findings", "s apply changes", "b backup", "r reprobe", "Tab view", "q quit"]
     : s.view === "changes" ? ["Enter apply", "c replace-conflicts (when asked)", "b backup", "r reprobe", "Tab view", "q quit"]
     : ["j/k move", "/ filter", "o sort", "O flip", "m targets", ...(s.config.upstreams.length > 0 ? ["u/U upstream"] : []), "s apply changes", "b backup", "r reprobe", "Tab view", "q quit"];
   const busyText = s.busy ? `⏳ ${s.busy}  ` : "";
