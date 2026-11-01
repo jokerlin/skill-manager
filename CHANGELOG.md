@@ -4,6 +4,14 @@ All notable changes to Skill Manager. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+### Changed
+
+- The desktop app downloads an update over 4 connections at once. Through a proxy, one connection ran anywhere from 3 KB/s to 3 MB/s, and the 142 MB update took 9 min 38 s; now it takes 35 to 60 s. A connection under a quarter of the speed of the others is reopened, and at the end the idle connections take over the bytes a slow one has left. A server that ignores range requests gets one plain request.
+
+### Fixed
+
+- Old update downloads no longer pile up (about 140 MB each). The app deletes the downloads of versions it has already installed when it starts.
+
 ## [0.5.1] - 2026-11-01
 
 ### Added

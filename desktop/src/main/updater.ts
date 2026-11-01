@@ -1,16 +1,16 @@
 import { spawn } from "node:child_process";
 import { createHash, createPublicKey, verify } from "node:crypto";
-import { createWriteStream } from "node:fs";
+import { createReadStream } from "node:fs";
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 // Electron's patched fs treats every app.asar as a directory, so a recursive rm of an
 // extracted .app fails with ENOTEMPTY. original-fs is the unpatched Node fs.
 import { promises as rawFs } from "original-fs";
-import { app, net } from "electron";
+import { app, net, session } from "electron";
 import type { UpdateState } from "../shared/types";
-import { MANIFEST, MANIFEST_SIG, type Release, type Signer, bundleOf, compareVersions, parseManifest, parseRelease, parseSigner, pickManifestFile, swapRefusal, swapScript, verifyManifest } from "./update-core";
+import { type DownloadResult, type Fetch, downloadFile } from "./download";
+import { MANIFEST, MANIFEST_SIG, type Release, type Signer, bundleOf, compareVersions, parseManifest, parseRelease, parseSigner, pickManifestFile, staleUpdateDirs, swapRefusal, swapScript, verifyManifest } from "./update-core";
 
 /** Run a command; exit code and stdout + stderr. A spawn failure counts as exit 127. */
 const run = (cmd: string, args: readonly string[]): Promise<{ readonly code: number; readonly out: string }> =>
@@ -36,6 +36,22 @@ const signerOf = async (bundle: string): Promise<Signer> => {
  */
 /** How long a download may receive nothing before it is abandoned. */
 const STALL_MS = 60_000;
+/** Parallel connections and the size of the pieces they fetch (a 142 MB zip is 17 pieces). */
+const WORKERS = 4;
+const CHUNK = 8 * 1024 * 1024;
+
+// one in-memory session (no "persist:") per connection: requests in one session share Chromium's connection to the host
+let partitions = 0;
+const connect = (): Fetch => {
+  const s = session.fromPartition(`skm-update-${process.pid}-${(partitions += 1)}`);
+  return (url, init) => s.fetch(url, init);
+};
+
+const sha512Of = async (file: string): Promise<string> => {
+  const hash = createHash("sha512");
+  await pipeline(createReadStream(file), hash);
+  return hash.digest("base64");
+};
 
 export const createUpdater = (o: { readonly repo: string | null; readonly api: string; readonly publicKey: string | null; readonly onChange: (s: UpdateState) => void }) => {
   let state: UpdateState = { kind: "idle" };
@@ -50,6 +66,13 @@ export const createUpdater = (o: { readonly repo: string | null; readonly api: s
     return res.ok ? res.text() : null;
   };
   const key = o.publicKey === null ? null : createPublicKey(o.publicKey);
+  // Each update leaves its zip behind (about 140 MB). Remove the folders of versions up to the running one: they were
+  // installed or are older. A newer folder may be another window's download in progress, so it stays.
+  const removeStale = async (): Promise<void> => {
+    const names = await readdir(dir()).catch(() => [] as string[]);
+    await Promise.all(staleUpdateDirs(names, app.getVersion()).map((n) => rawFs.rm(join(dir(), n), { recursive: true, force: true }).catch(() => undefined)));
+  };
+  const cleaned = app.isPackaged ? removeStale() : Promise.resolve();
 
   const check = async (): Promise<UpdateState> => {
     if (state.kind === "checking" || state.kind === "downloading") return state;
@@ -92,52 +115,30 @@ export const createUpdater = (o: { readonly repo: string | null; readonly api: s
     const version = release.version;
     const want = expected;
     try {
+      await cleaned;
       const base = join(dir(), version);
       await rawFs.rm(base, { recursive: true, force: true });
       await mkdir(base, { recursive: true });
       const zip = join(base, want.name);
-      // A dropped connection can leave the body stream open with no data and no error, so the download would
-      // sit at "downloading" forever. Abort when nothing arrives for STALL_MS.
-      const abort = new AbortController();
-      let stalled = false;
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const arm = () => {
-        clearTimeout(timer);
-        timer = setTimeout(() => { stalled = true; abort.abort(); }, STALL_MS);
-      };
-      arm();
-      const res = await net.fetch(want.url, { signal: abort.signal }).catch((e: unknown) => {
-        clearTimeout(timer);
-        throw e;
-      });
-      if (!res.ok || res.body === null) {
-        clearTimeout(timer);
-        return set({ kind: "error", message: `download failed: ${res.status}` });
-      }
-      const total = want.size;
-      let got = 0;
       let lastPct = -1;
-      const hash = createHash("sha512");
-      const body = Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]);
-      abort.signal.addEventListener("abort", () => body.destroy(new Error("aborted")));
-      body.on("data", (c: Buffer) => {
-        arm();
-        got += c.length;
-        hash.update(c);
-        const pct = total > 0 ? Math.min(100, Math.floor((got / total) * 100)) : 0;
+      const onBytes = (got: number): void => {
+        const pct = want.size > 0 ? Math.min(100, Math.floor((got / want.size) * 100)) : 0;
         if (pct !== lastPct) { lastPct = pct; set({ kind: "downloading", version, percent: pct }); }
-      });
+      };
       set({ kind: "downloading", version, percent: 0 });
-      try {
-        await pipeline(body, createWriteStream(zip));
-      } catch (e) {
+      const opts = { connect, url: want.url, size: want.size, file: zip, stallMs: STALL_MS, onBytes };
+      const first: DownloadResult = await downloadFile({ ...opts, workers: WORKERS, chunkSize: CHUNK, whole: false });
+      // a server that ignores Range (a mirror, a local test server) gets one plain request for the whole file
+      const result = first.kind === "no-range" ? await downloadFile({ ...opts, workers: 1, chunkSize: Math.max(1, want.size), whole: true }) : first;
+      if (result.kind !== "ok") {
         await rawFs.rm(base, { recursive: true, force: true });
-        if (stalled) return set({ kind: "error", message: `the download stalled (no data for ${STALL_MS / 1000} s); deleted it. Check for updates to try again` });
-        throw e;
-      } finally {
-        clearTimeout(timer);
+        switch (result.kind) {
+          case "stalled": return set({ kind: "error", message: `the download stalled (no data for ${STALL_MS / 1000} s); deleted it. Check for updates to try again` });
+          case "no-range": return set({ kind: "error", message: "the download server ignored the byte range of a plain request" });
+          case "failed": return set({ kind: "error", message: result.message });
+        }
       }
-      if (hash.digest("base64") !== want.sha512) {
+      if ((await sha512Of(zip)) !== want.sha512) {
         await rawFs.rm(base, { recursive: true, force: true });
         return set({ kind: "error", message: "the download does not match the signed checksum; deleted it" });
       }

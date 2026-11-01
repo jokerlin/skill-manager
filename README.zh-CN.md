@@ -197,7 +197,8 @@ tools:
 桌面 App 每次启动时在 GitHub Releases 上检查一次新版本（可在 设置 → 通用 里关闭，也可以在「关于」里手动检查）。
 
 - 每个 release 带一个清单文件 `latest-mac.json`，记录每个 zip 的 SHA-512 和大小。发布流水线用 Ed25519 私钥给清单签名，App 用 `desktop/package.json` 里的公钥验证签名。签名验证不通过，App 不安装这个更新。
-- App 下载对应架构的 zip，按签名清单里的 SHA-512 校验，在重启时替换 App。上一个版本保留在 `~/Library/Application Support/Skill Manager/updates/previous.app`。
+- App 用 4 条连接同时下载对应架构的 zip（HTTP Range 请求）。某条连接的速度不到其他连接的 1/4 时，App 会重开它；到最后，闲下来的连接会接手慢连接剩下的字节。下载完按签名清单里的 SHA-512 校验，在重启时替换 App。
+- 上一个版本保留在 `~/Library/Application Support/Skill Manager/updates/previous.app`。App 启动时删除已经装过的版本的下载包。
 - App 用 Developer ID 签名。已签名的 App 只安装代码签名校验通过、且 Team ID 相同的新版本。
 - release 没有签名清单，或构建里没有 `updatePublicKey` 时，App 只打开 release 页面，不自动安装。自己发布 release 的 fork 需要换成自己的密钥（见 [CONTRIBUTING.zh-CN.md](CONTRIBUTING.zh-CN.md#发布)）。
 - release 里的文件带 GitHub [构建来源证明](https://docs.github.com/actions/security-for-github-actions/using-artifact-attestations)。用 `gh attestation verify <文件> --repo jokerlin/skill-manager` 校验下载。

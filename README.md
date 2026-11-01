@@ -197,7 +197,8 @@ Extensions are data. skm runs their commands only when you run `skm harness upda
 The desktop app checks GitHub Releases for a newer version once each time it starts (turn this off in Settings → General, or check by hand from About).
 
 - Each release has a manifest, `latest-mac.json`, with the SHA-512 and size of each zip. The release workflow signs the manifest with an Ed25519 key, and the app checks the signature against the public key in `desktop/package.json`. If the signature does not verify, the app does not install the update.
-- The app downloads the zip for its architecture, checks the SHA-512 from the signed manifest, and swaps the app when you restart. The previous version stays in `~/Library/Application Support/Skill Manager/updates/previous.app`.
+- The app downloads the zip for its architecture over 4 connections at once (HTTP range requests). It reopens a connection that runs at under a quarter of the speed of the others, and gives a slow connection's remaining bytes to the idle ones at the end. Then it checks the SHA-512 from the signed manifest and swaps the app when you restart.
+- The previous version stays in `~/Library/Application Support/Skill Manager/updates/previous.app`. The app deletes the downloads of versions it has already installed when it starts.
 - The app is signed with a Developer ID. A signed app installs an update only if the new app's code signature verifies and has the same Team ID.
 - A release without a signed manifest, or a build without `updatePublicKey`, shows the release page instead of installing. A fork that publishes its own releases sets its own key (see [CONTRIBUTING.md](CONTRIBUTING.md#releases)).
 - Release assets have GitHub [build provenance attestations](https://docs.github.com/actions/security-for-github-actions/using-artifact-attestations). Check a download with `gh attestation verify <file> --repo jokerlin/skill-manager`.
