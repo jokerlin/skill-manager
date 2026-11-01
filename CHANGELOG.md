@@ -4,6 +4,10 @@ All notable changes to Skill Manager. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+### Fixed
+
+- `skm upstream` printed every skill a repo has but `config.yaml` does not track, on one line. For a repo like bytedcli that was 266 names. It now prints the count and three examples when there are more than three; `skm upstream --json` still lists every name.
+
 ## [0.5.3] - 2026-11-01
 
 ### Added

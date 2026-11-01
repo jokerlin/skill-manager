@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { none, some } from "../src/lib/result";
 import { parseConfig, serializeConfig } from "../src/core/config";
 import {
-  gitBlobId, latestReleaseTag, parseLock, serializeLock, setLockEntry, skillParent, skillState, treeDigest, updateAction, EMPTY_LOCK,
+  gitBlobId, latestReleaseTag, parseLock, serializeLock, setLockEntry, skillParent, skillState, treeDigest, unlistedSummary, updateAction, EMPTY_LOCK,
 } from "../src/core/upstream";
 import { storeDigest } from "../src/shell/upstream";
 
@@ -104,6 +104,21 @@ const sh = (cwd: string, script: string): string => {
 };
 
 const md = (name: string, body: string) => `---\nname: ${name}\ndescription: ${name} skill. Use when testing.\n---\n${body}\n`;
+
+describe("untracked upstream skills line", () => {
+  test("nothing untracked prints nothing", () => {
+    expect(unlistedSummary("kit", [])).toEqual(none);
+  });
+  test("a few names are listed in full", () => {
+    expect(unlistedSummary("kit", ["a", "b", "c"])).toEqual(some("also upstream, not tracked: a, b, c (add to upstreams.kit.skills)"));
+  });
+  test("a long list shows a count and three examples, never every name", () => {
+    const names = Array.from({ length: 300 }, (_, i) => `bytedance-${String(i).padStart(3, "0")}`);
+    const r = unlistedSummary("bytedcli", names);
+    expect(r).toEqual(some("also upstream, not tracked: 300 skills (bytedance-000, bytedance-001, bytedance-002, …; all names: `skm upstream --json`)"));
+    expect(r.some && r.value.includes("bytedance-003")).toBe(false);
+  });
+});
 
 describe("skm upstream end to end", () => {
   const root = mkdtempSync(join(SCRATCH, "skm-upstream-"));
