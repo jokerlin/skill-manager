@@ -11,6 +11,8 @@ skm keeps one store of skills on your main machine, links it into every agent's 
 
 Supported agents: **Claude Code**, **Codex** and **Pi**. You can add more agents with an [extension](docs/extensions.md).
 
+![Skills view: each skill with its listing cost and coverage, and the host × agent grid for the selected skill](docs/images/skills-en.png)
+
 ```
 ~/.skm/skills/<name>/SKILL.md     ← the store, the single source of truth
 ~/.claude/skills/<name>    ─┐
@@ -154,6 +156,9 @@ The app is an Electron shell over the CLI. All logic stays in `skm`: the app rea
 
 - **Skills**: every skill with a coverage column ("Everywhere", "Only mini", "All but Codex", "7 / 12"). The column keeps its width for any number of hosts and agents. Hover to see the full grid; click cells in the detail panel to toggle them.
 - **Plugins**: each plugin's version on every host × agent. Drift is red, with one button to update everything that drifts.
+
+  ![Plugins view: docs-kit is 1.3.2 on laptop and 1.4.0 elsewhere](docs/images/plugins-en.png)
+
 - **Hosts**: host → agent master-detail with the listing budget, sources, every loaded skill, and the agent CLI versions.
 - **Pending changes**: edits queue in a bar at the bottom (`⌘↵` applies). Review them per host before you apply.
 - **Settings** (`⌘,`): language, theme, hosts (drag to reorder, rename, ssh alias), agents, extensions, store path, backups.
