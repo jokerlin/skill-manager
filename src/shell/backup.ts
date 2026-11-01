@@ -1,3 +1,4 @@
+import { mkdir } from "node:fs/promises";
 import type { HostConfig } from "../core/config";
 import { backupScript, listBackupsScript } from "../core/scripts";
 import { shPath } from "../core/scripts";
@@ -24,6 +25,9 @@ export const backupHost = async (
   const dir = line?.split("\t")[1] ?? `${h.skm}/backups/${ts}`;
   if (runner.kind === "local") return ok({ host: h.id, ts, dir, hubCopy: undefined });
   const hubCopy = `${hubSkm}/backups/${h.id}/${ts}`;
+  // rsync creates only the last path component (macOS's rsync happens to make parents, Linux rsync 3.x does not)
+  const parent = await mkdir(`${hubSkm}/backups/${h.id}`, { recursive: true }).then(() => null, (e: unknown) => (e instanceof Error ? e.message : String(e)));
+  if (parent !== null) return err({ kind: "step-failed", host: h.id, step: "backup copy to hub", detail: parent });
   const m = await rsyncMirror(runner.rsyncPath(`${rel(h.skm)}/backups/${ts}`), hubCopy);
   return m.ok
     ? ok({ host: h.id, ts, dir, hubCopy })
