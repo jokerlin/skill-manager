@@ -1,7 +1,7 @@
 import { emptyInventory, type Entry } from "../src/core/inventory";
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import React from "react";
-import { render } from "ink-testing-library";
+import { cleanup, render } from "./ink";
 import { Box } from "ink";
 import { App } from "../src/tui/App";
 import type { TuiIo } from "../src/tui/io";
@@ -51,6 +51,7 @@ const io: TuiIo = {
 };
 
 const tick = () => new Promise((r) => setTimeout(r, 30));
+afterEach(cleanup);
 
 test("target cells show a loaded shared skill instead of absent or pending", () => {
   const pi = agentById("pi");
