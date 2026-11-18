@@ -222,6 +222,8 @@ export const useApp = create<AppStore>()((set, get) => {
       const ids = only === undefined ? order() : [only];
       const upstreams = only === undefined ? get().checkUpstreams({ report: !o.quiet }) : Promise.resolve();
       set((s) => ({ probe: { ...s.probe, ...Object.fromEntries(ids.map((h) => [h, "probing" as const])) } }));
+      // the CLI may have changed the store since boot: without a fresh list, a probed link into the store has no store row to join
+      const store = skm.skills().then((r) => { if (r.ok) set({ skills: r.value }); });
       await Promise.all(ids.map(async (h) => {
         const r = await skm.status({ cached: false, host: h });
         if (!r.ok) {
@@ -237,7 +239,7 @@ export const useApp = create<AppStore>()((set, get) => {
       }));
       const plugins = await skm.plugins();
       if (plugins.ok) set({ plugins: plugins.value });
-      await upstreams;
+      await Promise.all([store, upstreams]);
     },
 
     refreshDerived,

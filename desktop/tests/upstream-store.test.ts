@@ -9,11 +9,13 @@ mock.module("@/lib/skm", () => import(`${RENDERER}/lib/skm.ts`));
 
 /** A fake `skm` CLI behind window.skm.run: `upstream --json` answers from `upstream`, everything else succeeds empty. */
 let upstream: () => RunResult = () => ({ ok: true, stdout: "{}" });
+/** what `skm ls --json` answers: the store as the CLI sees it now */
+let storeList: readonly { readonly name: string }[] = [];
 const calls: string[][] = [];
 const report = { upstreams: [{ name: "kit", repo: "https://example.com/kit", ref: null, target: { commit: "c2", label: "v2.0.0" }, warning: null, error: null, unlisted: [], skills: [{ skill: "review", state: "current", base: { commit: "c2", label: "v2.0.0" }, changes: [] }] }] };
 const ok = (v: unknown): RunResult => ({ ok: true, stdout: JSON.stringify(v) });
 const empty = (args: readonly string[]): RunResult =>
-  args[0] === "config" ? ok({ hosts: [], agents: [], hostDetails: [], agentCatalog: [] }) : args[0] === "plugins" ? ok({ hosts: [], grid: [], plugins: [] }) : args[0] === "harness" ? ok({ agents: [], hosts: [] }) : ok([]);
+  args[0] === "config" ? ok({ hosts: [], agents: [], hostDetails: [], agentCatalog: [] }) : args[0] === "plugins" ? ok({ hosts: [], grid: [], plugins: [] }) : args[0] === "harness" ? ok({ agents: [], hosts: [] }) : args[0] === "ls" ? ok(storeList) : ok([]);
 (globalThis as { window?: unknown }).window = {
   skm: {
     run: async (args: readonly string[]) => {
@@ -28,6 +30,7 @@ type Store = {
   readonly error: string | null;
   readonly boot: () => Promise<void>;
   readonly refreshLive: (host?: string) => Promise<void>;
+  readonly skills: readonly { readonly name: string }[];
 };
 const { useApp } = (await import(`${RENDERER}/store/app.ts`)) as { useApp: { getState: () => Store; setState: (s: Partial<Store> & { upstreamChecking?: boolean }) => void } };
 
@@ -59,5 +62,19 @@ describe("desktop: upstream check recovers after a failed launch check", () => {
     calls.length = 0;
     await useApp.getState().refreshLive("mini");
     expect(calls.some((a) => a[0] === "upstream")).toBe(false);
+  });
+});
+
+describe("desktop: Refresh reloads the store list", () => {
+  test("a skill the CLI added to the store after launch shows up after Refresh, also for one host", async () => {
+    storeList = [{ name: "hunt" }];
+    await useApp.getState().boot();
+    expect(useApp.getState().skills.map((k) => k.name)).toEqual(["hunt"]);
+    storeList = [{ name: "hunt" }, { name: "rea" }];
+    await useApp.getState().refreshLive();
+    expect(useApp.getState().skills.map((k) => k.name)).toEqual(["hunt", "rea"]);
+    storeList = [{ name: "rea" }];
+    await useApp.getState().refreshLive("mini");
+    expect(useApp.getState().skills.map((k) => k.name)).toEqual(["rea"]);
   });
 });

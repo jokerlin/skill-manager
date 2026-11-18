@@ -53,7 +53,8 @@ const keyOf = (e: EffectiveEntry, storeNames: ReadonlySet<string>): { readonly k
       return { key: `builtin:${e.name}`, group: { kind: "builtin" } };
     case "user":
     case "legacy":
-      return storeNames.has(e.name) ? { key: `store:${e.name}`, group: { kind: "store" } } : { key: `other:${e.owner}:${e.name}`, group: { kind: "unmanaged", owner: e.owner } };
+      // owner "skm" = a link into the store: it belongs to the store even when the store list predates it
+      return storeNames.has(e.name) || e.owner === "skm" ? { key: `store:${e.name}`, group: { kind: "store" } } : { key: `other:${e.owner}:${e.name}`, group: { kind: "unmanaged", owner: e.owner } };
   }
 };
 
@@ -77,7 +78,8 @@ export const buildCatalog = (skills: readonly SkillRow[], hosts: readonly HostSt
     id: `store:${s.name}`, name: s.name, group: { kind: "store" }, description: s.description,
     listingChars: s.descChars, listingTokens: s.descTokens, bodyTokens: s.bodyTokens, versions: [], loads: loads.get(`store:${s.name}`) ?? {}, store: s,
   }));
-  const rest = [...groups.entries()].filter(([k]) => !k.startsWith("store:")).map(([key, g]): CatalogItem => {
+  // store rows come from `skills`; a store link the list does not know yet still gets a row (store: null) in the store group
+  const rest = [...groups.entries()].filter(([, g]) => !(g.group.kind === "store" && storeNames.has(g.name))).map(([key, g]): CatalogItem => {
     const byHost = loads.get(key) ?? {};
     const entries = Object.values(byHost).flatMap((a) => Object.values(a));
     const sample = entries.reduce<EffectiveEntry | undefined>((best, e) => (best === undefined || e.listing.length > best.listing.length ? e : best), undefined);
