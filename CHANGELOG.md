@@ -4,6 +4,10 @@ All notable changes to Skill Manager. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+### Fixed
+
+- The app no longer lists a store skill under **Unmanaged** with an `skm` tag. Refresh now reloads the store list as well as the hosts, so a skill added with the CLI while the app is open shows under **Store** after Refresh. A host link into the store also always counts as a store skill, even before the store list catches up.
+
 ## [0.6.1] - 2026-11-18
 
 ### Added
