@@ -4,6 +4,8 @@ All notable changes to Skill Manager. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-18
+
 ### Added
 
 - Hosts can be parked. A host with `enabled: false` under `hosts:` stays in config.yaml with its rules, but skm skips it everywhere: no ssh probe, no sync, no backup, and its last probe no longer counts in plugin drift (the red `2×` on skills), coverage (`3 / 15` becomes `3 / 12`) or pending changes. Switch it with `skm host off <host>` and `skm host on <host>`, or with the switch in front of each host in **Settings → Hosts**. After switching a host back on, run `skm sync` to catch it up. The hub (the host without `ssh`) cannot be parked. `skm config --json` lists parked hosts in `hostDetails` with `enabled: false`; `hosts` lists only the enabled ones.
@@ -128,7 +130,8 @@ First public release.
 - Self-update from GitHub Releases with an Ed25519-signed manifest and SHA-512 checks.
 - Release workflow with build provenance attestations and `SHA256SUMS`.
 
-[Unreleased]: https://github.com/jokerlin/skill-manager/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/jokerlin/skill-manager/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/jokerlin/skill-manager/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/jokerlin/skill-manager/compare/v0.5.5...v0.6.0
 [0.5.5]: https://github.com/jokerlin/skill-manager/compare/v0.5.4...v0.5.5
 [0.5.4]: https://github.com/jokerlin/skill-manager/compare/v0.5.3...v0.5.4
