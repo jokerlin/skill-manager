@@ -12,7 +12,7 @@ import { runPull } from "../src/cli/pull";
 import { runDoctor } from "../src/cli/doctor";
 import { runEval } from "../src/cli/eval";
 import { runRulesInfer } from "../src/cli/rules";
-import { runConfigPatch, runConfigShow, runScope, runExtensions } from "../src/cli/scope";
+import { runConfigPatch, runConfigShow, runHostToggle, runScope, runExtensions } from "../src/cli/scope";
 import { runPluginUpdate, runPlugins } from "../src/cli/plugins";
 import { runHarness, runHarnessUpdate } from "../src/cli/harness";
 import { runUpstream, runUpstreamAdopt, runUpstreamUpdate } from "../src/cli/upstream";
@@ -173,6 +173,10 @@ program
   .description("toggle one host/agent cell for a skill (or --plugin): skm scope kb-doc mini/claude off")
   .option("--plugin", "name is a plugin (name, or name@marketplace when config.yaml does not list it yet)", false)
   .action((name: string, cell: string, state: string, o: { plugin: boolean }) => runScope(name, cell, state, { plugin: o.plugin }));
+program
+  .command("host <state> <id>")
+  .description("switch a host off (kept in config.yaml, skipped by every command and view) or back on: skm host off home-mbp")
+  .action(runHostToggle);
 const config = program.command("config").description("print config.yaml").option("--json", "hosts/agents/store summary", false).action((o: { json: boolean }) => runConfigShow(o.json));
 config.command("patch").description("apply a JSON patch from stdin: { hosts, agents, backupBeforeApply, contextTokens }").action(runConfigPatch);
 const rules = program.command("rules").description("scope rules helpers");

@@ -1,7 +1,6 @@
-import { hubOf } from "../core/config";
 import pc from "picocolors";
 import { readFileSync } from "node:fs";
-import { cellText, parseCell } from "../core/config";
+import { cellText, configErrorText, hostEntries, hubOf, parseCell, setHostEnabled } from "../core/config";
 import { parsePatch, patchConfig, patchErrorText } from "../core/patch";
 import { isDesired, setScope } from "../core/scope";
 import { extensionsDir } from "../shell/extensions";
@@ -28,7 +27,8 @@ export const runConfigShow = async (json: boolean): Promise<void> =>
     if (json) {
       return out(JSON.stringify({
         hosts: app.config.hosts.map((h) => h.id),
-        hostDetails: app.config.hosts.map((h) => ({ id: h.id, ssh: h.ssh.some ? h.ssh.value : null, agents: h.agents.some ? [...h.agents.value] : null, skm: h.skm })),
+        // every host in file order, parked ones too, so settings can switch them back on
+        hostDetails: hostEntries(app.config).map(({ host: h, enabled }) => ({ id: h.id, ssh: h.ssh.some ? h.ssh.value : null, agents: h.agents.some ? [...h.agents.value] : null, skm: h.skm, enabled })),
         agents: [...app.config.agents],
         store: app.storeDir,
         configPath: app.configPath,
@@ -53,6 +53,17 @@ export const runConfigShow = async (json: boolean): Promise<void> =>
     }
     out(await Bun.file(app.configPath).text());
   });
+
+/** `skm host on|off <id>`: park a host (skm skips it everywhere) or bring it back, saved to config.yaml. */
+export const runHostToggle = async (state: string, id: string): Promise<void> => {
+  if (state !== "on" && state !== "off") return die("state must be on or off");
+  return withApp(async (app) => {
+    const next = setHostEnabled(app.config, id, state === "on");
+    if (!next.ok) return die(next.error.kind === "unknown-host" ? `no host named ${id} (known: ${next.error.known.join(", ")})` : configErrorText(next.error));
+    if (next.value !== app.config) await saveConfig(app.configPath, next.value);
+    out(`${pc.green("ok")} ${id} → ${state}${state === "off" ? pc.dim(" (kept in config.yaml; skm skips it until `skm host on " + id + "`)") : pc.dim(" (run skm sync to catch it up)")}`);
+  });
+};
 
 /** `skm config patch` — read a JSON patch (hosts / agents / backupBeforeApply / contextTokens) on stdin, validate, save. */
 export const runConfigPatch = async (): Promise<void> =>

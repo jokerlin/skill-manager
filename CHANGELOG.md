@@ -4,6 +4,10 @@ All notable changes to Skill Manager. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+### Added
+
+- Hosts can be parked. A host with `enabled: false` under `hosts:` stays in config.yaml with its rules, but skm skips it everywhere: no ssh probe, no sync, no backup, and its last probe no longer counts in plugin drift (the red `2×` on skills), coverage (`3 / 15` becomes `3 / 12`) or pending changes. Switch it with `skm host off <host>` and `skm host on <host>`, or with the switch in front of each host in **Settings → Hosts**. After switching a host back on, run `skm sync` to catch it up. The hub (the host without `ssh`) cannot be parked. `skm config --json` lists parked hosts in `hostDetails` with `enabled: false`; `hosts` lists only the enabled ones.
+
 ## [0.6.0] - 2026-11-02
 
 ### Added

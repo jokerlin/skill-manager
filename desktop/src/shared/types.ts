@@ -128,7 +128,8 @@ export type PluginsReport = {
   readonly plugins: readonly PluginRow[];
 };
 
-export type HostDetail = { readonly id: string; readonly ssh: string | null; readonly agents: readonly string[] | null; readonly skm: string };
+/** One host as config.yaml lists it; enabled: false means parked (skm skips it, `hosts` leaves it out). */
+export type HostDetail = { readonly id: string; readonly ssh: string | null; readonly agents: readonly string[] | null; readonly skm: string; readonly enabled: boolean };
 
 export type ConfigSummary = {
   readonly hosts: readonly string[];
@@ -183,6 +184,7 @@ export type HostPatch = {
   readonly ssh: string | null;
   readonly agents: readonly string[] | null;
   readonly skm?: string;
+  readonly enabled?: boolean;
 };
 
 export type ConfigPatch = {

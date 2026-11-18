@@ -28,6 +28,15 @@ export type HostConfig = {
   readonly skm: string;                        // skm home on that host (default ~/.skm)
 };
 
+/** A host switched off with `enabled: false`: kept in the config file, invisible to everything else until switched back on. */
+export type ParkedHost = {
+  readonly host: HostConfig;
+  readonly at: number;                         // position in the full hosts: list, so writing the config keeps the order
+};
+
+/** One entry of the full hosts: list as written in config.yaml. */
+export type HostEntry = { readonly host: HostConfig; readonly enabled: boolean };
+
 export type EvalAgent = "claude" | "codex";
 
 /** Desired state of one plugin (name@marketplace per agent) across the host × agent grid. */
@@ -60,7 +69,10 @@ export const PLUGIN_AGENTS: readonly string[] = ["claude", "codex"];
 export type Config = {
   readonly store: string;
   readonly agents: readonly string[];
+  /** enabled hosts only: every probe, sync, backup and view works over this list */
   readonly hosts: readonly HostConfig[];
+  /** hosts with enabled: false, in file order; only config editing sees them */
+  readonly parked: readonly ParkedHost[];
   readonly defaults: { readonly hosts: Selector; readonly agents: Selector };
   readonly rules: readonly Rule[];
   readonly plugins: readonly PluginPolicy[];
@@ -80,7 +92,9 @@ export type ConfigError =
   | { readonly kind: "yaml"; readonly message: string }
   | { readonly kind: "shape"; readonly path: string; readonly message: string }
   /** no host, or more than one host, without an ssh alias: skm needs exactly one hub (the machine it runs on) */
-  | { readonly kind: "hub"; readonly count: number };
+  | { readonly kind: "hub"; readonly count: number }
+  /** the hub (the machine skm runs on) has enabled: false */
+  | { readonly kind: "hub-disabled"; readonly host: string };
 
 export const ALL: Selector = { kind: "all" };
 
@@ -88,6 +102,7 @@ export const defaultConfig = (): Config => ({
   store: "~/.skm/skills",
   agents: ["claude", "codex", "pi"],
   hosts: [{ id: "local", ssh: none, agents: none, skm: "~/.skm" }],
+  parked: [],
   defaults: { hosts: ALL, agents: ALL },
   rules: [],
   plugins: [],
@@ -161,18 +176,53 @@ const parseRule = (v: unknown, path: string): Result<Rule, ConfigError> => {
   return ok({ skills: skills.value, hosts: hosts.value, agents: agents.value, on: on.value, off: off.value });
 };
 
-const parseHost = (id: string, v: unknown): Result<HostConfig, ConfigError> => {
-  if (v === null || v === undefined) return ok({ id, ssh: none, agents: none, skm: "~/.skm" });
+const parseHost = (id: string, v: unknown): Result<HostEntry, ConfigError> => {
+  if (v === null || v === undefined) return ok({ host: { id, ssh: none, agents: none, skm: "~/.skm" }, enabled: true });
   if (!isRecord(v)) return err(shape(`hosts.${id}`, "host must be a map"));
   const ssh = v["ssh"];
   if (ssh !== undefined && typeof ssh !== "string") return err(shape(`hosts.${id}.ssh`, "expected string"));
   const skm = v["skm"] ?? "~/.skm";
   if (typeof skm !== "string") return err(shape(`hosts.${id}.skm`, "expected string"));
+  const enabled = v["enabled"] ?? true;
+  if (typeof enabled !== "boolean") return err(shape(`hosts.${id}.enabled`, "expected true or false"));
   const agentsRaw = v["agents"];
-  if (agentsRaw === undefined) return ok({ id, ssh: ssh === undefined ? none : some(ssh), agents: none, skm });
+  if (agentsRaw === undefined) return ok({ host: { id, ssh: ssh === undefined ? none : some(ssh), agents: none, skm }, enabled });
   const agents = parseStringList(agentsRaw, `hosts.${id}.agents`);
-  return agents.ok ? ok({ id, ssh: ssh === undefined ? none : some(ssh), agents: some(agents.value), skm }) : agents;
+  return agents.ok ? ok({ host: { id, ssh: ssh === undefined ? none : some(ssh), agents: some(agents.value), skm }, enabled }) : agents;
 };
+
+/** Split the full hosts: list into enabled hosts and parked ones; the hub must be exactly one and enabled. Pure. */
+export const splitHosts = (entries: readonly HostEntry[]): Result<{ readonly hosts: readonly HostConfig[]; readonly parked: readonly ParkedHost[] }, ConfigError> => {
+  const hubs = entries.filter((e) => !e.host.ssh.some);
+  if (hubs.length !== 1) return err({ kind: "hub", count: hubs.length });
+  const off = hubs.find((e) => !e.enabled);
+  if (off !== undefined) return err({ kind: "hub-disabled", host: off.host.id });
+  return ok({
+    hosts: entries.filter((e) => e.enabled).map((e) => e.host),
+    parked: entries.flatMap((e, at) => (e.enabled ? [] : [{ host: e.host, at }])),
+  });
+};
+
+export type HostToggleError = { readonly kind: "unknown-host"; readonly host: string; readonly known: readonly string[] } | ConfigError;
+
+/** Switch one host on or off, keeping its place in the file. Same config back when nothing changes. Pure. */
+export const setHostEnabled = (c: Config, id: string, enabled: boolean): Result<Config, HostToggleError> => {
+  const entries = hostEntries(c);
+  const target = entries.find((e) => e.host.id === id);
+  if (target === undefined) return err({ kind: "unknown-host", host: id, known: entries.map((e) => e.host.id) });
+  if (target.enabled === enabled) return ok(c);
+  const split = splitHosts(entries.map((e) => (e.host.id === id ? { ...e, enabled } : e)));
+  return split.ok ? ok({ ...c, hosts: split.value.hosts, parked: split.value.parked }) : split;
+};
+
+/** The full hosts: list in file order: enabled hosts with the parked ones put back at their positions. Pure. */
+export const hostEntries = (c: Pick<Config, "hosts" | "parked">): readonly HostEntry[] =>
+  [...c.parked]
+    .sort((a, b) => a.at - b.at)
+    .reduce<readonly HostEntry[]>(
+      (acc, p) => [...acc.slice(0, p.at), { host: p.host, enabled: false }, ...acc.slice(p.at)],
+      c.hosts.map((host) => ({ host, enabled: true })),
+    );
 
 const parsePlugin = (name: string, v: unknown): Result<PluginPolicy, ConfigError> => {
   const path = `plugins.${name}`;
@@ -250,10 +300,10 @@ export const parseConfig = (text: string): Result<Config, ConfigError> => {
 
   const hostsRaw = doc["hosts"] ?? { local: {} };
   if (!isRecord(hostsRaw)) return err(shape("hosts", "expected a map of host id → settings"));
-  const hosts = sequence(Object.entries(hostsRaw).map(([id, v]) => parseHost(id, v)));
+  const entries = sequence(Object.entries(hostsRaw).map(([id, v]) => parseHost(id, v)));
+  if (!entries.ok) return entries;
+  const hosts = splitHosts(entries.value);
   if (!hosts.ok) return hosts;
-  const hubs = hosts.value.filter((h) => !h.ssh.some).length;
-  if (hubs !== 1) return err({ kind: "hub", count: hubs });
 
   const defaultsRaw = doc["defaults"] ?? {};
   if (!isRecord(defaultsRaw)) return err(shape("defaults", "expected a map"));
@@ -307,7 +357,8 @@ export const parseConfig = (text: string): Result<Config, ConfigError> => {
   return ok({
     store,
     agents: agents.value,
-    hosts: hosts.value,
+    hosts: hosts.value.hosts,
+    parked: hosts.value.parked,
     defaults: { hosts: dh.value, agents: da.value },
     rules: rules.value,
     plugins: plugins.value,
@@ -365,17 +416,18 @@ const pluginToRaw = (p: PluginPolicy): Raw => {
 
 const ownedToRaw = (o: OwnedPolicy): Raw => ({ tool: o.tool, ...(o.ensure.some ? { ensure: o.ensure.value } : {}), ...(o.fallback === "store" ? {} : { fallback: o.fallback }), ...(o.agents.some ? { agents: [...o.agents.value] } : {}), ...(o.lock.some ? { lock: { ...o.lock.value } } : {}) });
 
-const hostToRaw = (h: HostConfig): Raw => ({
+const hostToRaw = ({ host: h, enabled }: HostEntry): Raw => ({
   ...(h.ssh.some ? { ssh: h.ssh.value } : {}),
   ...(h.agents.some ? { agents: [...h.agents.value] } : {}),
   ...(h.skm !== "~/.skm" ? { skm: h.skm } : {}),
+  ...(enabled ? {} : { enabled: false }),
 });
 
 export const serializeConfig = (c: Config): string =>
   toYaml({
     store: c.store,
     agents: [...c.agents],
-    hosts: Object.fromEntries(c.hosts.map((h) => [h.id, hostToRaw(h)])),
+    hosts: Object.fromEntries(hostEntries(c).map((e) => [e.host.id, hostToRaw(e)])),
     defaults: { hosts: selectorToRaw(c.defaults.hosts), agents: selectorToRaw(c.defaults.agents) },
     rules: c.rules.map(ruleToRaw),
     ...(c.plugins.length > 0 ? { plugins: Object.fromEntries(c.plugins.map((p) => [p.name, pluginToRaw(p)])) } : {}),
@@ -432,5 +484,7 @@ export const configErrorText = (e: ConfigError): string => {
       return e.count === 0
         ? "config needs one host without an ssh alias (the machine skm runs on) under hosts:"
         : `config has ${e.count} hosts without an ssh alias; exactly one (the machine skm runs on) may omit ssh`;
+    case "hub-disabled":
+      return `hosts.${e.host}: the machine skm runs on cannot have enabled: false`;
   }
 };
