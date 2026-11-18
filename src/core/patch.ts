@@ -1,6 +1,6 @@
 import { type Option, type Result, all, err, none, ok, some } from "../lib/result";
 import type { AgentOverride } from "./agents";
-import type { Cell, Config, HostConfig, PluginPolicy, Rule, Selector } from "./config";
+import { type Cell, type Config, type HostEntry, type PluginPolicy, type Rule, type Selector, configErrorText, hostEntries, splitHosts } from "./config";
 
 export type HostPatch = {
   /** the host's current id when it is renamed (rules, defaults and plugin policies follow the new id); absent for a new host */
@@ -10,6 +10,8 @@ export type HostPatch = {
   readonly agents: readonly string[] | null;
   /** skm home on that host; absent keeps the current value (default ~/.skm) */
   readonly skm?: string;
+  /** false parks the host (skm skips it everywhere); absent keeps the current value (true for a new host) */
+  readonly enabled?: boolean;
 };
 
 /** One agent's overrides as the app sends them: null or "" restores the built-in value. */
@@ -17,7 +19,7 @@ export type AgentOverridePatch = { readonly dir: string | null; readonly update:
 
 /**
  * The settings the desktop app edits, as a partial patch. Absent keys keep their value.
- * `hosts` replaces the whole list (its order is the display order).
+ * `hosts` replaces the whole list, parked hosts included (its order is the display order).
  */
 export type ConfigPatch = {
   readonly hosts?: readonly HostPatch[];
@@ -81,7 +83,9 @@ export const parsePatch = (text: string): Result<ConfigPatch, PatchError> => {
     const skm = h["skm"];
     if (from !== undefined && typeof from !== "string") return err(invalid(`hosts[${i}].from`, "expected the current host id"));
     if (skm !== undefined && typeof skm !== "string") return err(invalid(`hosts[${i}].skm`, "expected a path"));
-    return ok({ id: h["id"], ssh, agents: ag, ...(from !== undefined ? { from } : {}), ...(skm !== undefined ? { skm } : {}) });
+    const enabled = h["enabled"];
+    if (enabled !== undefined && typeof enabled !== "boolean") return err(invalid(`hosts[${i}].enabled`, "expected true or false"));
+    return ok({ id: h["id"], ssh, agents: ag, ...(from !== undefined ? { from } : {}), ...(skm !== undefined ? { skm } : {}), ...(enabled !== undefined ? { enabled } : {}) });
   }));
   if (!parsedHosts.ok) return parsedHosts;
   return ok({
@@ -129,26 +133,29 @@ export const patchConfig = (c: Config, p: ConfigPatch): Result<Config, PatchErro
   if (agents.length === 0) return err(invalid("agents", "at least one agent is required"));
   if (new Set(agents).size !== agents.length) return err(invalid("agents", "duplicate agent ids"));
 
-  const hosts: Result<readonly HostConfig[], PatchError> = p.hosts === undefined
-    ? ok(c.hosts)
-    : all(p.hosts.map((h, i): Result<HostConfig, PatchError> => {
+  const current = hostEntries(c);
+  const entries: Result<readonly HostEntry[], PatchError> = p.hosts === undefined
+    ? ok(current)
+    : all(p.hosts.map((h, i): Result<HostEntry, PatchError> => {
         const id = h.id.trim();
         if (!HOST_ID.test(id)) return err(invalid(`hosts[${i}].id`, `"${h.id}" is not a valid host id (letters, digits, . _ -)`));
         const ssh = h.ssh === null || h.ssh.trim() === "" ? null : h.ssh.trim();
         const bad = (h.agents ?? []).filter((a) => !agents.includes(a));
         if (bad.length > 0) return err(invalid(`hosts[${i}].agents`, `not in the agent list: ${bad.join(", ")}`));
-        if (h.from !== undefined && !c.hosts.some((x) => x.id === h.from)) return err(invalid(`hosts[${i}].from`, `no host named ${h.from}`));
-        const prev = c.hosts.find((x) => x.id === (h.from ?? id));
-        const skm = h.skm === undefined || h.skm.trim() === "" ? prev?.skm ?? "~/.skm" : h.skm.trim();
+        if (h.from !== undefined && !current.some((x) => x.host.id === h.from)) return err(invalid(`hosts[${i}].from`, `no host named ${h.from}`));
+        const prev = current.find((x) => x.host.id === (h.from ?? id));
+        const skm = h.skm === undefined || h.skm.trim() === "" ? prev?.host.skm ?? "~/.skm" : h.skm.trim();
         // a host that enables every agent needs no override
         const subset = h.agents === null || agents.every((a) => h.agents?.includes(a)) ? null : h.agents;
-        return ok({ id, ssh: opt(ssh), agents: opt(subset), skm });
+        return ok({ host: { id, ssh: opt(ssh), agents: opt(subset), skm }, enabled: h.enabled ?? prev?.enabled ?? true });
       }));
-  if (!hosts.ok) return hosts;
-  const ids = hosts.value.map((h) => h.id);
+  if (!entries.ok) return entries;
+  const ids = entries.value.map((e) => e.host.id);
   if (new Set(ids).size !== ids.length) return err(invalid("hosts", "duplicate host ids"));
-  const hubs = hosts.value.filter((h) => !h.ssh.some).length;
+  const hubs = entries.value.filter((e) => !e.host.ssh.some).length;
   if (hubs !== 1) return err(invalid("hosts", hubs === 0 ? "one host must have no ssh alias: the machine skm runs on" : "only one host may omit the ssh alias (the machine skm runs on); give the others an ssh alias"));
+  const hosts = splitHosts(entries.value);
+  if (!hosts.ok) return err(invalid("hosts", configErrorText(hosts.error)));
 
   const renames = (p.hosts ?? []).flatMap((h) => (h.from !== undefined && h.from !== h.id.trim() ? [{ from: h.from, to: h.id.trim() }] : []));
   // two-step through placeholders so swaps (a→b, b→a) do not collide
@@ -164,7 +171,8 @@ export const patchConfig = (c: Config, p: ConfigPatch): Result<Config, PatchErro
     agents,
     agentOverrides: overrides,
     store: p.store ?? c.store,
-    hosts: hosts.value,
+    hosts: hosts.value.hosts,
+    parked: hosts.value.parked,
     backupBeforeApply: p.backupBeforeApply ?? c.backupBeforeApply,
     contextTokens: p.contextTokens ?? c.contextTokens,
   });

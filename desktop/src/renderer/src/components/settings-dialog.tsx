@@ -104,18 +104,21 @@ type DraftHost = {
   readonly ssh: string;
   readonly agents: readonly string[] | null;
   readonly skm: string;
+  /** false: parked, skm skips the host everywhere until it is switched back on */
+  readonly enabled: boolean;
 };
 
-const toDraft = (c: ConfigSummary): DraftHost[] => c.hostDetails.map((h) => ({ key: h.id, from: h.id, id: h.id, ssh: h.ssh ?? "", agents: h.agents, skm: h.skm }));
-const draftSig = (d: readonly DraftHost[]) => JSON.stringify(d.map(({ from, id, ssh, agents, skm }) => [from, id, ssh, agents, skm]));
+const toDraft = (c: ConfigSummary): DraftHost[] => c.hostDetails.map((h) => ({ key: h.id, from: h.id, id: h.id, ssh: h.ssh ?? "", agents: h.agents, skm: h.skm, enabled: h.enabled }));
+const draftSig = (d: readonly DraftHost[]) => JSON.stringify(d.map(({ from, id, ssh, agents, skm, enabled }) => [from, id, ssh, agents, skm, enabled]));
 
-const HOST_COLS = "grid-cols-[20px_128px_minmax(0,1fr)_auto_24px_24px]";
+const HOST_COLS = "grid-cols-[20px_28px_128px_minmax(0,1fr)_auto_24px_24px]";
 
 const SortableHost = ({ h, agents, onChange, onRemove, canRemove }: { h: DraftHost; agents: readonly string[]; onChange: (h: DraftHost) => void; onRemove: () => void; canRemove: boolean }) => {
   const t = useT();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: h.key });
   const [more, setMore] = useState(false);
   const hub = h.ssh.trim() === "";
+  const parked = !hub && !h.enabled;
   const on = (a: string) => h.agents === null || h.agents.includes(a);
   const toggle = (a: string) => {
     const current = h.agents ?? agents;
@@ -133,12 +136,15 @@ const SortableHost = ({ h, agents, onChange, onRemove, canRemove }: { h: DraftHo
         <button type="button" className="flex cursor-grab items-center justify-center text-muted-foreground/70 hover:text-foreground active:cursor-grabbing" aria-label="drag" {...attributes} {...listeners}>
           <GripVertical className="size-3.5" />
         </button>
-        <Input value={h.id} onChange={(e) => onChange({ ...h, id: e.target.value.trim() })} placeholder={t("settings.hostId")} className="h-7 text-[12.5px] font-medium" spellCheck={false} />
-        <div className="relative min-w-0">
+        <span className="flex items-center justify-center" title={t(hub ? "settings.hostEnabledHub" : "settings.hostEnabledHint")}>
+          <Switch size="sm" checked={hub || h.enabled} disabled={hub} aria-label={t("settings.hostEnabled", { host: h.id })} onCheckedChange={(on) => onChange({ ...h, enabled: on })} />
+        </span>
+        <Input value={h.id} onChange={(e) => onChange({ ...h, id: e.target.value.trim() })} placeholder={t("settings.hostId")} className={cn("h-7 text-[12.5px] font-medium", parked && "text-muted-foreground line-through")} spellCheck={false} />
+        <div className={cn("relative min-w-0", parked && "opacity-50")}>
           <Input value={h.ssh} onChange={(e) => onChange({ ...h, ssh: e.target.value.trim() })} placeholder={hub ? "" : t("settings.sshPlaceholder")} className={cn("h-7 font-mono text-[12px] placeholder:text-muted-foreground/55", hub && "pr-14")} spellCheck={false} />
           {hub ? <span className="pointer-events-none absolute top-1/2 right-1.5 -translate-y-1/2 rounded-[4px] bg-info-soft px-1.5 text-[10.5px] leading-[18px] text-info">{t("settings.hub")}</span> : null}
         </div>
-        <div className="flex flex-wrap gap-1">
+        <div className={cn("flex flex-wrap gap-1", parked && "opacity-50")}>
           {agents.map((a) => (
             <button
               key={a}
@@ -160,7 +166,7 @@ const SortableHost = ({ h, agents, onChange, onRemove, canRemove }: { h: DraftHo
       </div>
       {more ? (
         <div className={cn("mt-1.5 grid items-center gap-2", HOST_COLS)}>
-          <span />
+          <span /><span />
           <span className="text-right text-[11px] text-muted-foreground">{t("settings.skmHome")}</span>
           <Input value={h.skm} onChange={(e) => onChange({ ...h, skm: e.target.value })} placeholder="~/.skm" className="h-7 font-mono text-[12px]" spellCheck={false} />
         </div>
@@ -190,7 +196,7 @@ const Hosts = () => {
   const save = async () => {
     setSaving(true);
     const r = await skm.patchConfig({
-      hosts: draft.map((h) => ({ ...(h.from !== null ? { from: h.from } : {}), id: h.id, ssh: h.ssh || null, agents: h.agents, skm: h.skm.trim() || "~/.skm" })),
+      hosts: draft.map((h) => ({ ...(h.from !== null ? { from: h.from } : {}), id: h.id, ssh: h.ssh || null, agents: h.agents, skm: h.skm.trim() || "~/.skm", enabled: h.ssh.trim() === "" || h.enabled })),
     });
     setSaving(false);
     if (!r.ok) return void toast.error(errorText(r.error));
@@ -202,7 +208,7 @@ const Hosts = () => {
     <div className="flex flex-col gap-3 py-3">
       <p className="text-[11.5px] leading-relaxed text-muted-foreground">{t("settings.hostsHintFull")} {t("settings.hubHint")}</p>
       <div className={cn("grid gap-2 px-1.5 text-[11px] text-muted-foreground", HOST_COLS)}>
-        <span /><span>{t("settings.hostId")}</span><span>{t("settings.ssh")}</span><span>{t("settings.hostAgents")}</span><span /><span />
+        <span /><span /><span>{t("settings.hostId")}</span><span>{t("settings.ssh")}</span><span>{t("settings.hostAgents")}</span><span /><span />
       </div>
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         <SortableContext items={draft.map((h) => h.key)} strategy={verticalListSortingStrategy}>
@@ -222,7 +228,7 @@ const Hosts = () => {
       </DndContext>
       {hubs !== 1 ? <p className="text-[11.5px] text-danger">{t("settings.hubHint")}</p> : null}
       <div className="flex items-center gap-2">
-        <Button variant="outline" size="sm" onClick={() => setDraft([...draft, { key: `new-${Date.now()}`, from: null, id: "", ssh: "", agents: null, skm: "~/.skm" }])}>
+        <Button variant="outline" size="sm" onClick={() => setDraft([...draft, { key: `new-${Date.now()}`, from: null, id: "", ssh: "", agents: null, skm: "~/.skm", enabled: true }])}>
           <Plus />{t("settings.addHost")}
         </Button>
         <span className="flex-1" />

@@ -109,6 +109,7 @@ hosts:
   laptop: {}                           # 必须恰好有一台主机不写 ssh：它是 hub（本机）
   mini: { ssh: mini }                  # ~/.ssh/config 里的别名
   devbox: { ssh: devbox, agents: [claude, codex] }
+  travel: { ssh: travel, enabled: false }  # 停用：skm 跳过它，直到运行 `skm host on travel`
 defaults: { hosts: all, agents: all }  # 没有规则命中时 skill 的去向
 rules:                                 # 自上而下，后面的规则覆盖前面的；skills 支持 glob
   - skills: ["docs-*"]
@@ -157,6 +158,7 @@ backupBeforeApply: true
 | `skm harness` / `skm harness update` | agent CLI 和桌面应用的版本；执行更新 |
 | `skm extensions` | 已加载的扩展和错误 |
 | `skm scope <name> <host/agent> on\|off` | 开关一个单元格（plugin 加 `--plugin`） |
+| `skm host on\|off <host>` | 停用一段时间不开机的主机，或重新启用（App 里在 **设置 → 主机**） |
 | `skm config` / `skm config patch` | 打印配置；从 stdin 读 JSON，校验后写回 |
 | `skm pull <host> [skills…]` | 把远端独有的 skill 拉回 store |
 | `skm upstream` / `skm upstream update` / `skm upstream adopt` | 来自 git 仓库的 skill：上游改了什么；把新版本写进 store；开始跟踪 store 里的 skill |

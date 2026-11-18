@@ -109,6 +109,7 @@ hosts:
   laptop: {}                           # exactly one host has no ssh: the hub (this machine)
   mini: { ssh: mini }                  # an alias from ~/.ssh/config
   devbox: { ssh: devbox, agents: [claude, codex] }
+  travel: { ssh: travel, enabled: false }  # parked: skm skips it until `skm host on travel`
 defaults: { hosts: all, agents: all }  # where a skill goes when no rule matches
 rules:                                 # top to bottom; a later rule wins; skills take globs
   - skills: ["docs-*"]
@@ -157,6 +158,7 @@ A cell is on when the host selector and the agent selector both match, after the
 | `skm harness` / `skm harness update` | Agent CLI and desktop app versions; update them |
 | `skm extensions` | Loaded extensions and errors |
 | `skm scope <name> <host/agent> on\|off` | Toggle one cell (add `--plugin` for a plugin) |
+| `skm host on\|off <host>` | Park a host that is away for a while, or bring it back (the app: **Settings → Hosts**) |
 | `skm config` / `skm config patch` | Print the config; apply a validated JSON patch from stdin |
 | `skm pull <host> [skills…]` | Copy remote-only skills into the store |
 | `skm upstream` / `skm upstream update` / `skm upstream adopt` | Skills that come from a git repo: what changed upstream; write the new version into the store; start tracking store skills |
