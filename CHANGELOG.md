@@ -4,6 +4,8 @@ All notable changes to Skill Manager. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-11-18
+
 ### Fixed
 
 - The app no longer lists a store skill under **Unmanaged** with an `skm` tag. Refresh now reloads the store list as well as the hosts, so a skill added with the CLI while the app is open shows under **Store** after Refresh. A host link into the store also always counts as a store skill, even before the store list catches up.
@@ -134,7 +136,8 @@ First public release.
 - Self-update from GitHub Releases with an Ed25519-signed manifest and SHA-512 checks.
 - Release workflow with build provenance attestations and `SHA256SUMS`.
 
-[Unreleased]: https://github.com/jokerlin/skill-manager/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/jokerlin/skill-manager/compare/v0.6.2...HEAD
+[0.6.2]: https://github.com/jokerlin/skill-manager/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/jokerlin/skill-manager/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/jokerlin/skill-manager/compare/v0.5.5...v0.6.0
 [0.5.5]: https://github.com/jokerlin/skill-manager/compare/v0.5.4...v0.5.5
